@@ -1,10 +1,16 @@
-mut x = 2;
+// line comment before code
+mut x = 2; // line comment after statement
 x = 2 - (3 + 2 * 5);
+/* single line block comment */
 mut flag = true;
+/*
+multi line
+block comment
+*/
 flag = false || true && !false;
 x = +1 + -2 * ~3;
 x = x % 3;
 flag = x < 10 || x <= 10 || x > 1 || x >= 1;
 flag = x == 2 || x != 3;
 x = x << 1 >> 2;
-x = x & 3 | 4 ^ 5;
+x = x & 3 | 4 ^ 5; /* trailing block comment */

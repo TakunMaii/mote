@@ -38,6 +38,53 @@ bool isDigit(char c)
     return (c >= '0' && c <= '9');
 }
 
+void skipLineComment(char **code, int *column)
+{
+    (*code) += 2;
+    (*column) += 2;
+
+    while(**code && **code != '\n')
+    {
+        (*code) ++;
+        (*column) ++;
+    }
+}
+
+void skipBlockComment(char **code, int *line, int *column, const char *filename)
+{
+    int start_line = *line;
+    int start_column = *column;
+
+    (*code) += 2;
+    (*column) += 2;
+
+    while(**code)
+    {
+        if(expectStr("*/", 2, *code))
+        {
+            (*code) += 2;
+            (*column) += 2;
+            return;
+        }
+
+        if(**code == '\n')
+        {
+            (*code) ++;
+            (*line) ++;
+            *column = 0;
+        }
+        else
+        {
+            (*code) ++;
+            (*column) ++;
+        }
+    }
+
+    printf("Unclosed block comment at file %s, line %d, column %d\n",
+           filename, start_line, start_column);
+    exit(1);
+}
+
 Token* tokenize(char *code, const char* filename)
 {
     int line = 0;
@@ -151,6 +198,12 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 1;
             column += 1;
+        }
+        else if(expectStr("//", 2, code)) {
+            skipLineComment(&code, &column);
+        }
+        else if(expectStr("/*", 2, code)) {
+            skipBlockComment(&code, &line, &column, filename);
         }
         else if(expectStr("/", 1, code)) {
             token->next = newToken(TK_SLASH, filename, line, column);
