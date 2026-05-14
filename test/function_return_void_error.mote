@@ -1,0 +1,3 @@
+noop = fn() void {
+    return 1;
+};

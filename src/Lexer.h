@@ -128,6 +128,30 @@ Token* tokenize(char *code, const char* filename)
             code += 3;
             column += 3;
         }
+        else if(expectStr("fn", 2, code)) {
+            if(isIdentifier(code[2]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_FN, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
+        }
+        else if(expectStr("return", 6, code)) {
+            if(isIdentifier(code[6]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_RETURN, filename, line, column);
+            token = token->next;
+            code += 6;
+            column += 6;
+        }
+        else if(expectStr("void", 4, code)) {
+            if(isIdentifier(code[4]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_VOID, filename, line, column);
+            token = token->next;
+            code += 4;
+            column += 4;
+        }
         else if(expectStr("true", 4, code)) {
             if(isIdentifier(code[4]))
                 goto tokenize_identifier;

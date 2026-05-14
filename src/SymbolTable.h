@@ -10,6 +10,11 @@ typedef struct VariableInfo {
     char identifier[MAX_IDENTIFIER_LENGTH];
 } VariableInfo;
 
+typedef struct FunctionContext {
+    struct FunctionContext *parent;
+    ASTDataType *return_data_type;
+} FunctionContext;
+
 typedef struct ScopeFrame {
     struct ScopeFrame *parent;
     VariableInfo variable_infos[1024];

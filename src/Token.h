@@ -9,6 +9,9 @@ typedef enum {
     TK_END_OF_CODE,
 
     TK_MUT,
+    TK_FN,
+    TK_RETURN,
+    TK_VOID,
     TK_TRUE,
     TK_FALSE,
 
@@ -101,6 +104,9 @@ const char* tokenKindToString(TokenKind kind)
         case TK_START_OF_CODE: return "TK_START_OF_CODE";
         case TK_END_OF_CODE: return "TK_END_OF_CODE";
         case TK_MUT: return "TK_MUT";
+        case TK_FN: return "TK_FN";
+        case TK_RETURN: return "TK_RETURN";
+        case TK_VOID: return "TK_VOID";
         case TK_TRUE: return "TK_TRUE";
         case TK_FALSE: return "TK_FALSE";
         case TK_PLUS: return "TK_PLUS";
@@ -148,6 +154,9 @@ void printToken(Token token)
         case TK_START_OF_CODE: {printf("TK_START_OF_CODE\n");}break;
         case TK_END_OF_CODE: {printf("TK_END_OF_CODE\n");}break;
         case TK_MUT: {printf("TK_MUT\n");}break;
+        case TK_FN: {printf("TK_FN\n");}break;
+        case TK_RETURN: {printf("TK_RETURN\n");}break;
+        case TK_VOID: {printf("TK_VOID\n");}break;
         case TK_TRUE: {printf("TK_TRUE\n");}break;
         case TK_FALSE: {printf("TK_FALSE\n");}break;
         case TK_EQUAL: {printf("TK_EQUAL\n");}break;

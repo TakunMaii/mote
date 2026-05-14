@@ -11,9 +11,12 @@ typedef enum ASTNodeKind {
     AST_END_OF_CODE,
     AST_BLOCK,
     AST_STATEMENT_EXPR,
+    AST_STATEMENT_RETURN,
 
     AST_ASSIGN,// assign or decl
 
+    AST_EXPR_FUNCTION,
+    AST_EXPR_CALL,
     AST_EXPR_LOGICAL_OR,
     AST_EXPR_LOGICAL_AND,
     AST_EXPR_BIT_OR,
@@ -48,6 +51,7 @@ typedef enum ASTNodeKind {
 } ASTNodeKind;
 
 typedef enum ASTPrimaryDataType {
+    AST_PRIMARY_DATA_TYPE_VOID,
     AST_PRIMARY_DATA_TYPE_I8,
     AST_PRIMARY_DATA_TYPE_I16,
     AST_PRIMARY_DATA_TYPE_I32,
@@ -69,20 +73,35 @@ typedef enum ASTDataTypeKind {
     AST_DATA_TYPE_KIND_PRIMARY,
     AST_DATA_TYPE_KIND_POINTER,
     AST_DATA_TYPE_KIND_REFERENCE,
+    AST_DATA_TYPE_KIND_FUNCTION,
 } ASTDataTypeKind;
+
+typedef struct ASTDataType ASTDataType;
+typedef struct ASTNode ASTNode;
+
+typedef struct ASTFunctionParameter {
+    struct ASTFunctionParameter *next;
+    const char *filename;
+    int line_number;
+    int column_number;
+    char identifier[MAX_IDENTIFIER_LENGTH];
+    ASTDataType *data_type;
+} ASTFunctionParameter;
 
 typedef struct ASTDataType {
     ASTDataTypeKind kind;
     bool mutable;
     ASTPrimaryDataType primary;
     struct ASTDataType *child;
+    ASTFunctionParameter *parameters;
+    struct ASTDataType *return_data_type;
 } ASTDataType;
 
 typedef struct {
     bool mutable;
 } ASTAssignModifier;
 
-typedef struct ASTNode {
+struct ASTNode {
     struct ASTNode *next;
     ASTNodeKind kind;
 
@@ -92,7 +111,7 @@ typedef struct ASTNode {
 
     struct ASTNode *lhs;// parenthesis, binary expr use this as left hand side
     struct ASTNode *rhs;// assign or decl use this as expr
-    
+
     // literal value
     bool literal_bool;
     char literal_char;
@@ -104,7 +123,11 @@ typedef struct ASTNode {
     ASTDataType *data_type;
     char identifier[MAX_IDENTIFIER_LENGTH];
 
-} ASTNode;
+    // function literal
+    ASTFunctionParameter *parameters;
+    ASTDataType *return_data_type;
+    ASTNode *body;
+};
 
 ASTNode* newASTNode(ASTNodeKind kind)
 {
@@ -123,32 +146,71 @@ ASTNode* newASTNodeFromToken(ASTNodeKind kind, Token *token)
     return node;
 }
 
+ASTFunctionParameter* newASTFunctionParameterFromToken(Token *token)
+{
+    ASTFunctionParameter *parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
+    memset(parameter, 0, sizeof(ASTFunctionParameter));
+    parameter->filename = token->filename;
+    parameter->line_number = token->line_number;
+    parameter->column_number = token->column_number;
+    return parameter;
+}
+
 ASTDataType* newInferDataType()
 {
     ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    memset(data_type, 0, sizeof(ASTDataType));
     data_type->kind = AST_DATA_TYPE_KIND_INFER;
-    data_type->mutable = false;
-    data_type->child = NULL;
     return data_type;
 }
 
 ASTDataType* newPrimaryDataType(ASTPrimaryDataType primary)
 {
     ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    memset(data_type, 0, sizeof(ASTDataType));
     data_type->kind = AST_DATA_TYPE_KIND_PRIMARY;
-    data_type->mutable = false;
     data_type->primary = primary;
-    data_type->child = NULL;
     return data_type;
 }
 
 ASTDataType* newWrappedDataType(ASTDataTypeKind kind, bool mutable, ASTDataType *child)
 {
     ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    memset(data_type, 0, sizeof(ASTDataType));
     data_type->kind = kind;
     data_type->mutable = mutable;
     data_type->child = child;
     return data_type;
+}
+
+ASTDataType* newFunctionDataType(ASTFunctionParameter *parameters, ASTDataType *return_data_type)
+{
+    ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    memset(data_type, 0, sizeof(ASTDataType));
+    data_type->kind = AST_DATA_TYPE_KIND_FUNCTION;
+    data_type->parameters = parameters;
+    data_type->return_data_type = return_data_type;
+    return data_type;
+}
+
+ASTDataType* cloneDataType(ASTDataType *data_type);
+
+ASTFunctionParameter* cloneFunctionParameters(ASTFunctionParameter *parameter)
+{
+    if(parameter == NULL)
+        return NULL;
+
+    ASTFunctionParameter *new_parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
+    *new_parameter = *parameter;
+    new_parameter->data_type = NULL;
+    new_parameter->next = NULL;
+
+    if(parameter->data_type)
+        new_parameter->data_type = cloneDataType(parameter->data_type);
+    if(parameter->next)
+        new_parameter->next = cloneFunctionParameters(parameter->next);
+
+    return new_parameter;
 }
 
 ASTDataType* cloneDataType(ASTDataType *data_type)
@@ -158,8 +220,16 @@ ASTDataType* cloneDataType(ASTDataType *data_type)
 
     ASTDataType *new_data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
     *new_data_type = *data_type;
+    new_data_type->child = NULL;
+    new_data_type->parameters = NULL;
+    new_data_type->return_data_type = NULL;
+
     if(data_type->child)
         new_data_type->child = cloneDataType(data_type->child);
+    if(data_type->parameters)
+        new_data_type->parameters = cloneFunctionParameters(data_type->parameters);
+    if(data_type->return_data_type)
+        new_data_type->return_data_type = cloneDataType(data_type->return_data_type);
     return new_data_type;
 }
 
@@ -171,7 +241,10 @@ const char* astNodeKindToString(ASTNodeKind kind)
         case AST_END_OF_CODE: return "AST_END_OF_CODE";
         case AST_BLOCK: return "AST_BLOCK";
         case AST_STATEMENT_EXPR: return "AST_STATEMENT_EXPR";
+        case AST_STATEMENT_RETURN: return "AST_STATEMENT_RETURN";
         case AST_ASSIGN: return "AST_ASSIGN";
+        case AST_EXPR_FUNCTION: return "AST_EXPR_FUNCTION";
+        case AST_EXPR_CALL: return "AST_EXPR_CALL";
         case AST_EXPR_LOGICAL_OR: return "AST_EXPR_LOGICAL_OR";
         case AST_EXPR_LOGICAL_AND: return "AST_EXPR_LOGICAL_AND";
         case AST_EXPR_BIT_OR: return "AST_EXPR_BIT_OR";
@@ -213,6 +286,7 @@ const char* astPrimaryDataTypeToString(ASTPrimaryDataType primary)
 {
     switch(primary)
     {
+        case AST_PRIMARY_DATA_TYPE_VOID: return "void";
         case AST_PRIMARY_DATA_TYPE_I8: return "i8";
         case AST_PRIMARY_DATA_TYPE_I16: return "i16";
         case AST_PRIMARY_DATA_TYPE_I32: return "i32";
@@ -230,6 +304,20 @@ const char* astPrimaryDataTypeToString(ASTPrimaryDataType primary)
         default:
             printf("astPrimaryDataTypeToString: unknown AST primary data type\n");
             exit(1);
+    }
+}
+
+void printASTDataType(ASTDataType *data_type);
+
+void printFunctionParameters(ASTFunctionParameter *parameter)
+{
+    while(parameter)
+    {
+        printf("%s: ", parameter->identifier);
+        printASTDataType(parameter->data_type);
+        if(parameter->next)
+            printf(", ");
+        parameter = parameter->next;
     }
 }
 
@@ -260,6 +348,12 @@ void printASTDataType(ASTDataType *data_type)
             if(data_type->mutable)
                 printf("mut ");
             printASTDataType(data_type->child);
+        } break;
+        case AST_DATA_TYPE_KIND_FUNCTION: {
+            printf("fn(");
+            printFunctionParameters(data_type->parameters);
+            printf(") ");
+            printASTDataType(data_type->return_data_type);
         } break;
         default:
             printf("printASTDataType: unknown AST data type kind\n");
@@ -303,6 +397,36 @@ void printASTNode(ASTNode node)
             printf("AST_STATEMENT_EXPR(");
             printASTNode(*(node.lhs));
             printf(")\n");
+        } break;
+        case AST_STATEMENT_RETURN: {
+            printf("AST_STATEMENT_RETURN(");
+            if(node.lhs)
+                printASTNode(*(node.lhs));
+            else
+                printf("void");
+            printf(")\n");
+        } break;
+        case AST_EXPR_FUNCTION: {
+            printf("AST_EXPR_FUNCTION(");
+            printFunctionParameters(node.parameters);
+            printf(") ");
+            printASTDataType(node.return_data_type);
+            printf(" ");
+            printASTNode(*(node.body));
+        } break;
+        case AST_EXPR_CALL: {
+            printf("AST_EXPR_CALL(callee(");
+            printASTNode(*(node.lhs));
+            printf(") args(");
+            ASTNode *argument = node.rhs;
+            while(argument)
+            {
+                printASTNode(*argument);
+                argument = argument->next;
+                if(argument)
+                    printf(", ");
+            }
+            printf("))");
         } break;
         case AST_EXPR_ADD: {
             printf("AST_EXPR_ADD(");
@@ -502,4 +626,3 @@ void printASTNode(ASTNode node)
 }
 
 #endif /* AST_H */
-

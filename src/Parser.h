@@ -31,6 +31,12 @@ ASTAssignModifier parseModifier(Token **token)
 
 ASTPrimaryDataType parsePrimaryDataType(Token **token)
 {
+    if((*token)->kind == TK_VOID)
+    {
+        (*token) = (*token)->next;
+        return AST_PRIMARY_DATA_TYPE_VOID;
+    }
+
     const char *identifier = expectToken(*token, TK_IDENTIFIER)->identifier;
 
     ASTPrimaryDataType primary;
@@ -106,7 +112,11 @@ ASTDataType* parseDataType(Token **token)
     return newPrimaryDataType(parsePrimaryDataType(token));
 }
 
-// literal value = true | false | literal char | literal integer | literal float
+ASTNode* parseExpr(Token **token);
+ASTNode* parseUnary(Token **token);
+ASTNode* parseStatement(Token **token);
+ASTNode* parseBlock(Token **token);
+
 ASTNode* parseLiteralValue(Token **token)
 {
     ASTNode *node = newASTNodeFromToken(AST_EXPR_LITERAL_INTEGER, *token);
@@ -149,11 +159,6 @@ ASTNode* parseLiteralValue(Token **token)
     return node;
 }
 
-ASTNode* parseExpr(Token **token);
-ASTNode* parseUnary(Token **token);
-ASTNode* parseStatement(Token **token);
-ASTNode* parseBlock(Token **token);
-
 bool isStatementAssign(Token *token)
 {
     if(token->kind == TK_MUT)
@@ -166,13 +171,18 @@ bool isStatementAssign(Token *token)
         return false;
 
     int parenthesis_depth = 0;
+    int brace_depth = 0;
     while(token && token->kind != TK_SEMICOLON && token->kind != TK_END_OF_CODE)
     {
         if(token->kind == TK_LEFT_PARENTHESIS)
             parenthesis_depth ++;
         else if(token->kind == TK_RIGHT_PARENTHESIS)
             parenthesis_depth --;
-        else if(parenthesis_depth == 0 && token->kind == TK_EQUAL)
+        else if(token->kind == TK_LEFT_BRACE)
+            brace_depth ++;
+        else if(token->kind == TK_RIGHT_BRACE)
+            brace_depth --;
+        else if(parenthesis_depth == 0 && brace_depth == 0 && token->kind == TK_EQUAL)
             return true;
 
         token = token->next;
@@ -181,7 +191,56 @@ bool isStatementAssign(Token *token)
     return false;
 }
 
-// parenthesis = '(' expr ')'
+ASTFunctionParameter* parseFunctionParameters(Token **token)
+{
+    ASTFunctionParameter *head = NULL;
+    ASTFunctionParameter *tail = NULL;
+
+    expectToken(*token, TK_LEFT_PARENTHESIS);
+    (*token) = (*token)->next;
+
+    while((*token)->kind != TK_RIGHT_PARENTHESIS)
+    {
+        Token *parameter_token = expectToken(*token, TK_IDENTIFIER);
+        ASTFunctionParameter *parameter = newASTFunctionParameterFromToken(parameter_token);
+        strcpy(parameter->identifier, parameter_token->identifier);
+        (*token) = (*token)->next;
+
+        expectToken(*token, TK_COLON);
+        (*token) = (*token)->next;
+        parameter->data_type = parseDataType(token);
+
+        if(head == NULL)
+            head = parameter;
+        else
+            tail->next = parameter;
+        tail = parameter;
+
+        if((*token)->kind == TK_COMMA)
+            (*token) = (*token)->next;
+        else
+            break;
+    }
+
+    expectToken(*token, TK_RIGHT_PARENTHESIS);
+    (*token) = (*token)->next;
+
+    return head;
+}
+
+ASTNode* parseFunctionExpr(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_EXPR_FUNCTION, *token);
+    expectToken(*token, TK_FN);
+    (*token) = (*token)->next;
+
+    node->parameters = parseFunctionParameters(token);
+    node->return_data_type = parseDataType(token);
+    node->data_type = newFunctionDataType(cloneFunctionParameters(node->parameters), cloneDataType(node->return_data_type));
+    node->body = parseBlock(token);
+    return node;
+}
+
 ASTNode* parseParenthesis(Token **token)
 {
     expectToken(*token, TK_LEFT_PARENTHESIS);
@@ -195,29 +254,75 @@ ASTNode* parseParenthesis(Token **token)
     return node;
 }
 
-// factor = parenthesis | identifier | literal value
-ASTNode* parseFactor(Token **token)
+ASTNode* parsePrimary(Token **token)
 {
+    if((*token)->kind == TK_FN)
+        return parseFunctionExpr(token);
+
     if((*token)->kind == TK_LEFT_PARENTHESIS)
     {
         ASTNode *parenthesis_node = newASTNodeFromToken(AST_EXPR_PARENTHESIS, *token);
         parenthesis_node->lhs = parseParenthesis(token);
         return parenthesis_node;
     }
-    else if((*token)->kind == TK_IDENTIFIER)
+
+    if((*token)->kind == TK_IDENTIFIER)
     {
         ASTNode *node = newASTNodeFromToken(AST_EXPR_VARIABLE, *token);
         strcpy(node->identifier, (*token)->identifier);
         (*token) = (*token)->next;
         return node;
     }
-    else
-    {
-        return parseLiteralValue(token);
-    }
+
+    return parseLiteralValue(token);
 }
 
-// lvalue = identifier | '*' unary
+ASTNode* parseArgumentList(Token **token)
+{
+    ASTNode *head = NULL;
+    ASTNode *tail = NULL;
+
+    expectToken(*token, TK_LEFT_PARENTHESIS);
+    (*token) = (*token)->next;
+
+    while((*token)->kind != TK_RIGHT_PARENTHESIS)
+    {
+        ASTNode *argument = parseExpr(token);
+        if(head == NULL)
+            head = argument;
+        else
+            tail->next = argument;
+
+        tail = argument;
+        while(tail->next)
+            tail = tail->next;
+
+        if((*token)->kind == TK_COMMA)
+            (*token) = (*token)->next;
+        else
+            break;
+    }
+
+    expectToken(*token, TK_RIGHT_PARENTHESIS);
+    (*token) = (*token)->next;
+    return head;
+}
+
+ASTNode* parsePostfix(Token **token)
+{
+    ASTNode *node = parsePrimary(token);
+
+    while((*token)->kind == TK_LEFT_PARENTHESIS)
+    {
+        ASTNode *call_node = newASTNodeFromToken(AST_EXPR_CALL, *token);
+        call_node->lhs = node;
+        call_node->rhs = parseArgumentList(token);
+        node = call_node;
+    }
+
+    return node;
+}
+
 ASTNode* parseLValue(Token **token)
 {
     if((*token)->kind == TK_IDENTIFIER)
@@ -241,7 +346,6 @@ ASTNode* parseLValue(Token **token)
     exit(1);
 }
 
-// unary = ('+' | '-' | '!' | '~' | '*' | '&' | '&mut') unary | factor
 ASTNode* parseUnary(Token **token)
 {
     ASTNodeKind kind;
@@ -271,7 +375,7 @@ ASTNode* parseUnary(Token **token)
         return node;
     }
     else
-        return parseFactor(token);
+        return parsePostfix(token);
 
     ASTNode *node = newASTNodeFromToken(kind, *token);
     (*token) = (*token)->next;
@@ -279,7 +383,6 @@ ASTNode* parseUnary(Token **token)
     return node;
 }
 
-// multiplicative = unary (('*' | '/' | '%') unary)*
 ASTNode* parseMultiplicative(Token **token)
 {
     ASTNode *node = parseUnary(token);
@@ -303,7 +406,6 @@ ASTNode* parseMultiplicative(Token **token)
     return node;
 }
 
-// additive = multiplicative (('+' | '-') multiplicative)*
 ASTNode* parseAdditive(Token **token)
 {
     ASTNode *node = parseMultiplicative(token);
@@ -323,7 +425,6 @@ ASTNode* parseAdditive(Token **token)
     return node;
 }
 
-// shift = additive (('<<' | '>>') additive)*
 ASTNode* parseShift(Token **token)
 {
     ASTNode *node = parseAdditive(token);
@@ -343,7 +444,6 @@ ASTNode* parseShift(Token **token)
     return node;
 }
 
-// relational = shift (('<' | '<=' | '>' | '>=') shift)*
 ASTNode* parseRelational(Token **token)
 {
     ASTNode *node = parseShift(token);
@@ -370,7 +470,6 @@ ASTNode* parseRelational(Token **token)
     return node;
 }
 
-// equality = relational (('==' | '!=') relational)*
 ASTNode* parseEquality(Token **token)
 {
     ASTNode *node = parseRelational(token);
@@ -390,7 +489,6 @@ ASTNode* parseEquality(Token **token)
     return node;
 }
 
-// bit and = equality ('&' equality)*
 ASTNode* parseBitAnd(Token **token)
 {
     ASTNode *node = parseEquality(token);
@@ -409,7 +507,6 @@ ASTNode* parseBitAnd(Token **token)
     return node;
 }
 
-// bit xor = bit and ('^' bit and)*
 ASTNode* parseBitXor(Token **token)
 {
     ASTNode *node = parseBitAnd(token);
@@ -428,7 +525,6 @@ ASTNode* parseBitXor(Token **token)
     return node;
 }
 
-// bit or = bit xor ('|' bit xor)*
 ASTNode* parseBitOr(Token **token)
 {
     ASTNode *node = parseBitXor(token);
@@ -447,7 +543,6 @@ ASTNode* parseBitOr(Token **token)
     return node;
 }
 
-// logical and = bit or ('&&' bit or)*
 ASTNode* parseLogicalAnd(Token **token)
 {
     ASTNode *node = parseBitOr(token);
@@ -466,7 +561,6 @@ ASTNode* parseLogicalAnd(Token **token)
     return node;
 }
 
-// expr = logical and ('||' logical and)*
 ASTNode* parseExpr(Token **token)
 {
     ASTNode *node = parseLogicalAnd(token);
@@ -489,16 +583,11 @@ ASTNode* parseAssign(Token **token)
 {
     ASTNode *node = newASTNodeFromToken(AST_ASSIGN, *token);
 
-    // modifier
-    ASTAssignModifier modifier = parseModifier(token);
-    node->modifier = modifier;
-
-    // lvalue
+    node->modifier = parseModifier(token);
     node->lhs = parseLValue(token);
     if(node->lhs->kind == AST_EXPR_VARIABLE)
         strcpy(node->identifier, node->lhs->identifier);
 
-    // optional type declaration
     node->data_type = newInferDataType();
     if(node->lhs->kind == AST_EXPR_VARIABLE && (*token)->kind == TK_COLON)
     {
@@ -506,17 +595,27 @@ ASTNode* parseAssign(Token **token)
         node->data_type = parseDataType(token);
     }
 
-    // =
     expectToken(*token, TK_EQUAL);
     (*token) = (*token)->next;
-
-    // expression
     node->rhs = parseExpr(token);
 
-    // ;
     expectToken(*token, TK_SEMICOLON);
     (*token) = (*token)->next;
 
+    return node;
+}
+
+ASTNode* parseReturnStatement(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_STATEMENT_RETURN, *token);
+    expectToken(*token, TK_RETURN);
+    (*token) = (*token)->next;
+
+    if((*token)->kind != TK_SEMICOLON)
+        node->lhs = parseExpr(token);
+
+    expectToken(*token, TK_SEMICOLON);
+    (*token) = (*token)->next;
     return node;
 }
 
@@ -535,6 +634,9 @@ ASTNode* parseStatement(Token **token)
 {
     if((*token)->kind == TK_LEFT_BRACE)
         return parseBlock(token);
+
+    if((*token)->kind == TK_RETURN)
+        return parseReturnStatement(token);
 
     if(isStatementAssign(*token))
         return parseAssign(token);
@@ -601,4 +703,3 @@ ASTNode* parse(Token *token)
 }
 
 #endif /* PARSER_H */
-

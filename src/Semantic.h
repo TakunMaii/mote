@@ -23,6 +23,39 @@ bool isPointerOrReferenceDataType(ASTDataType *data_type)
            (data_type->kind == AST_DATA_TYPE_KIND_POINTER || data_type->kind == AST_DATA_TYPE_KIND_REFERENCE);
 }
 
+void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope);
+void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context);
+void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context);
+
+void declareFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scope)
+{
+    while(parameter)
+    {
+        if(findVariableInfoInScope(scope, parameter->identifier) >= 0)
+        {
+            printf("Function parameter %s is declared more than once\n", parameter->identifier);
+            exit(1);
+        }
+
+        VariableInfo *variable_info = declareVariableInfo(scope, parameter->identifier);
+        variable_info->mutable = false;
+        variable_info->data_type = cloneDataType(parameter->data_type);
+        parameter = parameter->next;
+    }
+}
+
+void checkFunctionExprSemantics(ASTNode *node, ScopeFrame *scope)
+{
+    ScopeFrame function_scope = {0};
+    initScopeFrame(&function_scope, scope);
+    declareFunctionParameters(node->parameters, &function_scope);
+
+    FunctionContext function_context = {0};
+    function_context.return_data_type = node->return_data_type;
+
+    checkAssignSemanticsInBlock(node->body, &function_scope, &function_context);
+}
+
 void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
 {
     if(node == NULL)
@@ -38,11 +71,17 @@ void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
         return;
     }
 
+    if(node->kind == AST_EXPR_FUNCTION)
+    {
+        checkFunctionExprSemantics(node, scope);
+        return;
+    }
+
     checkExprDeclaredVariable(node->lhs, scope);
     checkExprDeclaredVariable(node->rhs, scope);
 }
 
-void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope)
+void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context)
 {
     ScopeFrame current_scope = {0};
     initScopeFrame(&current_scope, parent_scope);
@@ -52,7 +91,21 @@ void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope)
     {
         if(node->kind == AST_BLOCK)
         {
-            checkAssignSemanticsInBlock(node, &current_scope);
+            checkAssignSemanticsInBlock(node, &current_scope, function_context);
+            node = node->next;
+            continue;
+        }
+
+        if(node->kind == AST_STATEMENT_RETURN)
+        {
+            if(function_context == NULL)
+            {
+                printf("Return statement is only allowed inside a function at file %s, line %d, column %d\n",
+                       node->filename, node->line_number, node->column_number);
+                exit(1);
+            }
+
+            checkExprDeclaredVariable(node->lhs, &current_scope);
             node = node->next;
             continue;
         }
@@ -131,10 +184,74 @@ void checkAssignSemantics(ASTNode *root)
         exit(1);
     }
 
-    checkAssignSemanticsInBlock(root->lhs, NULL);
+    checkAssignSemanticsInBlock(root->lhs, NULL, NULL);
 }
 
-void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope)
+void checkFunctionCallArgumentSemantics(ASTNode *call_node, ASTDataType *function_type, ScopeFrame *scope)
+{
+    ASTFunctionParameter *parameter = function_type->parameters;
+    ASTNode *argument = call_node->rhs;
+
+    while(parameter && argument)
+    {
+        if(parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && parameter->data_type->mutable)
+        {
+            if(!isMutableAddressableExpr(argument, scope))
+            {
+                printf("Type error: mutable reference argument requires a mutable expression at file %s, line %d, column %d\n",
+                       argument->filename, argument->line_number, argument->column_number);
+                exit(1);
+            }
+        }
+
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+}
+
+void checkFunctionReturnStatement(ASTNode *node, ScopeFrame *scope, FunctionContext *function_context)
+{
+    ASTDataType *expected_type = function_context->return_data_type;
+
+    if(expected_type->kind == AST_DATA_TYPE_KIND_PRIMARY && expected_type->primary == AST_PRIMARY_DATA_TYPE_VOID)
+    {
+        if(node->lhs != NULL)
+        {
+            printf("Type error: void function should not return a value at file %s, line %d, column %d\n",
+                   node->filename, node->line_number, node->column_number);
+            exit(1);
+        }
+        return;
+    }
+
+    if(node->lhs == NULL)
+    {
+        printf("Type error: non-void function must return a value at file %s, line %d, column %d\n",
+               node->filename, node->line_number, node->column_number);
+        exit(1);
+    }
+
+    TypeSystemExprType return_type = inferExprType(node->lhs, scope);
+    if(!canImplicitConvertDataType(return_type, node->lhs, expected_type))
+    {
+        printf("Type error: return type mismatch at file %s, line %d, column %d\n",
+               node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+        exit(1);
+    }
+}
+
+void checkFunctionExprTypes(ASTNode *node, ScopeFrame *scope)
+{
+    ScopeFrame function_scope = {0};
+    initScopeFrame(&function_scope, scope);
+    declareFunctionParameters(node->parameters, &function_scope);
+
+    FunctionContext function_context = {0};
+    function_context.return_data_type = node->return_data_type;
+    checkAssignTypesInBlock(node->body, &function_scope, &function_context);
+}
+
+void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context)
 {
     ScopeFrame current_scope = {0};
     initScopeFrame(&current_scope, parent_scope);
@@ -144,14 +261,65 @@ void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope)
     {
         if(node->kind == AST_BLOCK)
         {
-            checkAssignTypesInBlock(node, &current_scope);
+            checkAssignTypesInBlock(node, &current_scope, function_context);
+            node = node->next;
+            continue;
+        }
+
+        if(node->kind == AST_STATEMENT_RETURN)
+        {
+            if(function_context == NULL)
+            {
+                printf("Return statement is only allowed inside a function at file %s, line %d, column %d\n",
+                       node->filename, node->line_number, node->column_number);
+                exit(1);
+            }
+
+            if(node->lhs)
+            {
+                if(node->lhs->kind == AST_EXPR_CALL)
+                {
+                    TypeSystemExprType callee_type = inferExprType(node->lhs->lhs, &current_scope);
+                    if(callee_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && callee_type.data_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+                        checkFunctionCallArgumentSemantics(node->lhs, callee_type.data_type, &current_scope);
+                }
+                else if(node->lhs->kind == AST_EXPR_FUNCTION)
+                {
+                    checkFunctionExprTypes(node->lhs, &current_scope);
+                }
+                else
+                {
+                    inferExprType(node->lhs, &current_scope);
+                }
+            }
+
+            checkFunctionReturnStatement(node, &current_scope, function_context);
             node = node->next;
             continue;
         }
 
         if(node->kind == AST_STATEMENT_EXPR)
         {
-            inferExprType(node->lhs, &current_scope);
+            if(node->lhs->kind == AST_EXPR_CALL)
+            {
+                TypeSystemExprType callee_type = inferExprType(node->lhs->lhs, &current_scope);
+                if(callee_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || callee_type.data_type->kind != AST_DATA_TYPE_KIND_FUNCTION)
+                {
+                    printf("Type error: called expression is not a function at file %s, line %d, column %d\n",
+                           node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+                    exit(1);
+                }
+                checkFunctionCallArgumentSemantics(node->lhs, callee_type.data_type, &current_scope);
+                inferExprType(node->lhs, &current_scope);
+            }
+            else if(node->lhs->kind == AST_EXPR_FUNCTION)
+            {
+                checkFunctionExprTypes(node->lhs, &current_scope);
+            }
+            else
+            {
+                inferExprType(node->lhs, &current_scope);
+            }
             node = node->next;
             continue;
         }
@@ -186,6 +354,15 @@ void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope)
             int local_index = findVariableInfoInScope(&current_scope, node->identifier);
             if(local_index >= 0)
                 local_variable_info = &(current_scope.variable_infos[local_index]);
+
+            if(node->rhs->kind == AST_EXPR_FUNCTION)
+                checkFunctionExprTypes(node->rhs, &current_scope);
+            if(node->rhs->kind == AST_EXPR_CALL)
+            {
+                TypeSystemExprType callee_type = inferExprType(node->rhs->lhs, &current_scope);
+                if(callee_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && callee_type.data_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+                    checkFunctionCallArgumentSemantics(node->rhs, callee_type.data_type, &current_scope);
+            }
 
             if(isExplicitDeclared(node))
             {
@@ -284,7 +461,7 @@ void checkAssignTypes(ASTNode *root)
         exit(1);
     }
 
-    checkAssignTypesInBlock(root->lhs, NULL);
+    checkAssignTypesInBlock(root->lhs, NULL, NULL);
 }
 
 #endif /* SEMANTIC_H */
