@@ -25,6 +25,25 @@ int findVariableInfo(VariableInfo *variable_infos, int variable_count, const cha
     return -1;
 }
 
+void checkExprDeclaredVariable(ASTNode *node, VariableInfo *variable_infos, int variable_count)
+{
+    if(node == NULL)
+        return;
+
+    if(node->kind == AST_EXPR_VARIABLE)
+    {
+        if(findVariableInfo(variable_infos, variable_count, node->identifier) < 0)
+        {
+            printf("Use of undeclared variable %s in expression\n", node->identifier);
+            exit(1);
+        }
+        return;
+    }
+
+    checkExprDeclaredVariable(node->lhs, variable_infos, variable_count);
+    checkExprDeclaredVariable(node->rhs, variable_infos, variable_count);
+}
+
 void checkAssignMutability(ASTNode *root)
 {
     VariableInfo variable_infos[1024] = {0};
@@ -35,6 +54,8 @@ void checkAssignMutability(ASTNode *root)
     {
         if(node->kind == AST_ASSIGN)
         {
+            checkExprDeclaredVariable(node->rhs, variable_infos, variable_count);
+
             int variable_index = findVariableInfo(variable_infos, variable_count, node->identifier);
             if(variable_index < 0)
             {
