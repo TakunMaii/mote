@@ -3,6 +3,7 @@
 
 #include "Token.h"
 #include <stdio.h>
+#include <stdbool.h>
 
 bool expectStr(const char* content, int length, char *code)
 {
@@ -56,6 +57,42 @@ Token* tokenize(char *code, const char* filename)
         }
         else if(expectStr("=", 1, code)) {
             token->next = newToken(TK_EQUAL, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("+", 1, code)) {
+            token->next = newToken(TK_PLUS, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("-", 1, code)) {
+            token->next = newToken(TK_MINUS, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("*", 1, code)) {
+            token->next = newToken(TK_STAR, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("/", 1, code)) {
+            token->next = newToken(TK_SLASH, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("(", 1, code)) {
+            token->next = newToken(TK_LEFT_PARENTHESIS, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr(")", 1, code)) {
+            token->next = newToken(TK_RIGHT_PARENTHESIS, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;

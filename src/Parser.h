@@ -29,7 +29,8 @@ ASTAssignModifier parseModifier(Token **token)
     return modifier;
 }
 
-ASTNode* parseExpr(Token **token)
+// literal value = literal integer | literal float
+ASTNode* parseLiteralValue(Token **token)
 {
     ASTNode *node = newASTNode(AST_EXPR_LITERAL_INTEGER);
 
@@ -45,9 +46,87 @@ ASTNode* parseExpr(Token **token)
         (*token) = (*token)->next;
     }
     else {
-        printf("parseExpr: expected literal integer or float here at file %s, line %d, column %d",
+        printf("parseLiteralValue: expected literal integer or float here at file %s, line %d, column %d",
                (*token)->filename, (*token)->line_number, (*token)->column_number);
         exit(1);
+    }
+
+    return node;
+}
+
+ASTNode* parseExpr(Token **token);
+
+// parenthesis = '(' expr ')'
+ASTNode* parseParenthesis(Token **token)
+{
+    expectToken(*token, TK_LEFT_PARENTHESIS);
+    (*token) = (*token)->next;
+
+    ASTNode *node = parseExpr(token);
+
+    expectToken(*token, TK_RIGHT_PARENTHESIS);
+    (*token) = (*token)->next;
+
+    return node;
+}
+
+// factor = parenthesis | identifier | literal value
+ASTNode* parseFactor(Token **token)
+{
+    if((*token)->kind == TK_LEFT_PARENTHESIS)
+    {
+        ASTNode *parenthesis_node = newASTNode(AST_EXPR_PARENTHESIS);
+        parenthesis_node->lhs = parseParenthesis(token);
+        return parenthesis_node;
+    }
+    else if((*token)->kind == TK_IDENTIFIER)
+    {
+        ASTNode *node = newASTNode(AST_EXPR_VARIABLE);
+        strcpy(node->identifier, (*token)->identifier);
+        (*token) = (*token)->next;
+        return node;
+    }
+    else
+    {
+        return parseLiteralValue(token);
+    }
+}
+
+// term = factor (('*' | '/') factor)*
+ASTNode* parseTerm(Token **token)
+{
+    ASTNode *node = parseFactor(token);
+
+    while((*token)->kind == TK_STAR || (*token)->kind == TK_SLASH)
+    {
+        ASTNodeKind kind = (*token)->kind == TK_STAR ? AST_EXPR_MUL : AST_EXPR_DIV;
+        ASTNode *new_node = newASTNode(kind);
+        new_node->lhs = node;
+
+        (*token) = (*token)->next;
+        new_node->rhs = parseFactor(token);
+
+        node = new_node;
+    }
+
+    return node;
+}
+
+// expr = term (('+' | '-') term)*
+ASTNode* parseExpr(Token **token)
+{
+    ASTNode *node = parseTerm(token);
+
+    while((*token)->kind == TK_PLUS || (*token)->kind == TK_MINUS)
+    {
+        ASTNodeKind kind = (*token)->kind == TK_PLUS ? AST_EXPR_ADD : AST_EXPR_SUB;
+        ASTNode *new_node = newASTNode(kind);
+        new_node->lhs = node;
+
+        (*token) = (*token)->next;
+        new_node->rhs = parseTerm(token);
+
+        node = new_node;
     }
 
     return node;
