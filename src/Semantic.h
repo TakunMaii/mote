@@ -2,27 +2,14 @@
 #define SEMANTIC_H
 
 #include "AST.h"
+#include "SymbolTable.h"
+#include "TypeSystem.h"
 #include <stdbool.h>
 #include <string.h>
-
-typedef struct VariableInfo {
-    bool mutable;
-    char identifier[MAX_IDENTIFIER_LENGTH];
-} VariableInfo;
 
 bool isExplicitDeclared(ASTNode *node)
 {
     return node->modifier.mutable || node->data_type != AST_DATA_TYPE_INFER;
-}
-
-int findVariableInfo(VariableInfo *variable_infos, int variable_count, const char *identifier)
-{
-    for(int i = 0;i<variable_count;i++)
-    {
-        if(strcmp(variable_infos[i].identifier, identifier) == 0)
-            return i;
-    }
-    return -1;
 }
 
 void checkExprDeclaredVariable(ASTNode *node, VariableInfo *variable_infos, int variable_count)
@@ -44,7 +31,7 @@ void checkExprDeclaredVariable(ASTNode *node, VariableInfo *variable_infos, int 
     checkExprDeclaredVariable(node->rhs, variable_infos, variable_count);
 }
 
-void checkAssignMutability(ASTNode *root)
+void checkAssignSemantics(ASTNode *root)
 {
     VariableInfo variable_infos[1024] = {0};
     int variable_count = 0;
@@ -61,6 +48,7 @@ void checkAssignMutability(ASTNode *root)
             {
                 strcpy(variable_infos[variable_count].identifier, node->identifier);
                 variable_infos[variable_count].mutable = node->modifier.mutable;
+                variable_infos[variable_count].data_type = AST_DATA_TYPE_INFER;
                 variable_count ++;
             }
             else
@@ -76,6 +64,59 @@ void checkAssignMutability(ASTNode *root)
                     printf("Variable %s has already been declared and cannot be declared again\n", node->identifier);
                     exit(1);
                 }
+            }
+        }
+
+        node = node->next;
+    }
+}
+
+void checkAssignTypes(ASTNode *root)
+{
+    VariableInfo variable_infos[1024] = {0};
+    int variable_count = 0;
+
+    ASTNode *node = root;
+    while(node)
+    {
+        if(node->kind == AST_ASSIGN)
+        {
+            TypeSystemDataType expr_type = inferExprType(node->rhs, variable_infos, variable_count);
+
+            int variable_index = findVariableInfo(variable_infos, variable_count, node->identifier);
+            if(variable_index < 0)
+            {
+                ASTDataType declared_type = node->data_type;
+                if(declared_type == AST_DATA_TYPE_INFER)
+                {
+                    declared_type = typeSystemDataTypeToAstDataType(
+                        inferDeclaredTypeFromExpr(node->rhs, variable_infos, variable_count)
+                    );
+                    node->data_type = declared_type;
+                }
+                else
+                {
+                    TypeSystemDataType target_type = astDataTypeToTypeSystemDataType(declared_type);
+                    if(!canImplicitConvertType(expr_type, node->rhs, target_type))
+                    {
+                        typeErrorAssign(node, node->rhs, expr_type, target_type);
+                    }
+                }
+
+                strcpy(variable_infos[variable_count].identifier, node->identifier);
+                variable_infos[variable_count].mutable = node->modifier.mutable;
+                variable_infos[variable_count].data_type = declared_type;
+                variable_count ++;
+            }
+            else
+            {
+                TypeSystemDataType target_type = astDataTypeToTypeSystemDataType(variable_infos[variable_index].data_type);
+                if(!canImplicitConvertType(expr_type, node->rhs, target_type))
+                {
+                    typeErrorAssign(node, node->rhs, expr_type, target_type);
+                }
+
+                node->data_type = variable_infos[variable_index].data_type;
             }
         }
 

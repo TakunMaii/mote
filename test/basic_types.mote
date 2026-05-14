@@ -12,3 +12,6 @@ newline : char = '\n';
 flag : bool = true;
 mut counter : i32 = 0;
 counter = counter + 1;
+wide_signed : i64 = x;
+wide_float : f64 = y;
+sum = x + y;

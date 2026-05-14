@@ -76,7 +76,7 @@ ASTDataType parseDataType(Token **token)
 // literal value = true | false | literal char | literal integer | literal float
 ASTNode* parseLiteralValue(Token **token)
 {
-    ASTNode *node = newASTNode(AST_EXPR_LITERAL_INTEGER);
+    ASTNode *node = newASTNodeFromToken(AST_EXPR_LITERAL_INTEGER, *token);
 
     if((*token)->kind == TK_TRUE)
     {
@@ -137,13 +137,13 @@ ASTNode* parseFactor(Token **token)
 {
     if((*token)->kind == TK_LEFT_PARENTHESIS)
     {
-        ASTNode *parenthesis_node = newASTNode(AST_EXPR_PARENTHESIS);
+        ASTNode *parenthesis_node = newASTNodeFromToken(AST_EXPR_PARENTHESIS, *token);
         parenthesis_node->lhs = parseParenthesis(token);
         return parenthesis_node;
     }
     else if((*token)->kind == TK_IDENTIFIER)
     {
-        ASTNode *node = newASTNode(AST_EXPR_VARIABLE);
+        ASTNode *node = newASTNodeFromToken(AST_EXPR_VARIABLE, *token);
         strcpy(node->identifier, (*token)->identifier);
         (*token) = (*token)->next;
         return node;
@@ -170,7 +170,7 @@ ASTNode* parseUnary(Token **token)
     else
         return parseFactor(token);
 
-    ASTNode *node = newASTNode(kind);
+    ASTNode *node = newASTNodeFromToken(kind, *token);
     (*token) = (*token)->next;
     node->lhs = parseUnary(token);
     return node;
@@ -188,7 +188,7 @@ ASTNode* parseMultiplicative(Token **token)
             kind = AST_EXPR_DIV;
         else if((*token)->kind == TK_PERCENT)
             kind = AST_EXPR_MOD;
-        ASTNode *new_node = newASTNode(kind);
+        ASTNode *new_node = newASTNodeFromToken(kind, *token);
         new_node->lhs = node;
 
         (*token) = (*token)->next;
@@ -208,7 +208,7 @@ ASTNode* parseAdditive(Token **token)
     while((*token)->kind == TK_PLUS || (*token)->kind == TK_MINUS)
     {
         ASTNodeKind kind = (*token)->kind == TK_PLUS ? AST_EXPR_ADD : AST_EXPR_SUB;
-        ASTNode *new_node = newASTNode(kind);
+        ASTNode *new_node = newASTNodeFromToken(kind, *token);
         new_node->lhs = node;
 
         (*token) = (*token)->next;
@@ -228,7 +228,7 @@ ASTNode* parseShift(Token **token)
     while((*token)->kind == TK_LEFT_SHIFT || (*token)->kind == TK_RIGHT_SHIFT)
     {
         ASTNodeKind kind = (*token)->kind == TK_LEFT_SHIFT ? AST_EXPR_SHIFT_LEFT : AST_EXPR_SHIFT_RIGHT;
-        ASTNode *new_node = newASTNode(kind);
+        ASTNode *new_node = newASTNodeFromToken(kind, *token);
         new_node->lhs = node;
 
         (*token) = (*token)->next;
@@ -255,7 +255,7 @@ ASTNode* parseRelational(Token **token)
             kind = AST_EXPR_GREATER;
         else if((*token)->kind == TK_GREATER_EQUAL)
             kind = AST_EXPR_GREATER_EQUAL;
-        ASTNode *new_node = newASTNode(kind);
+        ASTNode *new_node = newASTNodeFromToken(kind, *token);
         new_node->lhs = node;
 
         (*token) = (*token)->next;
@@ -275,7 +275,7 @@ ASTNode* parseEquality(Token **token)
     while((*token)->kind == TK_DOUBLE_EQUAL || (*token)->kind == TK_EXCLAMATION_EQUAL)
     {
         ASTNodeKind kind = (*token)->kind == TK_DOUBLE_EQUAL ? AST_EXPR_EQUAL : AST_EXPR_NOT_EQUAL;
-        ASTNode *new_node = newASTNode(kind);
+        ASTNode *new_node = newASTNodeFromToken(kind, *token);
         new_node->lhs = node;
 
         (*token) = (*token)->next;
@@ -294,7 +294,7 @@ ASTNode* parseBitAnd(Token **token)
 
     while((*token)->kind == TK_AMPERSAND)
     {
-        ASTNode *new_node = newASTNode(AST_EXPR_BIT_AND);
+        ASTNode *new_node = newASTNodeFromToken(AST_EXPR_BIT_AND, *token);
         new_node->lhs = node;
 
         (*token) = (*token)->next;
@@ -313,7 +313,7 @@ ASTNode* parseBitXor(Token **token)
 
     while((*token)->kind == TK_CARET)
     {
-        ASTNode *new_node = newASTNode(AST_EXPR_BIT_XOR);
+        ASTNode *new_node = newASTNodeFromToken(AST_EXPR_BIT_XOR, *token);
         new_node->lhs = node;
 
         (*token) = (*token)->next;
@@ -332,7 +332,7 @@ ASTNode* parseBitOr(Token **token)
 
     while((*token)->kind == TK_PIPE)
     {
-        ASTNode *new_node = newASTNode(AST_EXPR_BIT_OR);
+        ASTNode *new_node = newASTNodeFromToken(AST_EXPR_BIT_OR, *token);
         new_node->lhs = node;
 
         (*token) = (*token)->next;
@@ -351,7 +351,7 @@ ASTNode* parseLogicalAnd(Token **token)
 
     while((*token)->kind == TK_DOUBLE_AMPERSAND)
     {
-        ASTNode *new_node = newASTNode(AST_EXPR_LOGICAL_AND);
+        ASTNode *new_node = newASTNodeFromToken(AST_EXPR_LOGICAL_AND, *token);
         new_node->lhs = node;
 
         (*token) = (*token)->next;
@@ -370,7 +370,7 @@ ASTNode* parseExpr(Token **token)
 
     while((*token)->kind == TK_DOUBLE_PIPE)
     {
-        ASTNode *new_node = newASTNode(AST_EXPR_LOGICAL_OR);
+        ASTNode *new_node = newASTNodeFromToken(AST_EXPR_LOGICAL_OR, *token);
         new_node->lhs = node;
 
         (*token) = (*token)->next;
@@ -384,7 +384,7 @@ ASTNode* parseExpr(Token **token)
 
 ASTNode* parseAssign(Token **token)
 {
-    ASTNode *node = newASTNode(AST_ASSIGN);
+    ASTNode *node = newASTNodeFromToken(AST_ASSIGN, *token);
 
     // modifier
     ASTAssignModifier modifier = parseModifier(token);
@@ -421,7 +421,7 @@ ASTNode* parse(Token *token)
     expectToken(token, TK_START_OF_CODE);
     token = token->next;
 
-    ASTNode *node = newASTNode(AST_START_OF_CODE);
+    ASTNode *node = newASTNodeFromToken(AST_START_OF_CODE, token);
     ASTNode *root= node;
     while(token && token->kind != TK_END_OF_CODE)
     {
@@ -429,7 +429,7 @@ ASTNode* parse(Token *token)
         node = node->next;
     }
 
-    node->next = newASTNode(AST_END_OF_CODE);
+    node->next = newASTNodeFromToken(AST_END_OF_CODE, token);
     return root;
 }
 

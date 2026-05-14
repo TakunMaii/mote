@@ -64,7 +64,8 @@ int main(int argn, char** argv)
     printf("END PRINT TOKENS ===============\n\n");
 
     ASTNode *root = parse(tokens);
-    checkAssignMutability(root);
+    checkAssignSemantics(root);
+    checkAssignTypes(root);
     printf("PRINT AST NODES ===============\n\n");
     ASTNode *ndptr = root;
     while(ndptr)

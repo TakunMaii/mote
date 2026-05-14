@@ -67,6 +67,10 @@ typedef struct ASTNode {
     struct ASTNode *next;
     ASTNodeKind kind;
 
+    const char* filename;
+    int line_number;
+    int column_number;
+
     struct ASTNode *lhs;// parenthesis, binary expr use this as left hand side
     struct ASTNode *rhs;// assign or decl use this as expr
     
@@ -88,6 +92,15 @@ ASTNode* newASTNode(ASTNodeKind kind)
     ASTNode *node = (ASTNode*) malloc(sizeof(ASTNode));
     node->kind = kind;
     node->next = NULL;
+    return node;
+}
+
+ASTNode* newASTNodeFromToken(ASTNodeKind kind, Token *token)
+{
+    ASTNode *node = newASTNode(kind);
+    node->filename = token->filename;
+    node->line_number = token->line_number;
+    node->column_number = token->column_number;
     return node;
 }
 
