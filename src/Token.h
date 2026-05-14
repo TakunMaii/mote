@@ -2,17 +2,36 @@
 #define TOKEN_H
 
 #include <stdio.h>
+#include <stdlib.h>
 
 typedef enum {
     TK_START_OF_CODE,
     TK_END_OF_CODE,
 
     TK_MUT,
+    TK_TRUE,
+    TK_FALSE,
 
     TK_PLUS,
     TK_MINUS,
     TK_STAR,
     TK_SLASH,
+    TK_PERCENT,
+    TK_AMPERSAND,
+    TK_PIPE,
+    TK_CARET,
+    TK_TILDE,
+    TK_EXCLAMATION,
+    TK_DOUBLE_AMPERSAND,
+    TK_DOUBLE_PIPE,
+    TK_DOUBLE_EQUAL,
+    TK_EXCLAMATION_EQUAL,
+    TK_LESS,
+    TK_LESS_EQUAL,
+    TK_GREATER,
+    TK_GREATER_EQUAL,
+    TK_LEFT_SHIFT,
+    TK_RIGHT_SHIFT,
     TK_LEFT_PARENTHESIS,
     TK_RIGHT_PARENTHESIS,
     TK_EQUAL,
@@ -62,10 +81,28 @@ const char* tokenKindToString(TokenKind kind)
         case TK_START_OF_CODE: return "TK_START_OF_CODE";
         case TK_END_OF_CODE: return "TK_END_OF_CODE";
         case TK_MUT: return "TK_MUT";
+        case TK_TRUE: return "TK_TRUE";
+        case TK_FALSE: return "TK_FALSE";
         case TK_PLUS: return "TK_PLUS";
         case TK_MINUS: return "TK_MINUS";
         case TK_STAR: return "TK_STAR";
         case TK_SLASH: return "TK_SLASH";
+        case TK_PERCENT: return "TK_PERCENT";
+        case TK_AMPERSAND: return "TK_AMPERSAND";
+        case TK_PIPE: return "TK_PIPE";
+        case TK_CARET: return "TK_CARET";
+        case TK_TILDE: return "TK_TILDE";
+        case TK_EXCLAMATION: return "TK_EXCLAMATION";
+        case TK_DOUBLE_AMPERSAND: return "TK_DOUBLE_AMPERSAND";
+        case TK_DOUBLE_PIPE: return "TK_DOUBLE_PIPE";
+        case TK_DOUBLE_EQUAL: return "TK_DOUBLE_EQUAL";
+        case TK_EXCLAMATION_EQUAL: return "TK_EXCLAMATION_EQUAL";
+        case TK_LESS: return "TK_LESS";
+        case TK_LESS_EQUAL: return "TK_LESS_EQUAL";
+        case TK_GREATER: return "TK_GREATER";
+        case TK_GREATER_EQUAL: return "TK_GREATER_EQUAL";
+        case TK_LEFT_SHIFT: return "TK_LEFT_SHIFT";
+        case TK_RIGHT_SHIFT: return "TK_RIGHT_SHIFT";
         case TK_LEFT_PARENTHESIS: return "TK_LEFT_PARENTHESIS";
         case TK_RIGHT_PARENTHESIS: return "TK_RIGHT_PARENTHESIS";
         case TK_EQUAL: return "TK_EQUAL";
@@ -86,11 +123,29 @@ void printToken(Token token)
         case TK_START_OF_CODE: {printf("TK_START_OF_CODE\n");}break;
         case TK_END_OF_CODE: {printf("TK_END_OF_CODE\n");}break;
         case TK_MUT: {printf("TK_MUT\n");}break;
+        case TK_TRUE: {printf("TK_TRUE\n");}break;
+        case TK_FALSE: {printf("TK_FALSE\n");}break;
         case TK_EQUAL: {printf("TK_EQUAL\n");}break;
         case TK_PLUS: {printf("TK_PLUS\n");}break;
         case TK_MINUS: {printf("TK_MINUS\n");}break;
         case TK_STAR: {printf("TK_STAR\n");}break;
         case TK_SLASH: {printf("TK_SLASH\n");}break;
+        case TK_PERCENT: {printf("TK_PERCENT\n");}break;
+        case TK_AMPERSAND: {printf("TK_AMPERSAND\n");}break;
+        case TK_PIPE: {printf("TK_PIPE\n");}break;
+        case TK_CARET: {printf("TK_CARET\n");}break;
+        case TK_TILDE: {printf("TK_TILDE\n");}break;
+        case TK_EXCLAMATION: {printf("TK_EXCLAMATION\n");}break;
+        case TK_DOUBLE_AMPERSAND: {printf("TK_DOUBLE_AMPERSAND\n");}break;
+        case TK_DOUBLE_PIPE: {printf("TK_DOUBLE_PIPE\n");}break;
+        case TK_DOUBLE_EQUAL: {printf("TK_DOUBLE_EQUAL\n");}break;
+        case TK_EXCLAMATION_EQUAL: {printf("TK_EXCLAMATION_EQUAL\n");}break;
+        case TK_LESS: {printf("TK_LESS\n");}break;
+        case TK_LESS_EQUAL: {printf("TK_LESS_EQUAL\n");}break;
+        case TK_GREATER: {printf("TK_GREATER\n");}break;
+        case TK_GREATER_EQUAL: {printf("TK_GREATER_EQUAL\n");}break;
+        case TK_LEFT_SHIFT: {printf("TK_LEFT_SHIFT\n");}break;
+        case TK_RIGHT_SHIFT: {printf("TK_RIGHT_SHIFT\n");}break;
         case TK_LEFT_PARENTHESIS: {printf("TK_LEFT_PARENTHESIS\n");}break;
         case TK_RIGHT_PARENTHESIS: {printf("TK_RIGHT_PARENTHESIS\n");}break;
         case TK_SEMICOLON: {printf("TK_SEMICOLON\n");}break;

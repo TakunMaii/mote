@@ -7,7 +7,7 @@
 
 bool expectStr(const char* content, int length, char *code)
 {
-    char *contentptr = content;
+    const char *contentptr = content;
     for(int i = 0;i<length;i++)
     {
         if(!(*code)) return false;
@@ -24,6 +24,13 @@ bool isIdentifier(char c)
     return (c >= 'a' && c <= 'z')||
            (c >= 'A' && c <= 'Z')||
            (c == '_') || (c >= '0' && c <= '9');
+}
+
+bool isIdentifierHead(char c)
+{
+    return (c >= 'a' && c <= 'z')||
+           (c >= 'A' && c <= 'Z')||
+           (c == '_');
 }
 
 bool isDigit(char c)
@@ -50,10 +57,76 @@ Token* tokenize(char *code, const char* filename)
             column ++;
         }
         else if(expectStr("mut", 3, code)) {
+            if(isIdentifier(code[3]))
+                goto tokenize_identifier;
             token->next = newToken(TK_MUT, filename, line, column);
             token = token->next;
             code += 3;
             column += 3;
+        }
+        else if(expectStr("true", 4, code)) {
+            if(isIdentifier(code[4]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_TRUE, filename, line, column);
+            token = token->next;
+            code += 4;
+            column += 4;
+        }
+        else if(expectStr("false", 5, code)) {
+            if(isIdentifier(code[5]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_FALSE, filename, line, column);
+            token = token->next;
+            code += 5;
+            column += 5;
+        }
+        else if(expectStr("&&", 2, code)) {
+            token->next = newToken(TK_DOUBLE_AMPERSAND, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
+        }
+        else if(expectStr("||", 2, code)) {
+            token->next = newToken(TK_DOUBLE_PIPE, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
+        }
+        else if(expectStr("==", 2, code)) {
+            token->next = newToken(TK_DOUBLE_EQUAL, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
+        }
+        else if(expectStr("!=", 2, code)) {
+            token->next = newToken(TK_EXCLAMATION_EQUAL, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
+        }
+        else if(expectStr("<=", 2, code)) {
+            token->next = newToken(TK_LESS_EQUAL, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
+        }
+        else if(expectStr(">=", 2, code)) {
+            token->next = newToken(TK_GREATER_EQUAL, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
+        }
+        else if(expectStr("<<", 2, code)) {
+            token->next = newToken(TK_LEFT_SHIFT, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
+        }
+        else if(expectStr(">>", 2, code)) {
+            token->next = newToken(TK_RIGHT_SHIFT, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
         }
         else if(expectStr("=", 1, code)) {
             token->next = newToken(TK_EQUAL, filename, line, column);
@@ -81,6 +154,54 @@ Token* tokenize(char *code, const char* filename)
         }
         else if(expectStr("/", 1, code)) {
             token->next = newToken(TK_SLASH, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("%", 1, code)) {
+            token->next = newToken(TK_PERCENT, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("&", 1, code)) {
+            token->next = newToken(TK_AMPERSAND, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("|", 1, code)) {
+            token->next = newToken(TK_PIPE, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("^", 1, code)) {
+            token->next = newToken(TK_CARET, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("~", 1, code)) {
+            token->next = newToken(TK_TILDE, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("!", 1, code)) {
+            token->next = newToken(TK_EXCLAMATION, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("<", 1, code)) {
+            token->next = newToken(TK_LESS, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr(">", 1, code)) {
+            token->next = newToken(TK_GREATER, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
@@ -151,8 +272,9 @@ Token* tokenize(char *code, const char* filename)
             }
             else token->literal_integer = literal_integer;
         }
-        else if(isIdentifier(*code))
+        else if(isIdentifierHead(*code))
         {
+tokenize_identifier:
             token->next = newToken(TK_IDENTIFIER, filename, line, column);
             token = token->next;
             int counter = 0;
@@ -170,6 +292,8 @@ Token* tokenize(char *code, const char* filename)
             exit(1);
         }
     }
+
+    token->next = newToken(TK_END_OF_CODE, filename, line, column);
 
     return head;
 }
