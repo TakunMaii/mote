@@ -29,7 +29,51 @@ ASTAssignModifier parseModifier(Token **token)
     return modifier;
 }
 
-// literal value = true | false | literal integer | literal float
+ASTDataType parseDataType(Token **token)
+{
+    const char *identifier = expectToken(*token, TK_IDENTIFIER)->identifier;
+
+    ASTDataType data_type = AST_DATA_TYPE_INFER;
+    if(strcmp(identifier, "i8") == 0)
+        data_type = AST_DATA_TYPE_I8;
+    else if(strcmp(identifier, "i16") == 0)
+        data_type = AST_DATA_TYPE_I16;
+    else if(strcmp(identifier, "i32") == 0)
+        data_type = AST_DATA_TYPE_I32;
+    else if(strcmp(identifier, "i64") == 0)
+        data_type = AST_DATA_TYPE_I64;
+    else if(strcmp(identifier, "u8") == 0)
+        data_type = AST_DATA_TYPE_U8;
+    else if(strcmp(identifier, "u16") == 0)
+        data_type = AST_DATA_TYPE_U16;
+    else if(strcmp(identifier, "u32") == 0)
+        data_type = AST_DATA_TYPE_U32;
+    else if(strcmp(identifier, "u64") == 0)
+        data_type = AST_DATA_TYPE_U64;
+    else if(strcmp(identifier, "f8") == 0)
+        data_type = AST_DATA_TYPE_F8;
+    else if(strcmp(identifier, "f16") == 0)
+        data_type = AST_DATA_TYPE_F16;
+    else if(strcmp(identifier, "f32") == 0)
+        data_type = AST_DATA_TYPE_F32;
+    else if(strcmp(identifier, "f64") == 0)
+        data_type = AST_DATA_TYPE_F64;
+    else if(strcmp(identifier, "char") == 0)
+        data_type = AST_DATA_TYPE_CHAR;
+    else if(strcmp(identifier, "bool") == 0)
+        data_type = AST_DATA_TYPE_BOOL;
+    else
+    {
+        printf("Unknown data type %s at file %s, line %d, column %d\n",
+               identifier, (*token)->filename, (*token)->line_number, (*token)->column_number);
+        exit(1);
+    }
+
+    (*token) = (*token)->next;
+    return data_type;
+}
+
+// literal value = true | false | literal char | literal integer | literal float
 ASTNode* parseLiteralValue(Token **token)
 {
     ASTNode *node = newASTNode(AST_EXPR_LITERAL_INTEGER);
@@ -46,6 +90,12 @@ ASTNode* parseLiteralValue(Token **token)
         node->literal_bool = false;
         (*token) = (*token)->next;
     }
+    else if((*token)->kind == TK_LITERAL_CHAR)
+    {
+        node->kind = AST_EXPR_LITERAL_CHAR;
+        node->literal_char = (*token)->literal_char;
+        (*token) = (*token)->next;
+    }
     else if((*token)->kind == TK_LITERAL_INTEGER)
     {
         node->literal_integer = (*token)->literal_integer;
@@ -58,7 +108,7 @@ ASTNode* parseLiteralValue(Token **token)
         (*token) = (*token)->next;
     }
     else {
-        printf("parseLiteralValue: expected literal bool, integer or float here at file %s, line %d, column %d",
+        printf("parseLiteralValue: expected literal bool, char, integer or float here at file %s, line %d, column %d",
                (*token)->filename, (*token)->line_number, (*token)->column_number);
         exit(1);
     }
@@ -343,6 +393,14 @@ ASTNode* parseAssign(Token **token)
     // identifier
     strcpy(node->identifier, expectToken(*token, TK_IDENTIFIER)->identifier);
     (*token) = (*token)->next;
+
+    // optional type declaration
+    node->data_type = AST_DATA_TYPE_INFER;
+    if((*token)->kind == TK_COLON)
+    {
+        (*token) = (*token)->next;
+        node->data_type = parseDataType(token);
+    }
 
     // =
     expectToken(*token, TK_EQUAL);

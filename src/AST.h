@@ -36,9 +36,28 @@ typedef enum ASTNodeKind {
     AST_EXPR_PARENTHESIS,
     AST_EXPR_VARIABLE,
     AST_EXPR_LITERAL_BOOL,
+    AST_EXPR_LITERAL_CHAR,
     AST_EXPR_LITERAL_INTEGER,
     AST_EXPR_LITERAL_FLOAT,
 } ASTNodeKind;
+
+typedef enum ASTDataType {
+    AST_DATA_TYPE_INFER,
+    AST_DATA_TYPE_I8,
+    AST_DATA_TYPE_I16,
+    AST_DATA_TYPE_I32,
+    AST_DATA_TYPE_I64,
+    AST_DATA_TYPE_U8,
+    AST_DATA_TYPE_U16,
+    AST_DATA_TYPE_U32,
+    AST_DATA_TYPE_U64,
+    AST_DATA_TYPE_F8,
+    AST_DATA_TYPE_F16,
+    AST_DATA_TYPE_F32,
+    AST_DATA_TYPE_F64,
+    AST_DATA_TYPE_CHAR,
+    AST_DATA_TYPE_BOOL,
+} ASTDataType;
 
 typedef struct {
     bool mutable;
@@ -53,11 +72,13 @@ typedef struct ASTNode {
     
     // literal value
     bool literal_bool;
+    char literal_char;
     long long int literal_integer;
     long double literal_float;
 
     // assign or decl
     ASTAssignModifier modifier;
+    ASTDataType data_type;
     char identifier[MAX_IDENTIFIER_LENGTH];
 
 } ASTNode;
@@ -102,10 +123,36 @@ const char* astNodeKindToString(ASTNodeKind kind)
         case AST_EXPR_PARENTHESIS: return "AST_EXPR_PARENTHESIS";
         case AST_EXPR_VARIABLE: return "AST_EXPR_VARIABLE";
         case AST_EXPR_LITERAL_BOOL: return "AST_EXPR_LITERAL_BOOL";
+        case AST_EXPR_LITERAL_CHAR: return "AST_EXPR_LITERAL_CHAR";
         case AST_EXPR_LITERAL_INTEGER: return "AST_EXPR_LITERAL_INTEGER";
         case AST_EXPR_LITERAL_FLOAT: return "AST_EXPR_LITERAL_FLOAT";
         default:
             printf("astNodeKindToString: unknown AST node kind\n");
+            exit(1);
+    }
+}
+
+const char* astDataTypeToString(ASTDataType data_type)
+{
+    switch(data_type)
+    {
+        case AST_DATA_TYPE_INFER: return "infer";
+        case AST_DATA_TYPE_I8: return "i8";
+        case AST_DATA_TYPE_I16: return "i16";
+        case AST_DATA_TYPE_I32: return "i32";
+        case AST_DATA_TYPE_I64: return "i64";
+        case AST_DATA_TYPE_U8: return "u8";
+        case AST_DATA_TYPE_U16: return "u16";
+        case AST_DATA_TYPE_U32: return "u32";
+        case AST_DATA_TYPE_U64: return "u64";
+        case AST_DATA_TYPE_F8: return "f8";
+        case AST_DATA_TYPE_F16: return "f16";
+        case AST_DATA_TYPE_F32: return "f32";
+        case AST_DATA_TYPE_F64: return "f64";
+        case AST_DATA_TYPE_CHAR: return "char";
+        case AST_DATA_TYPE_BOOL: return "bool";
+        default:
+            printf("astDataTypeToString: unknown AST data type\n");
             exit(1);
     }
 }
@@ -123,8 +170,8 @@ void printASTNode(ASTNode node)
     switch(node.kind)
     {
         case AST_ASSIGN: {
-            printf("AST_ASSIGN: modifier(%s) idenifier(%s) = ",
-                modifierToString(node.modifier), node.identifier);
+            printf("AST_ASSIGN: modifier(%s) idenifier(%s) type(%s) = ",
+                modifierToString(node.modifier), node.identifier, astDataTypeToString(node.data_type));
             printASTNode(*(node.rhs));
             printf("\n");
         } break;
@@ -284,6 +331,11 @@ void printASTNode(ASTNode node)
         } break;
         case AST_EXPR_LITERAL_BOOL: {
             printf("AST_EXPR_LITERAL_BOOL(%s)", node.literal_bool ? "true" : "false");
+        } break;
+        case AST_EXPR_LITERAL_CHAR: {
+            printf("AST_EXPR_LITERAL_CHAR(");
+            printEscapedChar(node.literal_char);
+            printf(")");
         } break;
         case AST_EXPR_LITERAL_INTEGER: {
             printf("AST_EXPR_LITERAL_INTEGER(%lld)", node.literal_integer);

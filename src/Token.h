@@ -34,11 +34,13 @@ typedef enum {
     TK_RIGHT_SHIFT,
     TK_LEFT_PARENTHESIS,
     TK_RIGHT_PARENTHESIS,
+    TK_COLON,
     TK_EQUAL,
     TK_SEMICOLON,
 
     TK_IDENTIFIER,
 
+    TK_LITERAL_CHAR,
     TK_LITERAL_INTEGER,
     TK_LITERAL_FLOAT,
 } TokenKind;
@@ -58,9 +60,24 @@ typedef struct Token {
     char identifier[MAX_IDENTIFIER_LENGTH];
 
     // literal values
+    char literal_char;
     long long int literal_integer;
     long double literal_float;
 } Token;
+
+void printEscapedChar(char literal_char)
+{
+    switch(literal_char)
+    {
+        case '\0': {printf("'\\0'");} break;
+        case '\n': {printf("'\\n'");} break;
+        case '\r': {printf("'\\r'");} break;
+        case '\t': {printf("'\\t'");} break;
+        case '\\': {printf("'\\\\'");} break;
+        case '\'': {printf("'\\''");} break;
+        default: {printf("'%c'", literal_char);} break;
+    }
+}
 
 Token* newToken(TokenKind kind, const char* filename, int line, int column)
 {
@@ -105,9 +122,11 @@ const char* tokenKindToString(TokenKind kind)
         case TK_RIGHT_SHIFT: return "TK_RIGHT_SHIFT";
         case TK_LEFT_PARENTHESIS: return "TK_LEFT_PARENTHESIS";
         case TK_RIGHT_PARENTHESIS: return "TK_RIGHT_PARENTHESIS";
+        case TK_COLON: return "TK_COLON";
         case TK_EQUAL: return "TK_EQUAL";
         case TK_SEMICOLON: return "TK_SEMICOLON";
         case TK_IDENTIFIER: return "TK_IDENTIFIER";
+        case TK_LITERAL_CHAR: return "TK_LITERAL_CHAR";
         case TK_LITERAL_INTEGER: return "TK_LITERAL_INTEGER";
         case TK_LITERAL_FLOAT: return "TK_LITERAL_FLOAT";
         default:
@@ -148,8 +167,14 @@ void printToken(Token token)
         case TK_RIGHT_SHIFT: {printf("TK_RIGHT_SHIFT\n");}break;
         case TK_LEFT_PARENTHESIS: {printf("TK_LEFT_PARENTHESIS\n");}break;
         case TK_RIGHT_PARENTHESIS: {printf("TK_RIGHT_PARENTHESIS\n");}break;
+        case TK_COLON: {printf("TK_COLON\n");}break;
         case TK_SEMICOLON: {printf("TK_SEMICOLON\n");}break;
         case TK_IDENTIFIER: {printf("TK_IDENTIFIER: %s\n", token.identifier);}break;
+        case TK_LITERAL_CHAR: {
+            printf("TK_LITERAL_CHAR: ");
+            printEscapedChar(token.literal_char);
+            printf("\n");
+        }break;
         case TK_LITERAL_INTEGER: {printf("TK_LITERAL_INTEGER: %lld\n", token.literal_integer);}break;
         case TK_LITERAL_FLOAT: {printf("TK_LITERAL_FLOAT %Lf\n", token.literal_float);}break;
         default:

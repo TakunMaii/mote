@@ -38,6 +38,23 @@ bool isDigit(char c)
     return (c >= '0' && c <= '9');
 }
 
+char parseEscapedChar(char escape_char, const char *filename, int line, int column)
+{
+    switch(escape_char)
+    {
+        case '0': return '\0';
+        case 'n': return '\n';
+        case 'r': return '\r';
+        case 't': return '\t';
+        case '\\': return '\\';
+        case '\'': return '\'';
+        default:
+            printf("Unknown escaped char %c at file %s, line %d, column %d\n",
+                   escape_char, filename, line, column);
+            exit(1);
+    }
+}
+
 void skipLineComment(char **code, int *column)
 {
     (*code) += 2;
@@ -271,11 +288,66 @@ Token* tokenize(char *code, const char* filename)
             code += 1;
             column += 1;
         }
+        else if(expectStr(":", 1, code)) {
+            token->next = newToken(TK_COLON, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
         else if(expectStr(";", 1, code)) {
             token->next = newToken(TK_SEMICOLON, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+        }
+        else if(expectStr("'", 1, code)) {
+            int literal_line = line;
+            int literal_column = column;
+
+            token->next = newToken(TK_LITERAL_CHAR, filename, line, column);
+            token = token->next;
+            code ++;
+            column ++;
+
+            if(*code == '\0' || *code == '\n')
+            {
+                printf("Unclosed char literal at file %s, line %d, column %d\n",
+                       filename, literal_line, literal_column);
+                exit(1);
+            }
+
+            if(*code == '\\')
+            {
+                code ++;
+                column ++;
+
+                if(*code == '\0' || *code == '\n')
+                {
+                    printf("Unclosed char literal at file %s, line %d, column %d\n",
+                           filename, literal_line, literal_column);
+                    exit(1);
+                }
+
+                token->literal_char = parseEscapedChar(*code, filename, line, column);
+                code ++;
+                column ++;
+            }
+            else
+            {
+                token->literal_char = *code;
+                code ++;
+                column ++;
+            }
+
+            if(*code != '\'')
+            {
+                printf("Char literal should contain exactly one char at file %s, line %d, column %d\n",
+                       filename, literal_line, literal_column);
+                exit(1);
+            }
+
+            code ++;
+            column ++;
         }
         else if(isDigit(*code)) {
             token->next = newToken(TK_LITERAL_INTEGER, filename, line, column);
