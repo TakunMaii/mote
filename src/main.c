@@ -4,6 +4,7 @@
 #include "Token.h"
 #include "AST.h"
 #include "Parser.h"
+#include "Semantic.h"
 
 char *read_file(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -63,6 +64,7 @@ int main(int argn, char** argv)
     printf("END PRINT TOKENS ===============\n\n");
 
     ASTNode *root = parse(tokens);
+    checkAssignMutability(root);
     printf("PRINT AST NODES ===============\n\n");
     ASTNode *ndptr = root;
     while(ndptr)

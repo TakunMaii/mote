@@ -10,3 +10,5 @@ y = 16;//也可以不声明类型，自动推导
 z : char = 'a';
 newline : char = '\n';
 flag : bool = true;
+mut counter : i32 = 0;
+counter = counter + 1;
