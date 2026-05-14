@@ -151,6 +151,35 @@ ASTNode* parseLiteralValue(Token **token)
 
 ASTNode* parseExpr(Token **token);
 ASTNode* parseUnary(Token **token);
+ASTNode* parseStatement(Token **token);
+ASTNode* parseBlock(Token **token);
+
+bool isStatementAssign(Token *token)
+{
+    if(token->kind == TK_MUT)
+        token = token->next;
+
+    if(token == NULL)
+        return false;
+
+    if(token->kind != TK_IDENTIFIER && token->kind != TK_STAR)
+        return false;
+
+    int parenthesis_depth = 0;
+    while(token && token->kind != TK_SEMICOLON && token->kind != TK_END_OF_CODE)
+    {
+        if(token->kind == TK_LEFT_PARENTHESIS)
+            parenthesis_depth ++;
+        else if(token->kind == TK_RIGHT_PARENTHESIS)
+            parenthesis_depth --;
+        else if(parenthesis_depth == 0 && token->kind == TK_EQUAL)
+            return true;
+
+        token = token->next;
+    }
+
+    return false;
+}
 
 // parenthesis = '(' expr ')'
 ASTNode* parseParenthesis(Token **token)
@@ -491,20 +520,83 @@ ASTNode* parseAssign(Token **token)
     return node;
 }
 
+ASTNode* parseExprStatement(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_STATEMENT_EXPR, *token);
+    node->lhs = parseExpr(token);
+
+    expectToken(*token, TK_SEMICOLON);
+    (*token) = (*token)->next;
+
+    return node;
+}
+
+ASTNode* parseStatement(Token **token)
+{
+    if((*token)->kind == TK_LEFT_BRACE)
+        return parseBlock(token);
+
+    if(isStatementAssign(*token))
+        return parseAssign(token);
+
+    return parseExprStatement(token);
+}
+
+ASTNode* parseBlock(Token **token)
+{
+    ASTNode *block = newASTNodeFromToken(AST_BLOCK, *token);
+    ASTNode *head = NULL;
+    ASTNode *tail = NULL;
+
+    expectToken(*token, TK_LEFT_BRACE);
+    (*token) = (*token)->next;
+
+    while((*token)->kind != TK_RIGHT_BRACE)
+    {
+        ASTNode *stmt = parseStatement(token);
+        if(head == NULL)
+            head = stmt;
+        else
+            tail->next = stmt;
+
+        tail = stmt;
+        while(tail->next)
+            tail = tail->next;
+    }
+
+    expectToken(*token, TK_RIGHT_BRACE);
+    (*token) = (*token)->next;
+
+    block->lhs = head;
+    return block;
+}
+
 ASTNode* parse(Token *token)
 {
     expectToken(token, TK_START_OF_CODE);
     token = token->next;
 
-    ASTNode *node = newASTNodeFromToken(AST_START_OF_CODE, token);
-    ASTNode *root= node;
+    ASTNode *root = newASTNode(AST_START_OF_CODE);
+    ASTNode *top_level_block = newASTNode(AST_BLOCK);
+    ASTNode *head = NULL;
+    ASTNode *tail = NULL;
+
     while(token && token->kind != TK_END_OF_CODE)
     {
-        node->next = parseAssign(&token);
-        node = node->next;
+        ASTNode *stmt = parseStatement(&token);
+        if(head == NULL)
+            head = stmt;
+        else
+            tail->next = stmt;
+
+        tail = stmt;
+        while(tail->next)
+            tail = tail->next;
     }
 
-    node->next = newASTNodeFromToken(AST_END_OF_CODE, token);
+    top_level_block->lhs = head;
+    root->lhs = top_level_block;
+    root->next = newASTNodeFromToken(AST_END_OF_CODE, token);
     return root;
 }
 

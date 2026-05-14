@@ -23,22 +23,14 @@ bool isPointerOrReferenceDataType(ASTDataType *data_type)
            (data_type->kind == AST_DATA_TYPE_KIND_POINTER || data_type->kind == AST_DATA_TYPE_KIND_REFERENCE);
 }
 
-bool isReferenceVariable(VariableInfo *variable_infos, int variable_count, const char *identifier)
-{
-    int variable_index = findVariableInfo(variable_infos, variable_count, identifier);
-    if(variable_index < 0)
-        return false;
-    return isReferenceDataType(variable_infos[variable_index].data_type);
-}
-
-void checkExprDeclaredVariable(ASTNode *node, VariableInfo *variable_infos, int variable_count)
+void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
 {
     if(node == NULL)
         return;
 
     if(node->kind == AST_EXPR_VARIABLE)
     {
-        if(findVariableInfo(variable_infos, variable_count, node->identifier) < 0)
+        if(findVariableInfo(scope, node->identifier) == NULL)
         {
             printf("Use of undeclared variable %s in expression\n", node->identifier);
             exit(1);
@@ -46,58 +38,82 @@ void checkExprDeclaredVariable(ASTNode *node, VariableInfo *variable_infos, int 
         return;
     }
 
-    checkExprDeclaredVariable(node->lhs, variable_infos, variable_count);
-    checkExprDeclaredVariable(node->rhs, variable_infos, variable_count);
+    checkExprDeclaredVariable(node->lhs, scope);
+    checkExprDeclaredVariable(node->rhs, scope);
 }
 
-void checkAssignSemantics(ASTNode *root)
+void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope)
 {
-    VariableInfo variable_infos[1024] = {0};
-    int variable_count = 0;
+    ScopeFrame current_scope = {0};
+    initScopeFrame(&current_scope, parent_scope);
 
-    ASTNode *node = root;
+    ASTNode *node = block->lhs;
     while(node)
     {
+        if(node->kind == AST_BLOCK)
+        {
+            checkAssignSemanticsInBlock(node, &current_scope);
+            node = node->next;
+            continue;
+        }
+
+        if(node->kind == AST_STATEMENT_EXPR)
+        {
+            checkExprDeclaredVariable(node->lhs, &current_scope);
+            node = node->next;
+            continue;
+        }
+
         if(node->kind == AST_ASSIGN)
         {
-            checkExprDeclaredVariable(node->rhs, variable_infos, variable_count);
+            checkExprDeclaredVariable(node->rhs, &current_scope);
 
             if(node->lhs->kind == AST_EXPR_DEREF)
             {
-                checkExprDeclaredVariable(node->lhs->lhs, variable_infos, variable_count);
+                checkExprDeclaredVariable(node->lhs->lhs, &current_scope);
                 node = node->next;
                 continue;
             }
 
-            int variable_index = findVariableInfo(variable_infos, variable_count, node->identifier);
-            if(variable_index < 0)
+            if(node->lhs->kind != AST_EXPR_VARIABLE)
             {
-                strcpy(variable_infos[variable_count].identifier, node->identifier);
-                variable_infos[variable_count].mutable = node->modifier.mutable;
-                variable_infos[variable_count].data_type = newInferDataType();
-                variable_count ++;
+                printf("Semantic error: only variable or deref can be assigned at file %s, line %d, column %d\n",
+                       node->filename, node->line_number, node->column_number);
+                exit(1);
             }
-            else
+
+            VariableInfo *local_variable_info = NULL;
+            int local_index = findVariableInfoInScope(&current_scope, node->identifier);
+            if(local_index >= 0)
+                local_variable_info = &(current_scope.variable_infos[local_index]);
+
+            if(isExplicitDeclared(node))
             {
-                if(node->lhs->kind != AST_EXPR_VARIABLE)
+                if(local_variable_info != NULL)
                 {
-                    printf("Semantic error: only variable or deref can be assigned at file %s, line %d, column %d\n",
-                           node->filename, node->line_number, node->column_number);
+                    printf("Variable %s has already been declared and cannot be declared again\n", node->identifier);
                     exit(1);
                 }
 
-                if(!variable_infos[variable_index].mutable)
-                {
-                    if(!isReferenceDataType(variable_infos[variable_index].data_type))
-                    {
-                        printf("Cannot assign to immutable variable %s\n", node->identifier);
-                        exit(1);
-                    }
-                }
+                VariableInfo *new_variable_info = declareVariableInfo(&current_scope, node->identifier);
+                new_variable_info->mutable = node->modifier.mutable;
+                new_variable_info->data_type = newInferDataType();
+            }
+            else
+            {
+                VariableInfo *resolved_variable_info = local_variable_info;
+                if(resolved_variable_info == NULL)
+                    resolved_variable_info = findVariableInfo(current_scope.parent, node->identifier);
 
-                if(isExplicitDeclared(node))
+                if(resolved_variable_info == NULL)
                 {
-                    printf("Variable %s has already been declared and cannot be declared again\n", node->identifier);
+                    VariableInfo *new_variable_info = declareVariableInfo(&current_scope, node->identifier);
+                    new_variable_info->mutable = false;
+                    new_variable_info->data_type = newInferDataType();
+                }
+                else if(!resolved_variable_info->mutable && !isReferenceDataType(resolved_variable_info->data_type))
+                {
+                    printf("Cannot assign to immutable variable %s\n", node->identifier);
                     exit(1);
                 }
             }
@@ -107,20 +123,45 @@ void checkAssignSemantics(ASTNode *root)
     }
 }
 
-void checkAssignTypes(ASTNode *root)
+void checkAssignSemantics(ASTNode *root)
 {
-    VariableInfo variable_infos[1024] = {0};
-    int variable_count = 0;
+    if(root == NULL || root->lhs == NULL || root->lhs->kind != AST_BLOCK)
+    {
+        printf("Semantic error: root should contain a top-level block\n");
+        exit(1);
+    }
 
-    ASTNode *node = root;
+    checkAssignSemanticsInBlock(root->lhs, NULL);
+}
+
+void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope)
+{
+    ScopeFrame current_scope = {0};
+    initScopeFrame(&current_scope, parent_scope);
+
+    ASTNode *node = block->lhs;
     while(node)
     {
+        if(node->kind == AST_BLOCK)
+        {
+            checkAssignTypesInBlock(node, &current_scope);
+            node = node->next;
+            continue;
+        }
+
+        if(node->kind == AST_STATEMENT_EXPR)
+        {
+            inferExprType(node->lhs, &current_scope);
+            node = node->next;
+            continue;
+        }
+
         if(node->kind == AST_ASSIGN)
         {
             if(node->lhs->kind == AST_EXPR_DEREF)
             {
-                TypeSystemExprType expr_type = inferExprType(node->rhs, variable_infos, variable_count);
-                TypeSystemExprType lhs_type = inferExprType(node->lhs->lhs, variable_infos, variable_count);
+                TypeSystemExprType expr_type = inferExprType(node->rhs, &current_scope);
+                TypeSystemExprType lhs_type = inferExprType(node->lhs->lhs, &current_scope);
                 if(lhs_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || !isPointerOrReferenceDataType(lhs_type.data_type))
                 {
                     printf("Type error: deref assignment requires a pointer or reference at file %s, line %d, column %d\n",
@@ -134,23 +175,31 @@ void checkAssignTypes(ASTNode *root)
                     exit(1);
                 }
                 if(!canImplicitConvertDataType(expr_type, node->rhs, lhs_type.data_type->child))
-                {
                     typeErrorAssign(node, node->rhs, expr_type, lhs_type.data_type->child);
-                }
+
                 node->data_type = cloneDataType(lhs_type.data_type->child);
                 node = node->next;
                 continue;
             }
 
-            TypeSystemExprType expr_type = inferExprType(node->rhs, variable_infos, variable_count);
+            VariableInfo *local_variable_info = NULL;
+            int local_index = findVariableInfoInScope(&current_scope, node->identifier);
+            if(local_index >= 0)
+                local_variable_info = &(current_scope.variable_infos[local_index]);
 
-            int variable_index = findVariableInfo(variable_infos, variable_count, node->identifier);
-            if(variable_index < 0)
+            if(isExplicitDeclared(node))
             {
+                TypeSystemExprType expr_type = inferExprType(node->rhs, &current_scope);
+                if(local_variable_info != NULL)
+                {
+                    printf("Variable %s has already been declared and cannot be declared again\n", node->identifier);
+                    exit(1);
+                }
+
                 ASTDataType *declared_type = node->data_type;
                 if(isInferDataType(declared_type))
                 {
-                    declared_type = inferDeclaredTypeFromExpr(node->rhs, variable_infos, variable_count);
+                    declared_type = inferDeclaredTypeFromExpr(node->rhs, &current_scope);
                     node->data_type = declared_type;
                 }
                 else if(isReferenceDataType(declared_type))
@@ -162,56 +211,80 @@ void checkAssignTypes(ASTNode *root)
                         exit(1);
                     }
 
-                    bool requires_mutable = declared_type->mutable;
-                    if(requires_mutable && !isMutableAddressableExpr(node->rhs, variable_infos, variable_count))
+                    if(declared_type->mutable && !isMutableAddressableExpr(node->rhs, &current_scope))
                     {
                         printf("Type error: mutable reference requires a mutable expression at file %s, line %d, column %d\n",
                                node->rhs->filename, node->rhs->line_number, node->rhs->column_number);
                         exit(1);
                     }
 
-                    TypeSystemExprType rhs_value_type = inferExprType(node->rhs, variable_infos, variable_count);
+                    TypeSystemExprType rhs_value_type = inferExprType(node->rhs, &current_scope);
                     ASTDataType *rhs_target_type = getReferenceTargetType(rhs_value_type.data_type);
                     if(!isSameDataType(rhs_target_type, declared_type->child))
-                    {
                         typeErrorAssign(node, node->rhs, rhs_value_type, declared_type);
-                    }
                 }
                 else
                 {
                     if(!canImplicitConvertDataType(expr_type, node->rhs, declared_type))
-                    {
                         typeErrorAssign(node, node->rhs, expr_type, declared_type);
-                    }
                 }
 
-                strcpy(variable_infos[variable_count].identifier, node->identifier);
-                variable_infos[variable_count].mutable = node->modifier.mutable;
-                variable_infos[variable_count].data_type = cloneDataType(declared_type);
-                variable_count ++;
+                VariableInfo *new_variable_info = declareVariableInfo(&current_scope, node->identifier);
+                new_variable_info->mutable = node->modifier.mutable;
+                new_variable_info->data_type = cloneDataType(node->data_type);
             }
             else
             {
-                ASTDataType *target_type = variable_infos[variable_index].data_type;
-                bool assign_through_reference = isReferenceDataType(target_type);
+                VariableInfo *resolved_variable_info = local_variable_info;
+                if(resolved_variable_info == NULL)
+                    resolved_variable_info = findVariableInfo(current_scope.parent, node->identifier);
 
-                if(assign_through_reference)
-                    target_type = target_type->child;
-
-                if(!canImplicitConvertDataType(expr_type, node->rhs, target_type))
+                if(resolved_variable_info == NULL)
                 {
-                    typeErrorAssign(node, node->rhs, expr_type, target_type);
-                }
+                    TypeSystemExprType expr_type = inferExprType(node->rhs, &current_scope);
+                    ASTDataType *declared_type = inferDeclaredTypeFromExpr(node->rhs, &current_scope);
+                    node->data_type = declared_type;
 
-                if(assign_through_reference)
-                    node->data_type = cloneDataType(target_type);
+                    VariableInfo *new_variable_info = declareVariableInfo(&current_scope, node->identifier);
+                    new_variable_info->mutable = false;
+                    new_variable_info->data_type = cloneDataType(declared_type);
+
+                    if(!canImplicitConvertDataType(expr_type, node->rhs, declared_type))
+                        typeErrorAssign(node, node->rhs, expr_type, declared_type);
+                }
                 else
-                    node->data_type = cloneDataType(variable_infos[variable_index].data_type);
+                {
+                    TypeSystemExprType expr_type = inferExprType(node->rhs, &current_scope);
+                    ASTDataType *target_type = resolved_variable_info->data_type;
+                    bool assign_through_reference = isReferenceDataType(target_type);
+
+                    if(assign_through_reference)
+                        target_type = target_type->child;
+
+                    if(!canImplicitConvertDataType(expr_type, node->rhs, target_type))
+                        typeErrorAssign(node, node->rhs, expr_type, target_type);
+
+                    if(assign_through_reference)
+                        node->data_type = cloneDataType(target_type);
+                    else
+                        node->data_type = cloneDataType(resolved_variable_info->data_type);
+                }
             }
         }
 
         node = node->next;
     }
+}
+
+void checkAssignTypes(ASTNode *root)
+{
+    if(root == NULL || root->lhs == NULL || root->lhs->kind != AST_BLOCK)
+    {
+        printf("Type error: root should contain a top-level block\n");
+        exit(1);
+    }
+
+    checkAssignTypesInBlock(root->lhs, NULL);
 }
 
 #endif /* SEMANTIC_H */

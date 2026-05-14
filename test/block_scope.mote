@@ -1,0 +1,8 @@
+mut x: i32 = 1;
+{
+    x = 2;
+    y = x;
+    x: i64 = y;
+    z = x;
+}
+final_x = x;

@@ -17,7 +17,7 @@ typedef struct TypeSystemExprType {
     ASTDataType *data_type;
 } TypeSystemExprType;
 
-TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, int variable_count);
+TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope);
 
 TypeSystemExprType newValueExprType(ASTDataType *data_type)
 {
@@ -369,19 +369,19 @@ bool isAddressableExpr(ASTNode *node)
     return node->kind == AST_EXPR_VARIABLE || node->kind == AST_EXPR_DEREF;
 }
 
-bool isMutableAddressableExpr(ASTNode *node, VariableInfo *variable_infos, int variable_count)
+bool isMutableAddressableExpr(ASTNode *node, ScopeFrame *scope)
 {
     if(node->kind == AST_EXPR_VARIABLE)
     {
-        int variable_index = findVariableInfo(variable_infos, variable_count, node->identifier);
-        if(variable_index < 0)
+        VariableInfo *variable_info = findVariableInfo(scope, node->identifier);
+        if(variable_info == NULL)
             return false;
-        return variable_infos[variable_index].mutable;
+        return variable_info->mutable;
     }
 
     if(node->kind == AST_EXPR_DEREF)
     {
-        TypeSystemExprType ptr_type = inferExprType(node->lhs, variable_infos, variable_count);
+        TypeSystemExprType ptr_type = inferExprType(node->lhs, scope);
         if(ptr_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
             return false;
         if(ptr_type.data_type->kind == AST_DATA_TYPE_KIND_POINTER || ptr_type.data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
@@ -391,7 +391,7 @@ bool isMutableAddressableExpr(ASTNode *node, VariableInfo *variable_infos, int v
     return false;
 }
 
-TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, int variable_count)
+TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
 {
     switch(node->kind)
     {
@@ -404,23 +404,23 @@ TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, in
         case AST_EXPR_LITERAL_FLOAT:
             return newLiteralFloatExprType();
         case AST_EXPR_VARIABLE: {
-            int variable_index = findVariableInfo(variable_infos, variable_count, node->identifier);
-            if(variable_index < 0)
+            VariableInfo *variable_info = findVariableInfo(scope, node->identifier);
+            if(variable_info == NULL)
             {
                 printf("Type inference: undeclared variable %s at file %s, line %d, column %d\n",
                        node->identifier, node->filename, node->line_number, node->column_number);
                 exit(1);
             }
-            ASTDataType *variable_data_type = variable_infos[variable_index].data_type;
+            ASTDataType *variable_data_type = variable_info->data_type;
             if(variable_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
                 return newValueExprType(variable_data_type->child);
             return newValueExprType(variable_data_type);
         }
         case AST_EXPR_PARENTHESIS:
-            return inferExprType(node->lhs, variable_infos, variable_count);
+            return inferExprType(node->lhs, scope);
         case AST_EXPR_UNARY_PLUS:
         case AST_EXPR_UNARY_MINUS: {
-            TypeSystemExprType operand_type = inferExprType(node->lhs, variable_infos, variable_count);
+            TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
             if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
                 return newValueExprType(defaultIntegerDataType());
             if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
@@ -432,7 +432,7 @@ TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, in
             typeErrorUnaryOperator(node, node->kind == AST_EXPR_UNARY_PLUS ? "+" : "-", operand_type);
         } break;
         case AST_EXPR_UNARY_LOGICAL_NOT: {
-            TypeSystemExprType operand_type = inferExprType(node->lhs, variable_infos, variable_count);
+            TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
             if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
                operand_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
                isBoolPrimary(operand_type.data_type->primary))
@@ -440,7 +440,7 @@ TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, in
             typeErrorUnaryOperator(node, "!", operand_type);
         } break;
         case AST_EXPR_UNARY_BIT_NOT: {
-            TypeSystemExprType operand_type = inferExprType(node->lhs, variable_infos, variable_count);
+            TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
             if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
                 return newValueExprType(defaultIntegerDataType());
             if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
@@ -462,14 +462,14 @@ TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, in
                 exit(1);
             }
 
-            if(node->kind == AST_EXPR_ADDRESS_OF_MUT && !isMutableAddressableExpr(node->lhs, variable_infos, variable_count))
+            if(node->kind == AST_EXPR_ADDRESS_OF_MUT && !isMutableAddressableExpr(node->lhs, scope))
             {
                 printf("Type error: cannot take mutable address of immutable expression at file %s, line %d, column %d\n",
                        node->filename, node->line_number, node->column_number);
                 exit(1);
             }
 
-            TypeSystemExprType operand_type = inferExprType(node->lhs, variable_infos, variable_count);
+            TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
             if(operand_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
             {
                 printf("Type error: cannot take address of literal at file %s, line %d, column %d\n",
@@ -484,7 +484,7 @@ TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, in
             ));
         } break;
         case AST_EXPR_DEREF: {
-            TypeSystemExprType operand_type = inferExprType(node->lhs, variable_infos, variable_count);
+            TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
             if(operand_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
                (operand_type.data_type->kind != AST_DATA_TYPE_KIND_POINTER &&
                 operand_type.data_type->kind != AST_DATA_TYPE_KIND_REFERENCE))
@@ -498,8 +498,8 @@ TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, in
         case AST_EXPR_DIV:
         case AST_EXPR_ADD:
         case AST_EXPR_SUB: {
-            TypeSystemExprType lhs_type = inferExprType(node->lhs, variable_infos, variable_count);
-            TypeSystemExprType rhs_type = inferExprType(node->rhs, variable_infos, variable_count);
+            TypeSystemExprType lhs_type = inferExprType(node->lhs, scope);
+            TypeSystemExprType rhs_type = inferExprType(node->rhs, scope);
             const char *operator_name = "+";
             if(node->kind == AST_EXPR_MUL) operator_name = "*";
             else if(node->kind == AST_EXPR_DIV) operator_name = "/";
@@ -513,21 +513,21 @@ TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, in
         case AST_EXPR_BIT_OR:
         case AST_EXPR_BIT_XOR: {
             TypeSystemExprType common = getCommonNumericType(node,
-                inferExprType(node->lhs, variable_infos, variable_count),
-                inferExprType(node->rhs, variable_infos, variable_count),
+                inferExprType(node->lhs, scope),
+                inferExprType(node->rhs, scope),
                 node->kind == AST_EXPR_MOD ? "%" :
                 node->kind == AST_EXPR_SHIFT_LEFT ? "<<" :
                 node->kind == AST_EXPR_SHIFT_RIGHT ? ">>" :
                 node->kind == AST_EXPR_BIT_AND ? "&" :
                 node->kind == AST_EXPR_BIT_OR ? "|" : "^");
             if(common.data_type->kind != AST_DATA_TYPE_KIND_PRIMARY || !isIntegerPrimary(common.data_type->primary))
-                typeErrorBinaryOperator(node, "%", inferExprType(node->lhs, variable_infos, variable_count), inferExprType(node->rhs, variable_infos, variable_count));
+                typeErrorBinaryOperator(node, "%", inferExprType(node->lhs, scope), inferExprType(node->rhs, scope));
             return common;
         }
         case AST_EXPR_LOGICAL_AND:
         case AST_EXPR_LOGICAL_OR: {
-            TypeSystemExprType lhs_type = inferExprType(node->lhs, variable_infos, variable_count);
-            TypeSystemExprType rhs_type = inferExprType(node->rhs, variable_infos, variable_count);
+            TypeSystemExprType lhs_type = inferExprType(node->lhs, scope);
+            TypeSystemExprType rhs_type = inferExprType(node->rhs, scope);
             if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
                lhs_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY && rhs_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
                isBoolPrimary(lhs_type.data_type->primary) && isBoolPrimary(rhs_type.data_type->primary))
@@ -536,8 +536,8 @@ TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, in
         } break;
         case AST_EXPR_EQUAL:
         case AST_EXPR_NOT_EQUAL: {
-            TypeSystemExprType lhs_type = inferExprType(node->lhs, variable_infos, variable_count);
-            TypeSystemExprType rhs_type = inferExprType(node->rhs, variable_infos, variable_count);
+            TypeSystemExprType lhs_type = inferExprType(node->lhs, scope);
+            TypeSystemExprType rhs_type = inferExprType(node->rhs, scope);
             if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
                isSameDataType(lhs_type.data_type, rhs_type.data_type))
                 return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
@@ -550,8 +550,8 @@ TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, in
         case AST_EXPR_GREATER:
         case AST_EXPR_GREATER_EQUAL: {
             getCommonNumericType(node,
-                inferExprType(node->lhs, variable_infos, variable_count),
-                inferExprType(node->rhs, variable_infos, variable_count),
+                inferExprType(node->lhs, scope),
+                inferExprType(node->rhs, scope),
                 node->kind == AST_EXPR_LESS ? "<" :
                 node->kind == AST_EXPR_LESS_EQUAL ? "<=" :
                 node->kind == AST_EXPR_GREATER ? ">" : ">=");
@@ -563,9 +563,9 @@ TypeSystemExprType inferExprType(ASTNode *node, VariableInfo *variable_infos, in
     }
 }
 
-ASTDataType* inferDeclaredTypeFromExpr(ASTNode *expr, VariableInfo *variable_infos, int variable_count)
+ASTDataType* inferDeclaredTypeFromExpr(ASTNode *expr, ScopeFrame *scope)
 {
-    TypeSystemExprType expr_type = inferExprType(expr, variable_infos, variable_count);
+    TypeSystemExprType expr_type = inferExprType(expr, scope);
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
         return defaultIntegerDataType();
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)

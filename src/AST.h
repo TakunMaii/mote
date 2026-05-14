@@ -4,10 +4,13 @@
 #include <stdio.h>
 #include "Token.h"
 #include <stdbool.h>
+#include <string.h>
 
 typedef enum ASTNodeKind {
     AST_START_OF_CODE,
     AST_END_OF_CODE,
+    AST_BLOCK,
+    AST_STATEMENT_EXPR,
 
     AST_ASSIGN,// assign or decl
 
@@ -106,9 +109,8 @@ typedef struct ASTNode {
 ASTNode* newASTNode(ASTNodeKind kind)
 {
     ASTNode *node = (ASTNode*) malloc(sizeof(ASTNode));
+    memset(node, 0, sizeof(ASTNode));
     node->kind = kind;
-    node->next = NULL;
-    node->data_type = NULL;
     return node;
 }
 
@@ -167,6 +169,8 @@ const char* astNodeKindToString(ASTNodeKind kind)
     {
         case AST_START_OF_CODE: return "AST_START_OF_CODE";
         case AST_END_OF_CODE: return "AST_END_OF_CODE";
+        case AST_BLOCK: return "AST_BLOCK";
+        case AST_STATEMENT_EXPR: return "AST_STATEMENT_EXPR";
         case AST_ASSIGN: return "AST_ASSIGN";
         case AST_EXPR_LOGICAL_OR: return "AST_EXPR_LOGICAL_OR";
         case AST_EXPR_LOGICAL_AND: return "AST_EXPR_LOGICAL_AND";
@@ -284,6 +288,21 @@ void printASTNode(ASTNode node)
             printf(") = ");
             printASTNode(*(node.rhs));
             printf("\n");
+        } break;
+        case AST_BLOCK: {
+            printf("AST_BLOCK {\n");
+            ASTNode *stmt = node.lhs;
+            while(stmt)
+            {
+                printASTNode(*stmt);
+                stmt = stmt->next;
+            }
+            printf("}\n");
+        } break;
+        case AST_STATEMENT_EXPR: {
+            printf("AST_STATEMENT_EXPR(");
+            printASTNode(*(node.lhs));
+            printf(")\n");
         } break;
         case AST_EXPR_ADD: {
             printf("AST_EXPR_ADD(");
@@ -470,6 +489,8 @@ void printASTNode(ASTNode node)
         } break;
         case AST_START_OF_CODE: {
             printf("AST_START_OF_CODE\n");
+            if(node.lhs)
+                printASTNode(*(node.lhs));
         } break;
         case AST_END_OF_CODE: {
             printf("AST_END_OF_CODE\n");

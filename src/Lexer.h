@@ -288,6 +288,24 @@ Token* tokenize(char *code, const char* filename)
             code += 1;
             column += 1;
         }
+        else if(expectStr("{", 1, code)) {
+            token->next = newToken(TK_LEFT_BRACE, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("}", 1, code)) {
+            token->next = newToken(TK_RIGHT_BRACE, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr(",", 1, code)) {
+            token->next = newToken(TK_COMMA, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
         else if(expectStr(":", 1, code)) {
             token->next = newToken(TK_COLON, filename, line, column);
             token = token->next;

@@ -34,6 +34,9 @@ typedef enum {
     TK_RIGHT_SHIFT,
     TK_LEFT_PARENTHESIS,
     TK_RIGHT_PARENTHESIS,
+    TK_LEFT_BRACE,
+    TK_RIGHT_BRACE,
+    TK_COMMA,
     TK_COLON,
     TK_EQUAL,
     TK_SEMICOLON,
@@ -122,6 +125,9 @@ const char* tokenKindToString(TokenKind kind)
         case TK_RIGHT_SHIFT: return "TK_RIGHT_SHIFT";
         case TK_LEFT_PARENTHESIS: return "TK_LEFT_PARENTHESIS";
         case TK_RIGHT_PARENTHESIS: return "TK_RIGHT_PARENTHESIS";
+        case TK_LEFT_BRACE: return "TK_LEFT_BRACE";
+        case TK_RIGHT_BRACE: return "TK_RIGHT_BRACE";
+        case TK_COMMA: return "TK_COMMA";
         case TK_COLON: return "TK_COLON";
         case TK_EQUAL: return "TK_EQUAL";
         case TK_SEMICOLON: return "TK_SEMICOLON";
@@ -167,6 +173,9 @@ void printToken(Token token)
         case TK_RIGHT_SHIFT: {printf("TK_RIGHT_SHIFT\n");}break;
         case TK_LEFT_PARENTHESIS: {printf("TK_LEFT_PARENTHESIS\n");}break;
         case TK_RIGHT_PARENTHESIS: {printf("TK_RIGHT_PARENTHESIS\n");}break;
+        case TK_LEFT_BRACE: {printf("TK_LEFT_BRACE\n");}break;
+        case TK_RIGHT_BRACE: {printf("TK_RIGHT_BRACE\n");}break;
+        case TK_COMMA: {printf("TK_COMMA\n");}break;
         case TK_COLON: {printf("TK_COLON\n");}break;
         case TK_SEMICOLON: {printf("TK_SEMICOLON\n");}break;
         case TK_IDENTIFIER: {printf("TK_IDENTIFIER: %s\n", token.identifier);}break;
