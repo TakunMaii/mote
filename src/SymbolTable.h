@@ -6,7 +6,7 @@
 
 typedef struct VariableInfo {
     bool mutable;
-    ASTDataType data_type;
+    ASTDataType *data_type;
     char identifier[MAX_IDENTIFIER_LENGTH];
 } VariableInfo;
 

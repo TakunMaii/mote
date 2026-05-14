@@ -1,0 +1,29 @@
+// 声明一个结构体类型和声明变量、声明函数在语法上是很接近的（相当于把结构体类型看作一个表达式）
+// 这个做法和zig比较像
+Vec2 = struct {
+    x: f32,
+    y: f32,
+
+    new: fn(x: i32, y: i32) Vec2 {
+        return Vec2{
+            .x = x,
+            .y = y,//逗号可选
+        };
+    },
+
+    // Self关键字代表本类型，第一个参数是Self, &Self, &mut Self, *Self, *mut Self的时候，调用成员函数时会自动填充
+    // 当然，只有对象本身是mut的才能调用这个函数（因为参数需要&mut）
+    add: fn(self: &mut Self, other: Vec2) void {
+        //依赖于self是&mut的，
+        self.x = self.x + other.x;
+        self.y = self.y + other.y;
+    },//逗号是可选的
+};
+
+v1 : Vec2 = Vec2 {.x = 0, .y = 0};
+mut v2 : Vec2 = Vec2.new(1,1);
+v2.add(v1);
+
+//另外结构体的指针调用成员时可以自动解指针
+v2_ptr: *mut Vec2 = &v2;
+v2_ptr.x = 2;

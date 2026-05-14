@@ -33,6 +33,9 @@ typedef enum ASTNodeKind {
     AST_EXPR_UNARY_MINUS,
     AST_EXPR_UNARY_LOGICAL_NOT,
     AST_EXPR_UNARY_BIT_NOT,
+    AST_EXPR_ADDRESS_OF,
+    AST_EXPR_ADDRESS_OF_MUT,
+    AST_EXPR_DEREF,
     AST_EXPR_PARENTHESIS,
     AST_EXPR_VARIABLE,
     AST_EXPR_LITERAL_BOOL,
@@ -41,22 +44,35 @@ typedef enum ASTNodeKind {
     AST_EXPR_LITERAL_FLOAT,
 } ASTNodeKind;
 
-typedef enum ASTDataType {
-    AST_DATA_TYPE_INFER,
-    AST_DATA_TYPE_I8,
-    AST_DATA_TYPE_I16,
-    AST_DATA_TYPE_I32,
-    AST_DATA_TYPE_I64,
-    AST_DATA_TYPE_U8,
-    AST_DATA_TYPE_U16,
-    AST_DATA_TYPE_U32,
-    AST_DATA_TYPE_U64,
-    AST_DATA_TYPE_F8,
-    AST_DATA_TYPE_F16,
-    AST_DATA_TYPE_F32,
-    AST_DATA_TYPE_F64,
-    AST_DATA_TYPE_CHAR,
-    AST_DATA_TYPE_BOOL,
+typedef enum ASTPrimaryDataType {
+    AST_PRIMARY_DATA_TYPE_I8,
+    AST_PRIMARY_DATA_TYPE_I16,
+    AST_PRIMARY_DATA_TYPE_I32,
+    AST_PRIMARY_DATA_TYPE_I64,
+    AST_PRIMARY_DATA_TYPE_U8,
+    AST_PRIMARY_DATA_TYPE_U16,
+    AST_PRIMARY_DATA_TYPE_U32,
+    AST_PRIMARY_DATA_TYPE_U64,
+    AST_PRIMARY_DATA_TYPE_F8,
+    AST_PRIMARY_DATA_TYPE_F16,
+    AST_PRIMARY_DATA_TYPE_F32,
+    AST_PRIMARY_DATA_TYPE_F64,
+    AST_PRIMARY_DATA_TYPE_CHAR,
+    AST_PRIMARY_DATA_TYPE_BOOL,
+} ASTPrimaryDataType;
+
+typedef enum ASTDataTypeKind {
+    AST_DATA_TYPE_KIND_INFER,
+    AST_DATA_TYPE_KIND_PRIMARY,
+    AST_DATA_TYPE_KIND_POINTER,
+    AST_DATA_TYPE_KIND_REFERENCE,
+} ASTDataTypeKind;
+
+typedef struct ASTDataType {
+    ASTDataTypeKind kind;
+    bool mutable;
+    ASTPrimaryDataType primary;
+    struct ASTDataType *child;
 } ASTDataType;
 
 typedef struct {
@@ -82,7 +98,7 @@ typedef struct ASTNode {
 
     // assign or decl
     ASTAssignModifier modifier;
-    ASTDataType data_type;
+    ASTDataType *data_type;
     char identifier[MAX_IDENTIFIER_LENGTH];
 
 } ASTNode;
@@ -92,6 +108,7 @@ ASTNode* newASTNode(ASTNodeKind kind)
     ASTNode *node = (ASTNode*) malloc(sizeof(ASTNode));
     node->kind = kind;
     node->next = NULL;
+    node->data_type = NULL;
     return node;
 }
 
@@ -102,6 +119,46 @@ ASTNode* newASTNodeFromToken(ASTNodeKind kind, Token *token)
     node->line_number = token->line_number;
     node->column_number = token->column_number;
     return node;
+}
+
+ASTDataType* newInferDataType()
+{
+    ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    data_type->kind = AST_DATA_TYPE_KIND_INFER;
+    data_type->mutable = false;
+    data_type->child = NULL;
+    return data_type;
+}
+
+ASTDataType* newPrimaryDataType(ASTPrimaryDataType primary)
+{
+    ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    data_type->kind = AST_DATA_TYPE_KIND_PRIMARY;
+    data_type->mutable = false;
+    data_type->primary = primary;
+    data_type->child = NULL;
+    return data_type;
+}
+
+ASTDataType* newWrappedDataType(ASTDataTypeKind kind, bool mutable, ASTDataType *child)
+{
+    ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    data_type->kind = kind;
+    data_type->mutable = mutable;
+    data_type->child = child;
+    return data_type;
+}
+
+ASTDataType* cloneDataType(ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        return NULL;
+
+    ASTDataType *new_data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    *new_data_type = *data_type;
+    if(data_type->child)
+        new_data_type->child = cloneDataType(data_type->child);
+    return new_data_type;
 }
 
 const char* astNodeKindToString(ASTNodeKind kind)
@@ -133,6 +190,9 @@ const char* astNodeKindToString(ASTNodeKind kind)
         case AST_EXPR_UNARY_MINUS: return "AST_EXPR_UNARY_MINUS";
         case AST_EXPR_UNARY_LOGICAL_NOT: return "AST_EXPR_UNARY_LOGICAL_NOT";
         case AST_EXPR_UNARY_BIT_NOT: return "AST_EXPR_UNARY_BIT_NOT";
+        case AST_EXPR_ADDRESS_OF: return "AST_EXPR_ADDRESS_OF";
+        case AST_EXPR_ADDRESS_OF_MUT: return "AST_EXPR_ADDRESS_OF_MUT";
+        case AST_EXPR_DEREF: return "AST_EXPR_DEREF";
         case AST_EXPR_PARENTHESIS: return "AST_EXPR_PARENTHESIS";
         case AST_EXPR_VARIABLE: return "AST_EXPR_VARIABLE";
         case AST_EXPR_LITERAL_BOOL: return "AST_EXPR_LITERAL_BOOL";
@@ -145,27 +205,60 @@ const char* astNodeKindToString(ASTNodeKind kind)
     }
 }
 
-const char* astDataTypeToString(ASTDataType data_type)
+const char* astPrimaryDataTypeToString(ASTPrimaryDataType primary)
 {
-    switch(data_type)
+    switch(primary)
     {
-        case AST_DATA_TYPE_INFER: return "infer";
-        case AST_DATA_TYPE_I8: return "i8";
-        case AST_DATA_TYPE_I16: return "i16";
-        case AST_DATA_TYPE_I32: return "i32";
-        case AST_DATA_TYPE_I64: return "i64";
-        case AST_DATA_TYPE_U8: return "u8";
-        case AST_DATA_TYPE_U16: return "u16";
-        case AST_DATA_TYPE_U32: return "u32";
-        case AST_DATA_TYPE_U64: return "u64";
-        case AST_DATA_TYPE_F8: return "f8";
-        case AST_DATA_TYPE_F16: return "f16";
-        case AST_DATA_TYPE_F32: return "f32";
-        case AST_DATA_TYPE_F64: return "f64";
-        case AST_DATA_TYPE_CHAR: return "char";
-        case AST_DATA_TYPE_BOOL: return "bool";
+        case AST_PRIMARY_DATA_TYPE_I8: return "i8";
+        case AST_PRIMARY_DATA_TYPE_I16: return "i16";
+        case AST_PRIMARY_DATA_TYPE_I32: return "i32";
+        case AST_PRIMARY_DATA_TYPE_I64: return "i64";
+        case AST_PRIMARY_DATA_TYPE_U8: return "u8";
+        case AST_PRIMARY_DATA_TYPE_U16: return "u16";
+        case AST_PRIMARY_DATA_TYPE_U32: return "u32";
+        case AST_PRIMARY_DATA_TYPE_U64: return "u64";
+        case AST_PRIMARY_DATA_TYPE_F8: return "f8";
+        case AST_PRIMARY_DATA_TYPE_F16: return "f16";
+        case AST_PRIMARY_DATA_TYPE_F32: return "f32";
+        case AST_PRIMARY_DATA_TYPE_F64: return "f64";
+        case AST_PRIMARY_DATA_TYPE_CHAR: return "char";
+        case AST_PRIMARY_DATA_TYPE_BOOL: return "bool";
         default:
-            printf("astDataTypeToString: unknown AST data type\n");
+            printf("astPrimaryDataTypeToString: unknown AST primary data type\n");
+            exit(1);
+    }
+}
+
+void printASTDataType(ASTDataType *data_type)
+{
+    if(data_type == NULL)
+    {
+        printf("<null type>");
+        return;
+    }
+
+    switch(data_type->kind)
+    {
+        case AST_DATA_TYPE_KIND_INFER: {
+            printf("infer");
+        } break;
+        case AST_DATA_TYPE_KIND_PRIMARY: {
+            printf("%s", astPrimaryDataTypeToString(data_type->primary));
+        } break;
+        case AST_DATA_TYPE_KIND_POINTER: {
+            printf("*");
+            if(data_type->mutable)
+                printf("mut ");
+            printASTDataType(data_type->child);
+        } break;
+        case AST_DATA_TYPE_KIND_REFERENCE: {
+            printf("&");
+            if(data_type->mutable)
+                printf("mut ");
+            printASTDataType(data_type->child);
+        } break;
+        default:
+            printf("printASTDataType: unknown AST data type kind\n");
             exit(1);
     }
 }
@@ -183,8 +276,12 @@ void printASTNode(ASTNode node)
     switch(node.kind)
     {
         case AST_ASSIGN: {
-            printf("AST_ASSIGN: modifier(%s) idenifier(%s) type(%s) = ",
-                modifierToString(node.modifier), node.identifier, astDataTypeToString(node.data_type));
+            printf("AST_ASSIGN: modifier(%s) lhs(",
+                modifierToString(node.modifier));
+            printASTNode(*(node.lhs));
+            printf(") type(");
+            printASTDataType(node.data_type);
+            printf(") = ");
             printASTNode(*(node.rhs));
             printf("\n");
         } break;
@@ -331,6 +428,21 @@ void printASTNode(ASTNode node)
         } break;
         case AST_EXPR_UNARY_BIT_NOT: {
             printf("AST_EXPR_UNARY_BIT_NOT(~");
+            printASTNode(*(node.lhs));
+            printf(")");
+        } break;
+        case AST_EXPR_ADDRESS_OF: {
+            printf("AST_EXPR_ADDRESS_OF(&");
+            printASTNode(*(node.lhs));
+            printf(")");
+        } break;
+        case AST_EXPR_ADDRESS_OF_MUT: {
+            printf("AST_EXPR_ADDRESS_OF_MUT(&mut ");
+            printASTNode(*(node.lhs));
+            printf(")");
+        } break;
+        case AST_EXPR_DEREF: {
+            printf("AST_EXPR_DEREF(*");
             printASTNode(*(node.lhs));
             printf(")");
         } break;
