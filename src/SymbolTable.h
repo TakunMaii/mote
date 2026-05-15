@@ -19,6 +19,8 @@ typedef struct FunctionContext {
     struct FunctionContext *parent;
     ASTDataType *return_data_type;
     ASTDataType *self_data_type;
+    int loop_depth;
+    bool inside_defer;
 } FunctionContext;
 
 typedef struct ScopeFrame {

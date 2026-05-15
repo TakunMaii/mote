@@ -1,0 +1,27 @@
+max = fn(a: i32, b: i32) i32 {
+    if(a > b) {
+        return a;
+    } else {
+        return b;
+    }
+};
+
+pick_flag = fn(flag: bool, x: i32, y: i32) i32 {
+    if(flag)
+        return x;
+    else
+        return y;
+};
+
+mut left: i32 = 3;
+mut right: i32 = 5;
+winner = max(left, right);
+flag = true;
+
+if(flag) {
+    left = left + 1;
+} else {
+    left = left - 1;
+}
+
+selected = pick_flag(flag, left, right);

@@ -1,0 +1,15 @@
+cleanup = fn(value: &mut i32) void {
+    defer value = value + 100;
+    defer {
+        value = value + 10;
+    }
+
+    if(value > 0) {
+        defer value = value + 1000;
+    }
+
+    value = value + 1;
+};
+
+mut x: i32 = 1;
+cleanup(x);

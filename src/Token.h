@@ -13,6 +13,14 @@ typedef enum {
     TK_STRUCT,
     TK_ENUM,
     TK_RETURN,
+    TK_IF,
+    TK_ELSE,
+    TK_FOR,
+    TK_WHILE,
+    TK_DO,
+    TK_BREAK,
+    TK_CONTINUE,
+    TK_DEFER,
     TK_VOID,
     TK_TRUE,
     TK_FALSE,
@@ -111,6 +119,14 @@ const char* tokenKindToString(TokenKind kind)
         case TK_ENUM: return "TK_ENUM";
         case TK_STRUCT: return "TK_STRUCT";
         case TK_RETURN: return "TK_RETURN";
+        case TK_IF: return "TK_IF";
+        case TK_ELSE: return "TK_ELSE";
+        case TK_FOR: return "TK_FOR";
+        case TK_WHILE: return "TK_WHILE";
+        case TK_DO: return "TK_DO";
+        case TK_BREAK: return "TK_BREAK";
+        case TK_CONTINUE: return "TK_CONTINUE";
+        case TK_DEFER: return "TK_DEFER";
         case TK_VOID: return "TK_VOID";
         case TK_TRUE: return "TK_TRUE";
         case TK_FALSE: return "TK_FALSE";
@@ -164,6 +180,14 @@ void printToken(Token token)
         case TK_ENUM: {printf("TK_ENUM\n");}break;
         case TK_STRUCT: {printf("TK_STRUCT\n");}break;
         case TK_RETURN: {printf("TK_RETURN\n");}break;
+        case TK_IF: {printf("TK_IF\n");}break;
+        case TK_ELSE: {printf("TK_ELSE\n");}break;
+        case TK_FOR: {printf("TK_FOR\n");}break;
+        case TK_WHILE: {printf("TK_WHILE\n");}break;
+        case TK_DO: {printf("TK_DO\n");}break;
+        case TK_BREAK: {printf("TK_BREAK\n");}break;
+        case TK_CONTINUE: {printf("TK_CONTINUE\n");}break;
+        case TK_DEFER: {printf("TK_DEFER\n");}break;
         case TK_VOID: {printf("TK_VOID\n");}break;
         case TK_TRUE: {printf("TK_TRUE\n");}break;
         case TK_FALSE: {printf("TK_FALSE\n");}break;

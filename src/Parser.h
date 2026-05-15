@@ -114,6 +114,8 @@ ASTNode* parseStatement(Token **token);
 ASTNode* parseBlock(Token **token);
 ASTNode* parseEnumExpr(Token **token);
 ASTNode* parseStructExpr(Token **token);
+ASTNode* parseSimpleAssignNoSemicolon(Token **token);
+ASTNode* parseExprStatementNoSemicolon(Token **token);
 
 ASTNode* parseLiteralValue(Token **token)
 {
@@ -729,6 +731,16 @@ ASTNode* parseEnumExpr(Token **token)
 
 ASTNode* parseAssign(Token **token)
 {
+    ASTNode *node = parseSimpleAssignNoSemicolon(token);
+
+    expectToken(*token, TK_SEMICOLON);
+    (*token) = (*token)->next;
+
+    return node;
+}
+
+ASTNode* parseSimpleAssignNoSemicolon(Token **token)
+{
     ASTNode *node = newASTNodeFromToken(AST_ASSIGN, *token);
 
     node->modifier = parseModifier(token);
@@ -746,9 +758,6 @@ ASTNode* parseAssign(Token **token)
     expectToken(*token, TK_EQUAL);
     (*token) = (*token)->next;
     node->rhs = parseExpr(token);
-
-    expectToken(*token, TK_SEMICOLON);
-    (*token) = (*token)->next;
 
     return node;
 }
@@ -769,12 +778,145 @@ ASTNode* parseReturnStatement(Token **token)
 
 ASTNode* parseExprStatement(Token **token)
 {
-    ASTNode *node = newASTNodeFromToken(AST_STATEMENT_EXPR, *token);
-    node->lhs = parseExpr(token);
+    ASTNode *node = parseExprStatementNoSemicolon(token);
 
     expectToken(*token, TK_SEMICOLON);
     (*token) = (*token)->next;
 
+    return node;
+}
+
+ASTNode* parseExprStatementNoSemicolon(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_STATEMENT_EXPR, *token);
+    node->lhs = parseExpr(token);
+
+    return node;
+}
+
+ASTNode* parseParenCondition(Token **token)
+{
+    expectToken(*token, TK_LEFT_PARENTHESIS);
+    (*token) = (*token)->next;
+
+    ASTNode *condition = parseExpr(token);
+
+    expectToken(*token, TK_RIGHT_PARENTHESIS);
+    (*token) = (*token)->next;
+
+    return condition;
+}
+
+ASTNode* parseIfStatement(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_STATEMENT_IF, *token);
+    expectToken(*token, TK_IF);
+    (*token) = (*token)->next;
+
+    node->lhs = parseParenCondition(token);
+    node->rhs = parseStatement(token);
+
+    if((*token)->kind == TK_ELSE)
+    {
+        (*token) = (*token)->next;
+        node->body = parseStatement(token);
+    }
+
+    return node;
+}
+
+ASTNode* parseWhileStatement(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_STATEMENT_WHILE, *token);
+    expectToken(*token, TK_WHILE);
+    (*token) = (*token)->next;
+
+    node->lhs = parseParenCondition(token);
+    node->body = parseStatement(token);
+    return node;
+}
+
+ASTNode* parseDoWhileStatement(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_STATEMENT_DO_WHILE, *token);
+    expectToken(*token, TK_DO);
+    (*token) = (*token)->next;
+
+    node->body = parseStatement(token);
+
+    expectToken(*token, TK_WHILE);
+    (*token) = (*token)->next;
+    node->lhs = parseParenCondition(token);
+
+    expectToken(*token, TK_SEMICOLON);
+    (*token) = (*token)->next;
+    return node;
+}
+
+ASTNode* parseBreakStatement(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_STATEMENT_BREAK, *token);
+    expectToken(*token, TK_BREAK);
+    (*token) = (*token)->next;
+
+    expectToken(*token, TK_SEMICOLON);
+    (*token) = (*token)->next;
+    return node;
+}
+
+ASTNode* parseContinueStatement(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_STATEMENT_CONTINUE, *token);
+    expectToken(*token, TK_CONTINUE);
+    (*token) = (*token)->next;
+
+    expectToken(*token, TK_SEMICOLON);
+    (*token) = (*token)->next;
+    return node;
+}
+
+ASTNode* parseDeferStatement(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_STATEMENT_DEFER, *token);
+    expectToken(*token, TK_DEFER);
+    (*token) = (*token)->next;
+
+    node->lhs = parseStatement(token);
+    return node;
+}
+
+ASTNode* parseForClause(Token **token)
+{
+    if(isStatementAssign(*token))
+        return parseSimpleAssignNoSemicolon(token);
+    return parseExprStatementNoSemicolon(token);
+}
+
+ASTNode* parseForStatement(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_STATEMENT_FOR, *token);
+    expectToken(*token, TK_FOR);
+    (*token) = (*token)->next;
+
+    expectToken(*token, TK_LEFT_PARENTHESIS);
+    (*token) = (*token)->next;
+
+    if((*token)->kind != TK_SEMICOLON)
+        node->lhs = parseForClause(token);
+    expectToken(*token, TK_SEMICOLON);
+    (*token) = (*token)->next;
+
+    if((*token)->kind != TK_SEMICOLON)
+        node->rhs = parseExpr(token);
+    expectToken(*token, TK_SEMICOLON);
+    (*token) = (*token)->next;
+
+    if((*token)->kind != TK_RIGHT_PARENTHESIS)
+        node->extra = parseForClause(token);
+    expectToken(*token, TK_RIGHT_PARENTHESIS);
+    (*token) = (*token)->next;
+
+    node->body = parseStatement(token);
     return node;
 }
 
@@ -785,6 +927,27 @@ ASTNode* parseStatement(Token **token)
 
     if((*token)->kind == TK_RETURN)
         return parseReturnStatement(token);
+
+    if((*token)->kind == TK_IF)
+        return parseIfStatement(token);
+
+    if((*token)->kind == TK_WHILE)
+        return parseWhileStatement(token);
+
+    if((*token)->kind == TK_DO)
+        return parseDoWhileStatement(token);
+
+    if((*token)->kind == TK_FOR)
+        return parseForStatement(token);
+
+    if((*token)->kind == TK_BREAK)
+        return parseBreakStatement(token);
+
+    if((*token)->kind == TK_CONTINUE)
+        return parseContinueStatement(token);
+
+    if((*token)->kind == TK_DEFER)
+        return parseDeferStatement(token);
 
     if(isStatementAssign(*token))
         return parseAssign(token);

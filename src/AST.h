@@ -12,6 +12,13 @@ typedef enum ASTNodeKind {
     AST_BLOCK,
     AST_STATEMENT_EXPR,
     AST_STATEMENT_RETURN,
+    AST_STATEMENT_IF,
+    AST_STATEMENT_WHILE,
+    AST_STATEMENT_DO_WHILE,
+    AST_STATEMENT_FOR,
+    AST_STATEMENT_BREAK,
+    AST_STATEMENT_CONTINUE,
+    AST_STATEMENT_DEFER,
 
     AST_ASSIGN,// assign or decl
 
@@ -151,6 +158,7 @@ struct ASTNode {
 
     struct ASTNode *lhs;// parenthesis, binary expr use this as left hand side
     struct ASTNode *rhs;// assign or decl use this as expr
+    struct ASTNode *extra;// else branch or for update clause
 
     // literal value
     bool literal_bool;
@@ -386,6 +394,13 @@ const char* astNodeKindToString(ASTNodeKind kind)
         case AST_BLOCK: return "AST_BLOCK";
         case AST_STATEMENT_EXPR: return "AST_STATEMENT_EXPR";
         case AST_STATEMENT_RETURN: return "AST_STATEMENT_RETURN";
+        case AST_STATEMENT_IF: return "AST_STATEMENT_IF";
+        case AST_STATEMENT_WHILE: return "AST_STATEMENT_WHILE";
+        case AST_STATEMENT_DO_WHILE: return "AST_STATEMENT_DO_WHILE";
+        case AST_STATEMENT_FOR: return "AST_STATEMENT_FOR";
+        case AST_STATEMENT_BREAK: return "AST_STATEMENT_BREAK";
+        case AST_STATEMENT_CONTINUE: return "AST_STATEMENT_CONTINUE";
+        case AST_STATEMENT_DEFER: return "AST_STATEMENT_DEFER";
         case AST_ASSIGN: return "AST_ASSIGN";
         case AST_EXPR_FUNCTION: return "AST_EXPR_FUNCTION";
         case AST_EXPR_ENUM: return "AST_EXPR_ENUM";
@@ -603,6 +618,65 @@ void printASTNode(ASTNode node)
                 printASTNode(*(node.lhs));
             else
                 printf("void");
+            printf(")\n");
+        } break;
+        case AST_STATEMENT_IF: {
+            printf("AST_STATEMENT_IF(cond(");
+            printASTNode(*(node.lhs));
+            printf(") then(");
+            printASTNode(*(node.rhs));
+            printf(")");
+            if(node.body)
+            {
+                printf(" else(");
+                printASTNode(*(node.body));
+                printf(")");
+            }
+            printf("\n");
+        } break;
+        case AST_STATEMENT_WHILE: {
+            printf("AST_STATEMENT_WHILE(cond(");
+            printASTNode(*(node.lhs));
+            printf(") body(");
+            printASTNode(*(node.body));
+            printf("))\n");
+        } break;
+        case AST_STATEMENT_DO_WHILE: {
+            printf("AST_STATEMENT_DO_WHILE(body(");
+            printASTNode(*(node.body));
+            printf(") cond(");
+            printASTNode(*(node.lhs));
+            printf("))\n");
+        } break;
+        case AST_STATEMENT_FOR: {
+            printf("AST_STATEMENT_FOR(init(");
+            if(node.lhs)
+                printASTNode(*(node.lhs));
+            else
+                printf("empty");
+            printf(") cond(");
+            if(node.rhs)
+                printASTNode(*(node.rhs));
+            else
+                printf("empty");
+            printf(") post(");
+            if(node.extra)
+                printASTNode(*(node.extra));
+            else
+                printf("empty");
+            printf(") body(");
+            printASTNode(*(node.body));
+            printf("))\n");
+        } break;
+        case AST_STATEMENT_BREAK: {
+            printf("AST_STATEMENT_BREAK\n");
+        } break;
+        case AST_STATEMENT_CONTINUE: {
+            printf("AST_STATEMENT_CONTINUE\n");
+        } break;
+        case AST_STATEMENT_DEFER: {
+            printf("AST_STATEMENT_DEFER(");
+            printASTNode(*(node.lhs));
             printf(")\n");
         } break;
         case AST_EXPR_FUNCTION: {

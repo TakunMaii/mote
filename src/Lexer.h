@@ -160,6 +160,70 @@ Token* tokenize(char *code, const char* filename)
             code += 6;
             column += 6;
         }
+        else if(expectStr("if", 2, code)) {
+            if(isIdentifier(code[2]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_IF, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
+        }
+        else if(expectStr("else", 4, code)) {
+            if(isIdentifier(code[4]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_ELSE, filename, line, column);
+            token = token->next;
+            code += 4;
+            column += 4;
+        }
+        else if(expectStr("for", 3, code)) {
+            if(isIdentifier(code[3]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_FOR, filename, line, column);
+            token = token->next;
+            code += 3;
+            column += 3;
+        }
+        else if(expectStr("while", 5, code)) {
+            if(isIdentifier(code[5]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_WHILE, filename, line, column);
+            token = token->next;
+            code += 5;
+            column += 5;
+        }
+        else if(expectStr("do", 2, code)) {
+            if(isIdentifier(code[2]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_DO, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
+        }
+        else if(expectStr("break", 5, code)) {
+            if(isIdentifier(code[5]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_BREAK, filename, line, column);
+            token = token->next;
+            code += 5;
+            column += 5;
+        }
+        else if(expectStr("continue", 8, code)) {
+            if(isIdentifier(code[8]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_CONTINUE, filename, line, column);
+            token = token->next;
+            code += 8;
+            column += 8;
+        }
+        else if(expectStr("defer", 5, code)) {
+            if(isIdentifier(code[5]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_DEFER, filename, line, column);
+            token = token->next;
+            code += 5;
+            column += 5;
+        }
         else if(expectStr("void", 4, code)) {
             if(isIdentifier(code[4]))
                 goto tokenize_identifier;
