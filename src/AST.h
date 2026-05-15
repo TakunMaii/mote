@@ -25,9 +25,11 @@ typedef enum ASTNodeKind {
     AST_EXPR_FUNCTION,
     AST_EXPR_ENUM,
     AST_EXPR_STRUCT,
+    AST_EXPR_ARRAY_LITERAL,
     AST_EXPR_STRUCT_LITERAL,
     AST_EXPR_CALL,
     AST_EXPR_MEMBER,
+    AST_EXPR_INDEX,
     AST_EXPR_LOGICAL_OR,
     AST_EXPR_LOGICAL_AND,
     AST_EXPR_BIT_OR,
@@ -88,6 +90,7 @@ typedef enum ASTDataTypeKind {
     AST_DATA_TYPE_KIND_REFERENCE,
     AST_DATA_TYPE_KIND_FUNCTION,
     AST_DATA_TYPE_KIND_NAMED,
+    AST_DATA_TYPE_KIND_ARRAY,
     AST_DATA_TYPE_KIND_APPLY,
     AST_DATA_TYPE_KIND_ENUM,
     AST_DATA_TYPE_KIND_STRUCT,
@@ -118,6 +121,7 @@ typedef struct ASTDataType {
     struct ASTDataType *child;
     struct ASTDataType *callee;
     ASTTypeArgument *arguments;
+    long long int array_length;
     ASTFunctionParameter *parameters;
     struct ASTDataType *return_data_type;
     ASTStructMember *members;
@@ -270,6 +274,16 @@ ASTDataType* newAppliedDataType(ASTDataType *callee, ASTTypeArgument *arguments)
     data_type->kind = AST_DATA_TYPE_KIND_APPLY;
     data_type->callee = callee;
     data_type->arguments = arguments;
+    return data_type;
+}
+
+ASTDataType* newArrayDataType(ASTDataType *element_type, long long int length)
+{
+    ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    memset(data_type, 0, sizeof(ASTDataType));
+    data_type->kind = AST_DATA_TYPE_KIND_ARRAY;
+    data_type->child = element_type;
+    data_type->array_length = length;
     return data_type;
 }
 
@@ -496,9 +510,11 @@ const char* astNodeKindToString(ASTNodeKind kind)
         case AST_EXPR_FUNCTION: return "AST_EXPR_FUNCTION";
         case AST_EXPR_ENUM: return "AST_EXPR_ENUM";
         case AST_EXPR_STRUCT: return "AST_EXPR_STRUCT";
+        case AST_EXPR_ARRAY_LITERAL: return "AST_EXPR_ARRAY_LITERAL";
         case AST_EXPR_STRUCT_LITERAL: return "AST_EXPR_STRUCT_LITERAL";
         case AST_EXPR_CALL: return "AST_EXPR_CALL";
         case AST_EXPR_MEMBER: return "AST_EXPR_MEMBER";
+        case AST_EXPR_INDEX: return "AST_EXPR_INDEX";
         case AST_EXPR_LOGICAL_OR: return "AST_EXPR_LOGICAL_OR";
         case AST_EXPR_LOGICAL_AND: return "AST_EXPR_LOGICAL_AND";
         case AST_EXPR_BIT_OR: return "AST_EXPR_BIT_OR";
@@ -671,6 +687,11 @@ void printASTDataType(ASTDataType *data_type)
         case AST_DATA_TYPE_KIND_NAMED: {
             printf("%s", data_type->identifier);
         } break;
+        case AST_DATA_TYPE_KIND_ARRAY: {
+            printf("Array(");
+            printASTDataType(data_type->child);
+            printf(", %lld)", data_type->array_length);
+        } break;
         case AST_DATA_TYPE_KIND_APPLY: {
             printASTDataType(data_type->callee);
             printf("(");
@@ -831,6 +852,18 @@ void printASTNode(ASTNode node)
             printStructMembers(node.members);
             printf("}");
         } break;
+        case AST_EXPR_ARRAY_LITERAL: {
+            printf("AST_EXPR_ARRAY_LITERAL([");
+            ASTNode *element = node.lhs;
+            while(element)
+            {
+                printASTNode(*element);
+                element = element->next;
+                if(element)
+                    printf(", ");
+            }
+            printf("])");
+        } break;
         case AST_EXPR_STRUCT_LITERAL: {
             printf("AST_EXPR_STRUCT_LITERAL(");
             printASTNode(*(node.lhs));
@@ -864,6 +897,13 @@ void printASTNode(ASTNode node)
             printf("AST_EXPR_MEMBER(");
             printASTNode(*(node.lhs));
             printf(".%s)", node.identifier);
+        } break;
+        case AST_EXPR_INDEX: {
+            printf("AST_EXPR_INDEX(");
+            printASTNode(*(node.lhs));
+            printf("[");
+            printASTNode(*(node.rhs));
+            printf("])");
         } break;
         case AST_EXPR_ADD: {
             printf("AST_EXPR_ADD(");

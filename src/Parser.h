@@ -19,6 +19,7 @@ Token* expectToken(Token* token, TokenKind kind)
 }
 
 ASTDataType* parseTypeExpr(Token **token);
+ASTDataType* parseDataType(Token **token);
 ASTTypeArgument* parseTypeArgumentList(Token **token);
 ASTFunctionCapture* parseFunctionCaptures(Token **token);
 
@@ -85,6 +86,22 @@ ASTDataType* parsePrimaryDataType(Token **token)
         expectToken(*token, TK_RIGHT_PARENTHESIS);
         (*token) = (*token)->next;
         return newFunctionDataType(parameters, return_data_type);
+    }
+    else if(strcmp(identifier, "Array") == 0)
+    {
+        (*token) = (*token)->next;
+
+        expectToken(*token, TK_LEFT_PARENTHESIS);
+        (*token) = (*token)->next;
+        ASTDataType *element_type = parseDataType(token);
+        expectToken(*token, TK_COMMA);
+        (*token) = (*token)->next;
+        Token *length_token = expectToken(*token, TK_LITERAL_INTEGER);
+        long long int array_length = length_token->literal_integer;
+        (*token) = (*token)->next;
+        expectToken(*token, TK_RIGHT_PARENTHESIS);
+        (*token) = (*token)->next;
+        return newArrayDataType(element_type, array_length);
     }
     else if(strcmp(identifier, "i8") == 0)
         primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I8);
@@ -198,6 +215,7 @@ ASTNode* parseStatement(Token **token);
 ASTNode* parseBlock(Token **token);
 ASTNode* parseEnumExpr(Token **token);
 ASTNode* parseStructExpr(Token **token);
+ASTNode* parseArrayLiteral(Token **token);
 ASTNode* parseSimpleAssignNoSemicolon(Token **token);
 ASTNode* parseExprStatementNoSemicolon(Token **token);
 
@@ -411,6 +429,9 @@ ASTNode* parsePrimary(Token **token)
     if((*token)->kind == TK_STRUCT)
         return parseStructExpr(token);
 
+    if((*token)->kind == TK_LEFT_BRACKET)
+        return parseArrayLiteral(token);
+
     if((*token)->kind == TK_LEFT_PARENTHESIS)
     {
         ASTNode *parenthesis_node = newASTNodeFromToken(AST_EXPR_PARENTHESIS, *token);
@@ -427,6 +448,39 @@ ASTNode* parsePrimary(Token **token)
     }
 
     return parseLiteralValue(token);
+}
+
+ASTNode* parseArrayLiteral(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_EXPR_ARRAY_LITERAL, *token);
+    ASTNode *head = NULL;
+    ASTNode *tail = NULL;
+
+    expectToken(*token, TK_LEFT_BRACKET);
+    (*token) = (*token)->next;
+
+    while((*token)->kind != TK_RIGHT_BRACKET)
+    {
+        ASTNode *element = parseExpr(token);
+        if(head == NULL)
+            head = element;
+        else
+            tail->next = element;
+
+        tail = element;
+        while(tail->next)
+            tail = tail->next;
+
+        if((*token)->kind == TK_COMMA)
+            (*token) = (*token)->next;
+        else
+            break;
+    }
+
+    expectToken(*token, TK_RIGHT_BRACKET);
+    (*token) = (*token)->next;
+    node->lhs = head;
+    return node;
 }
 
 ASTStructLiteralField* parseStructLiteralFields(Token **token)
@@ -527,6 +581,18 @@ ASTNode* parsePostfix(Token **token)
             continue;
         }
 
+        if((*token)->kind == TK_LEFT_BRACKET)
+        {
+            ASTNode *index_node = newASTNodeFromToken(AST_EXPR_INDEX, *token);
+            index_node->lhs = node;
+            (*token) = (*token)->next;
+            index_node->rhs = parseExpr(token);
+            expectToken(*token, TK_RIGHT_BRACKET);
+            (*token) = (*token)->next;
+            node = index_node;
+            continue;
+        }
+
         if((*token)->kind == TK_LEFT_BRACE)
         {
             ASTNode *literal_node = newASTNodeFromToken(AST_EXPR_STRUCT_LITERAL, *token);
@@ -545,7 +611,7 @@ ASTNode* parsePostfix(Token **token)
 ASTNode* parseLValue(Token **token)
 {
     ASTNode *node = parseUnary(token);
-    if(node->kind == AST_EXPR_VARIABLE || node->kind == AST_EXPR_DEREF || node->kind == AST_EXPR_MEMBER)
+    if(node->kind == AST_EXPR_VARIABLE || node->kind == AST_EXPR_DEREF || node->kind == AST_EXPR_MEMBER || node->kind == AST_EXPR_INDEX)
         return node;
 
     printf("parseLValue: expected assignable expression here at file %s, line %d, column %d\n",

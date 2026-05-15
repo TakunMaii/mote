@@ -194,6 +194,17 @@ void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
         return;
     }
 
+    if(node->kind == AST_EXPR_ARRAY_LITERAL)
+    {
+        ASTNode *element = node->lhs;
+        while(element)
+        {
+            checkExprDeclaredVariable(element, scope);
+            element = element->next;
+        }
+        return;
+    }
+
     checkExprDeclaredVariable(node->lhs, scope);
     checkExprDeclaredVariable(node->rhs, scope);
 }
@@ -268,9 +279,23 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
         return;
     }
 
+    if(node->lhs->kind == AST_EXPR_INDEX)
+    {
+        if(node->modifier.mutable)
+        {
+            printf("Semantic error: index assignment cannot use mut declaration syntax at file %s, line %d, column %d\n",
+                   node->filename, node->line_number, node->column_number);
+            exit(1);
+        }
+
+        checkExprDeclaredVariable(node->lhs->lhs, scope);
+        checkExprDeclaredVariable(node->lhs->rhs, scope);
+        return;
+    }
+
     if(node->lhs->kind != AST_EXPR_VARIABLE)
     {
-        printf("Semantic error: only variable or deref can be assigned at file %s, line %d, column %d\n",
+        printf("Semantic error: only variable, deref, member, or index can be assigned at file %s, line %d, column %d\n",
                node->filename, node->line_number, node->column_number);
         exit(1);
     }
@@ -827,6 +852,41 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         return;
     }
 
+    if(node->lhs->kind == AST_EXPR_INDEX)
+    {
+        TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
+        TypeSystemExprType owner_type = inferExprType(node->lhs->lhs, scope);
+        if(owner_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
+        {
+            printf("Type error: index assignment requires a value receiver at file %s, line %d, column %d\n",
+                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+            exit(1);
+        }
+
+        ASTDataType *array_type = owner_type.data_type;
+        if(array_type->kind == AST_DATA_TYPE_KIND_POINTER || array_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+            array_type = array_type->child;
+        if(!isArrayDataType(array_type))
+        {
+            printf("Type error: index assignment requires an array receiver at file %s, line %d, column %d\n",
+                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+            exit(1);
+        }
+
+        if(!isMutableAddressableExpr(node->lhs, scope))
+        {
+            printf("Type error: cannot assign through immutable index access at file %s, line %d, column %d\n",
+                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+            exit(1);
+        }
+
+        if(!canImplicitConvertDataType(expr_type, node->rhs, array_type->child))
+            typeErrorAssign(node, node->rhs, expr_type, array_type->child);
+
+        node->data_type = cloneDataType(array_type->child);
+        return;
+    }
+
     VariableInfo *local_variable_info = NULL;
     int local_index = findVariableInfoInScope(scope, node->identifier);
     if(local_index >= 0)
@@ -843,7 +903,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
 
     if(isExplicitDeclared(node))
     {
-        TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
+        TypeSystemExprType expr_type = {0};
         if(local_variable_info != NULL)
         {
             printf("Variable %s has already been declared and cannot be declared again\n", node->identifier);
@@ -859,6 +919,19 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         else
             declared_type = node->data_type = resolveNamedDataType(declared_type, scope,
                                                                    function_context == NULL ? NULL : function_context->self_data_type);
+
+        if(node->rhs->kind == AST_EXPR_ARRAY_LITERAL && node->rhs->lhs == NULL)
+        {
+            if(declared_type->kind != AST_DATA_TYPE_KIND_ARRAY || declared_type->array_length != 0)
+            {
+                printf("Type error: empty array literal requires an explicit zero-length array type at file %s, line %d, column %d\n",
+                       node->rhs->filename, node->rhs->line_number, node->rhs->column_number);
+                exit(1);
+            }
+            expr_type = newValueExprType(declared_type);
+        }
+        else
+            expr_type = inferExprType(node->rhs, scope);
 
         if(isReferenceDataType(declared_type))
         {

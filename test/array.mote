@@ -1,0 +1,30 @@
+// Array(T, N) 是定长数组类型；T 可以是任意类型表达式。
+// 先只支持编译期整数常量长度。
+
+xs: Array(i32, 4) = [1, 2, 3, 4];
+mut ys = [1.0, 2.0, 3.0];
+empty: Array(i32, 0) = [];
+
+x0: i32 = xs[0];
+ys[1] = 4.0;
+
+mut a: i32 = 10;
+mut b: i32 = 20;
+
+ptrs: Array(*mut i32, 2) = [
+    &mut a,
+    &mut b,
+];
+
+first_ptr: *mut i32 = ptrs[0];
+*ptrs[1] = 42;
+
+whole_ptr: *Array(i32, 4) = &xs;
+first_elem_ptr: *i32 = &xs[0];
+
+grid: Array(Array(i32, 3), 2) = [
+    [1, 2, 3],
+    [4, 5, 6],
+];
+
+grid_1_2: i32 = grid[1][2];

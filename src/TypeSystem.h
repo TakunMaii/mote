@@ -20,6 +20,7 @@ typedef struct TypeSystemExprType {
 
 TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope);
 bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs);
+ASTDataType* inferDeclaredTypeFromExpr(ASTNode *expr, ScopeFrame *scope);
 ASTStructMember* resolveStructMembers(ASTStructMember *member, ScopeFrame *scope, ASTDataType *self_data_type);
 ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, ASTDataType *self_data_type);
 void bindCapturedValuesForInstantiation(ASTFunctionCapture *capture, ScopeFrame *inst_scope, ScopeFrame *outer_scope);
@@ -157,6 +158,11 @@ bool isEnumDataType(ASTDataType *data_type)
     return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_ENUM;
 }
 
+bool isArrayDataType(ASTDataType *data_type)
+{
+    return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_ARRAY;
+}
+
 ASTStructMember* findStructMember(ASTDataType *struct_type, const char *identifier)
 {
     if(struct_type == NULL || struct_type->kind != AST_DATA_TYPE_KIND_STRUCT)
@@ -286,6 +292,12 @@ bool isSameEnumType(ASTDataType *lhs, ASTDataType *rhs)
     return lhs_variant == NULL && rhs_variant == NULL;
 }
 
+bool isSameArrayType(ASTDataType *lhs, ASTDataType *rhs)
+{
+    return lhs->array_length == rhs->array_length &&
+           isSameDataType(lhs->child, rhs->child);
+}
+
 bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
 {
     if(lhs == NULL || rhs == NULL)
@@ -307,6 +319,8 @@ bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
             return isSameFunctionSignature(lhs, rhs);
         case AST_DATA_TYPE_KIND_NAMED:
             return strcmp(lhs->identifier, rhs->identifier) == 0;
+        case AST_DATA_TYPE_KIND_ARRAY:
+            return isSameArrayType(lhs, rhs);
         case AST_DATA_TYPE_KIND_ENUM:
             return isSameEnumType(lhs, rhs);
         case AST_DATA_TYPE_KIND_STRUCT:
@@ -359,6 +373,9 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
         case AST_DATA_TYPE_KIND_REFERENCE:
             return newWrappedDataType(data_type->kind, data_type->mutable,
                                       resolveNamedDataType(data_type->child, scope, self_data_type));
+        case AST_DATA_TYPE_KIND_ARRAY:
+            return newArrayDataType(resolveNamedDataType(data_type->child, scope, self_data_type),
+                                    data_type->array_length);
         case AST_DATA_TYPE_KIND_FUNCTION: {
             ASTFunctionParameter *head = NULL;
             ASTFunctionParameter *tail = NULL;
@@ -849,7 +866,8 @@ TypeSystemExprType getCommonNumericType(ASTNode *node, TypeSystemExprType lhs_ty
 
 bool isAddressableExpr(ASTNode *node)
 {
-    return node->kind == AST_EXPR_VARIABLE || node->kind == AST_EXPR_DEREF || node->kind == AST_EXPR_MEMBER;
+    return node->kind == AST_EXPR_VARIABLE || node->kind == AST_EXPR_DEREF ||
+           node->kind == AST_EXPR_MEMBER || node->kind == AST_EXPR_INDEX;
 }
 
 bool isMutableAddressableExpr(ASTNode *node, ScopeFrame *scope)
@@ -886,6 +904,9 @@ bool isMutableAddressableExpr(ASTNode *node, ScopeFrame *scope)
 
         return isMutableAddressableExpr(node->lhs, scope);
     }
+
+    if(node->kind == AST_EXPR_INDEX)
+        return isMutableAddressableExpr(node->lhs, scope);
 
     return false;
 }
@@ -1030,6 +1051,32 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             return newTypeExprType(node->data_type);
         case AST_EXPR_STRUCT:
             return newTypeExprType(node->data_type);
+        case AST_EXPR_ARRAY_LITERAL: {
+            ASTNode *element = node->lhs;
+            if(element == NULL)
+            {
+                printf("Type error: empty array literal requires an explicit array type\n");
+                exit(1);
+            }
+
+            TypeSystemExprType first_type = inferExprType(element, scope);
+            ASTDataType *element_type = inferDeclaredTypeFromExpr(element, scope);
+            long long int length = 0;
+            while(element)
+            {
+                TypeSystemExprType current_type = inferExprType(element, scope);
+                if(!canImplicitConvertDataType(current_type, element, element_type))
+                {
+                    printf("Type error: array literal element type mismatch at file %s, line %d, column %d\n",
+                           element->filename, element->line_number, element->column_number);
+                    exit(1);
+                }
+                length ++;
+                element = element->next;
+            }
+
+            return newValueExprType(newArrayDataType(element_type, length));
+        }
         case AST_EXPR_STRUCT_LITERAL: {
             TypeSystemExprType type_expr = inferExprType(node->lhs, scope);
             if(type_expr.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE || !isStructDataType(type_expr.data_type))
@@ -1138,6 +1185,39 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             if(member->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
                 return newValueExprType(member->data_type->child);
             return newValueExprType(member->data_type);
+        }
+        case AST_EXPR_INDEX: {
+            TypeSystemExprType owner_type = inferExprType(node->lhs, scope);
+            if(owner_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
+            {
+                printf("Type error: indexing requires a value receiver at file %s, line %d, column %d\n",
+                       node->filename, node->line_number, node->column_number);
+                exit(1);
+            }
+
+            ASTDataType *owner_data_type = owner_type.data_type;
+            if(owner_data_type->kind == AST_DATA_TYPE_KIND_POINTER || owner_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+                owner_data_type = owner_data_type->child;
+
+            if(!isArrayDataType(owner_data_type))
+            {
+                printf("Type error: indexing requires an array type at file %s, line %d, column %d\n",
+                       node->filename, node->line_number, node->column_number);
+                exit(1);
+            }
+
+            TypeSystemExprType index_type = inferExprType(node->rhs, scope);
+            if(index_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
+               (index_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+                (index_type.data_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
+                 !isIntegerPrimary(index_type.data_type->primary))))
+            {
+                printf("Type error: array index must be an integer at file %s, line %d, column %d\n",
+                       node->rhs->filename, node->rhs->line_number, node->rhs->column_number);
+                exit(1);
+            }
+
+            return newValueExprType(owner_data_type->child);
         }
         case AST_EXPR_CALL: {
             if(node->lhs->kind == AST_EXPR_VARIABLE)
