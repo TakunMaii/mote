@@ -112,6 +112,7 @@ ASTNode* parseExpr(Token **token);
 ASTNode* parseUnary(Token **token);
 ASTNode* parseStatement(Token **token);
 ASTNode* parseBlock(Token **token);
+ASTNode* parseEnumExpr(Token **token);
 ASTNode* parseStructExpr(Token **token);
 
 ASTNode* parseLiteralValue(Token **token)
@@ -255,6 +256,9 @@ ASTNode* parsePrimary(Token **token)
 {
     if((*token)->kind == TK_FN)
         return parseFunctionExpr(token);
+
+    if((*token)->kind == TK_ENUM)
+        return parseEnumExpr(token);
 
     if((*token)->kind == TK_STRUCT)
         return parseStructExpr(token);
@@ -681,6 +685,45 @@ ASTNode* parseStructExpr(Token **token)
 
     node->members = head;
     node->data_type = newStructDataType("", cloneStructMembers(head));
+    return node;
+}
+
+ASTNode* parseEnumExpr(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_EXPR_ENUM, *token);
+    expectToken(*token, TK_ENUM);
+    (*token) = (*token)->next;
+
+    expectToken(*token, TK_LEFT_BRACE);
+    (*token) = (*token)->next;
+
+    ASTEnumVariant *head = NULL;
+    ASTEnumVariant *tail = NULL;
+
+    while((*token)->kind != TK_RIGHT_BRACE)
+    {
+        Token *variant_token = expectToken(*token, TK_IDENTIFIER);
+        ASTEnumVariant *variant = newASTEnumVariantFromToken(variant_token);
+        strcpy(variant->identifier, variant_token->identifier);
+        (*token) = (*token)->next;
+
+        if(head == NULL)
+            head = variant;
+        else
+            tail->next = variant;
+        tail = variant;
+
+        if((*token)->kind == TK_COMMA)
+            (*token) = (*token)->next;
+        else
+            break;
+    }
+
+    expectToken(*token, TK_RIGHT_BRACE);
+    (*token) = (*token)->next;
+
+    node->variants = head;
+    node->data_type = newEnumDataType("", cloneEnumVariants(head));
     return node;
 }
 

@@ -118,6 +118,11 @@ bool isStructDataType(ASTDataType *data_type)
     return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_STRUCT;
 }
 
+bool isEnumDataType(ASTDataType *data_type)
+{
+    return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_ENUM;
+}
+
 ASTStructMember* findStructMember(ASTDataType *struct_type, const char *identifier)
 {
     if(struct_type == NULL || struct_type->kind != AST_DATA_TYPE_KIND_STRUCT)
@@ -129,6 +134,21 @@ ASTStructMember* findStructMember(ASTDataType *struct_type, const char *identifi
         if(strcmp(member->identifier, identifier) == 0)
             return member;
         member = member->next;
+    }
+    return NULL;
+}
+
+ASTEnumVariant* findEnumVariant(ASTDataType *enum_type, const char *identifier)
+{
+    if(enum_type == NULL || enum_type->kind != AST_DATA_TYPE_KIND_ENUM)
+        return NULL;
+
+    ASTEnumVariant *variant = enum_type->variants;
+    while(variant)
+    {
+        if(strcmp(variant->identifier, identifier) == 0)
+            return variant;
+        variant = variant->next;
     }
     return NULL;
 }
@@ -208,6 +228,24 @@ bool isSameStructType(ASTDataType *lhs, ASTDataType *rhs)
     return lhs_member == NULL && rhs_member == NULL;
 }
 
+bool isSameEnumType(ASTDataType *lhs, ASTDataType *rhs)
+{
+    if(lhs->identifier[0] != '\0' || rhs->identifier[0] != '\0')
+        return strcmp(lhs->identifier, rhs->identifier) == 0;
+
+    ASTEnumVariant *lhs_variant = lhs->variants;
+    ASTEnumVariant *rhs_variant = rhs->variants;
+    while(lhs_variant && rhs_variant)
+    {
+        if(strcmp(lhs_variant->identifier, rhs_variant->identifier) != 0)
+            return false;
+        lhs_variant = lhs_variant->next;
+        rhs_variant = rhs_variant->next;
+    }
+
+    return lhs_variant == NULL && rhs_variant == NULL;
+}
+
 bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
 {
     if(lhs == NULL || rhs == NULL)
@@ -229,6 +267,8 @@ bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
             return isSameFunctionSignature(lhs, rhs);
         case AST_DATA_TYPE_KIND_NAMED:
             return strcmp(lhs->identifier, rhs->identifier) == 0;
+        case AST_DATA_TYPE_KIND_ENUM:
+            return isSameEnumType(lhs, rhs);
         case AST_DATA_TYPE_KIND_STRUCT:
             return isSameStructType(lhs, rhs);
         default:
@@ -245,6 +285,7 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
     {
         case AST_DATA_TYPE_KIND_INFER:
         case AST_DATA_TYPE_KIND_PRIMARY:
+        case AST_DATA_TYPE_KIND_ENUM:
         case AST_DATA_TYPE_KIND_STRUCT:
             return cloneDataType(data_type);
         case AST_DATA_TYPE_KIND_NAMED: {
@@ -689,6 +730,8 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         }
         case AST_EXPR_FUNCTION:
             return newValueExprType(node->data_type);
+        case AST_EXPR_ENUM:
+            return newTypeExprType(node->data_type);
         case AST_EXPR_STRUCT:
             return newTypeExprType(node->data_type);
         case AST_EXPR_STRUCT_LITERAL: {
@@ -743,17 +786,37 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         }
         case AST_EXPR_MEMBER: {
             TypeSystemExprType owner_type = inferExprType(node->lhs, scope);
-            ASTDataType *struct_type = NULL;
+            ASTDataType *owner_data_type = NULL;
 
             if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
-                struct_type = owner_type.data_type;
+                owner_data_type = owner_type.data_type;
             else if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE)
             {
-                struct_type = owner_type.data_type;
-                if(struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-                    struct_type = struct_type->child;
+                owner_data_type = owner_type.data_type;
+                if(owner_data_type->kind == AST_DATA_TYPE_KIND_POINTER || owner_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+                    owner_data_type = owner_data_type->child;
             }
 
+            if(isEnumDataType(owner_data_type))
+            {
+                if(owner_type.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
+                {
+                    printf("Type error: enum variant access requires the enum type at file %s, line %d, column %d\n",
+                           node->filename, node->line_number, node->column_number);
+                    exit(1);
+                }
+
+                if(findEnumVariant(owner_data_type, node->identifier) == NULL)
+                {
+                    printf("Type error: unknown enum variant %s at file %s, line %d, column %d\n",
+                           node->identifier, node->filename, node->line_number, node->column_number);
+                    exit(1);
+                }
+
+                return newValueExprType(owner_data_type);
+            }
+
+            ASTDataType *struct_type = owner_data_type;
             if(!isStructDataType(struct_type))
             {
                 printf("Type error: member access requires a struct type at file %s, line %d, column %d\n",

@@ -33,6 +33,16 @@ bool isStructDeclAssign(ASTNode *node)
            node->rhs->kind == AST_EXPR_STRUCT;
 }
 
+bool isEnumDeclAssign(ASTNode *node)
+{
+    return node != NULL &&
+           node->kind == AST_ASSIGN &&
+           node->lhs != NULL &&
+           node->lhs->kind == AST_EXPR_VARIABLE &&
+           node->rhs != NULL &&
+           node->rhs->kind == AST_EXPR_ENUM;
+}
+
 void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope);
 void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context);
 void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context);
@@ -158,7 +168,7 @@ void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, Funct
 
         if(node->kind == AST_ASSIGN)
         {
-            if(isStructDeclAssign(node))
+            if(isStructDeclAssign(node) || isEnumDeclAssign(node))
             {
                 if(findTypeInfoInScope(&current_scope, node->identifier) >= 0)
                 {
@@ -170,7 +180,8 @@ void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, Funct
                 type_info->data_type = cloneDataType(node->rhs->data_type);
                 strcpy(type_info->data_type->identifier, node->identifier);
                 node->data_type = cloneDataType(type_info->data_type);
-                checkStructExprSemantics(node->rhs, &current_scope);
+                if(node->rhs->kind == AST_EXPR_STRUCT)
+                    checkStructExprSemantics(node->rhs, &current_scope);
                 node = node->next;
                 continue;
             }
@@ -343,6 +354,41 @@ ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
     return struct_type;
 }
 
+ASTDataType* declareEnumType(ASTNode *node, ScopeFrame *scope)
+{
+    ASTDataType *enum_type = newEnumDataType(node->identifier, NULL);
+    TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
+    type_info->data_type = enum_type;
+
+    ASTEnumVariant *resolved_head = NULL;
+    ASTEnumVariant *resolved_tail = NULL;
+    ASTEnumVariant *variant = node->rhs->variants;
+    while(variant)
+    {
+        if(findEnumVariant(enum_type, variant->identifier) != NULL)
+        {
+            printf("Type error: duplicate enum variant %s in %s\n", variant->identifier, node->identifier);
+            exit(1);
+        }
+
+        ASTEnumVariant *resolved_variant = (ASTEnumVariant*) malloc(sizeof(ASTEnumVariant));
+        *resolved_variant = *variant;
+        resolved_variant->next = NULL;
+
+        if(resolved_head == NULL)
+            resolved_head = resolved_variant;
+        else
+            resolved_tail->next = resolved_variant;
+        resolved_tail = resolved_variant;
+        enum_type->variants = resolved_head;
+        variant = variant->next;
+    }
+
+    node->data_type = cloneDataType(enum_type);
+    node->rhs->data_type = cloneDataType(enum_type);
+    return enum_type;
+}
+
 void checkFunctionReturnStatement(ASTNode *node, ScopeFrame *scope, FunctionContext *function_context)
 {
     ASTDataType *expected_type = function_context->return_data_type;
@@ -498,6 +544,19 @@ void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionC
                     member = member->next;
                 }
 
+                node = node->next;
+                continue;
+            }
+
+            if(isEnumDeclAssign(node))
+            {
+                if(findTypeInfoInScope(&current_scope, node->identifier) >= 0)
+                {
+                    printf("Type %s has already been declared in this scope\n", node->identifier);
+                    exit(1);
+                }
+
+                declareEnumType(node, &current_scope);
                 node = node->next;
                 continue;
             }

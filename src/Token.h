@@ -11,6 +11,7 @@ typedef enum {
     TK_MUT,
     TK_FN,
     TK_STRUCT,
+    TK_ENUM,
     TK_RETURN,
     TK_VOID,
     TK_TRUE,
@@ -107,6 +108,7 @@ const char* tokenKindToString(TokenKind kind)
         case TK_END_OF_CODE: return "TK_END_OF_CODE";
         case TK_MUT: return "TK_MUT";
         case TK_FN: return "TK_FN";
+        case TK_ENUM: return "TK_ENUM";
         case TK_STRUCT: return "TK_STRUCT";
         case TK_RETURN: return "TK_RETURN";
         case TK_VOID: return "TK_VOID";
@@ -159,6 +161,7 @@ void printToken(Token token)
         case TK_END_OF_CODE: {printf("TK_END_OF_CODE\n");}break;
         case TK_MUT: {printf("TK_MUT\n");}break;
         case TK_FN: {printf("TK_FN\n");}break;
+        case TK_ENUM: {printf("TK_ENUM\n");}break;
         case TK_STRUCT: {printf("TK_STRUCT\n");}break;
         case TK_RETURN: {printf("TK_RETURN\n");}break;
         case TK_VOID: {printf("TK_VOID\n");}break;

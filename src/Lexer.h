@@ -136,6 +136,14 @@ Token* tokenize(char *code, const char* filename)
             code += 2;
             column += 2;
         }
+        else if(expectStr("enum", 4, code)) {
+            if(isIdentifier(code[4]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_ENUM, filename, line, column);
+            token = token->next;
+            code += 4;
+            column += 4;
+        }
         else if(expectStr("struct", 6, code)) {
             if(isIdentifier(code[6]))
                 goto tokenize_identifier;
