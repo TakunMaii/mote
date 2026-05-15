@@ -160,6 +160,14 @@ Token* tokenize(char *code, const char* filename)
             code += 6;
             column += 6;
         }
+        else if(expectStr("Type", 4, code)) {
+            if(isIdentifier(code[4]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_TYPE, filename, line, column);
+            token = token->next;
+            code += 4;
+            column += 4;
+        }
         else if(expectStr("if", 2, code)) {
             if(isIdentifier(code[2]))
                 goto tokenize_identifier;
@@ -400,6 +408,18 @@ Token* tokenize(char *code, const char* filename)
         }
         else if(expectStr("}", 1, code)) {
             token->next = newToken(TK_RIGHT_BRACE, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("[", 1, code)) {
+            token->next = newToken(TK_LEFT_BRACKET, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("]", 1, code)) {
+            token->next = newToken(TK_RIGHT_BRACKET, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;

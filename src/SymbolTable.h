@@ -7,6 +7,8 @@
 typedef struct VariableInfo {
     bool mutable;
     ASTDataType *data_type;
+    ASTDataType *type_value;
+    ASTNode *function_value;
     char identifier[MAX_IDENTIFIER_LENGTH];
 } VariableInfo;
 
@@ -19,6 +21,7 @@ typedef struct FunctionContext {
     struct FunctionContext *parent;
     ASTDataType *return_data_type;
     ASTDataType *self_data_type;
+    bool self_available_as_type_value;
     int loop_depth;
     bool inside_defer;
 } FunctionContext;

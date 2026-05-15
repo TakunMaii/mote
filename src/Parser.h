@@ -18,6 +18,10 @@ Token* expectToken(Token* token, TokenKind kind)
     return token;
 }
 
+ASTDataType* parseTypeExpr(Token **token);
+ASTTypeArgument* parseTypeArgumentList(Token **token);
+ASTFunctionCapture* parseFunctionCaptures(Token **token);
+
 ASTAssignModifier parseModifier(Token **token)
 {
     ASTAssignModifier modifier = {0};
@@ -31,6 +35,12 @@ ASTAssignModifier parseModifier(Token **token)
 
 ASTDataType* parsePrimaryDataType(Token **token)
 {
+    if((*token)->kind == TK_TYPE)
+    {
+        (*token) = (*token)->next;
+        return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
+    }
+
     if((*token)->kind == TK_VOID)
     {
         (*token) = (*token)->next;
@@ -40,7 +50,43 @@ ASTDataType* parsePrimaryDataType(Token **token)
     const char *identifier = expectToken(*token, TK_IDENTIFIER)->identifier;
 
     ASTDataType *primary = NULL;
-    if(strcmp(identifier, "i8") == 0)
+    if(strcmp(identifier, "Function") == 0)
+    {
+        (*token) = (*token)->next;
+
+        expectToken(*token, TK_LEFT_PARENTHESIS);
+        (*token) = (*token)->next;
+        expectToken(*token, TK_LEFT_BRACKET);
+        (*token) = (*token)->next;
+
+        ASTFunctionParameter *parameters = NULL;
+        ASTFunctionParameter *tail = NULL;
+        while((*token)->kind != TK_RIGHT_BRACKET)
+        {
+            ASTFunctionParameter *parameter = newASTFunctionParameterFromToken(*token);
+            parameter->data_type = parseTypeExpr(token);
+            if(parameters == NULL)
+                parameters = parameter;
+            else
+                tail->next = parameter;
+            tail = parameter;
+
+            if((*token)->kind == TK_COMMA)
+                (*token) = (*token)->next;
+            else
+                break;
+        }
+
+        expectToken(*token, TK_RIGHT_BRACKET);
+        (*token) = (*token)->next;
+        expectToken(*token, TK_COMMA);
+        (*token) = (*token)->next;
+        ASTDataType *return_data_type = parseTypeExpr(token);
+        expectToken(*token, TK_RIGHT_PARENTHESIS);
+        (*token) = (*token)->next;
+        return newFunctionDataType(parameters, return_data_type);
+    }
+    else if(strcmp(identifier, "i8") == 0)
         primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I8);
     else if(strcmp(identifier, "i16") == 0)
         primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I16);
@@ -105,7 +151,45 @@ ASTDataType* parseDataType(Token **token)
         return newWrappedDataType(AST_DATA_TYPE_KIND_REFERENCE, mutable, parseDataType(token));
     }
 
-    return parsePrimaryDataType(token);
+    return parseTypeExpr(token);
+}
+
+ASTDataType* parseTypeExpr(Token **token)
+{
+    ASTDataType *data_type = parsePrimaryDataType(token);
+
+    while((*token)->kind == TK_LEFT_PARENTHESIS)
+        data_type = newAppliedDataType(data_type, parseTypeArgumentList(token));
+
+    return data_type;
+}
+
+ASTTypeArgument* parseTypeArgumentList(Token **token)
+{
+    ASTTypeArgument *head = NULL;
+    ASTTypeArgument *tail = NULL;
+
+    expectToken(*token, TK_LEFT_PARENTHESIS);
+    (*token) = (*token)->next;
+
+    while((*token)->kind != TK_RIGHT_PARENTHESIS)
+    {
+        ASTTypeArgument *argument = newASTTypeArgument(parseTypeExpr(token));
+        if(head == NULL)
+            head = argument;
+        else
+            tail->next = argument;
+        tail = argument;
+
+        if((*token)->kind == TK_COMMA)
+            (*token) = (*token)->next;
+        else
+            break;
+    }
+
+    expectToken(*token, TK_RIGHT_PARENTHESIS);
+    (*token) = (*token)->next;
+    return head;
 }
 
 ASTNode* parseExpr(Token **token);
@@ -234,11 +318,59 @@ ASTNode* parseFunctionExpr(Token **token)
     expectToken(*token, TK_FN);
     (*token) = (*token)->next;
 
+    if((*token)->kind == TK_PIPE)
+        node->captures = parseFunctionCaptures(token);
+
     node->parameters = parseFunctionParameters(token);
     node->return_data_type = parseDataType(token);
     node->data_type = newFunctionDataType(cloneFunctionParameters(node->parameters), cloneDataType(node->return_data_type));
     node->body = parseBlock(token);
     return node;
+}
+
+ASTFunctionCapture* parseFunctionCaptures(Token **token)
+{
+    ASTFunctionCapture *head = NULL;
+    ASTFunctionCapture *tail = NULL;
+
+    expectToken(*token, TK_PIPE);
+    (*token) = (*token)->next;
+
+    while((*token)->kind != TK_PIPE)
+    {
+        ASTFunctionCaptureKind kind = AST_FUNCTION_CAPTURE_VALUE;
+        if((*token)->kind == TK_AMPERSAND)
+        {
+            (*token) = (*token)->next;
+            kind = AST_FUNCTION_CAPTURE_REFERENCE;
+            if((*token)->kind == TK_MUT)
+            {
+                (*token) = (*token)->next;
+                kind = AST_FUNCTION_CAPTURE_MUT_REFERENCE;
+            }
+        }
+
+        Token *capture_token = expectToken(*token, TK_IDENTIFIER);
+        ASTFunctionCapture *capture = newASTFunctionCaptureFromToken(capture_token);
+        capture->kind = kind;
+        strcpy(capture->identifier, capture_token->identifier);
+        (*token) = (*token)->next;
+
+        if(head == NULL)
+            head = capture;
+        else
+            tail->next = capture;
+        tail = capture;
+
+        if((*token)->kind == TK_COMMA)
+            (*token) = (*token)->next;
+        else
+            break;
+    }
+
+    expectToken(*token, TK_PIPE);
+    (*token) = (*token)->next;
+    return head;
 }
 
 ASTNode* parseParenthesis(Token **token)
@@ -258,6 +390,20 @@ ASTNode* parsePrimary(Token **token)
 {
     if((*token)->kind == TK_FN)
         return parseFunctionExpr(token);
+
+    if((*token)->kind == TK_TYPE)
+    {
+        ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
+        node->data_type = parseTypeExpr(token);
+        return node;
+    }
+
+    if((*token)->kind == TK_IDENTIFIER && strcmp((*token)->identifier, "Function") == 0)
+    {
+        ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
+        node->data_type = parseTypeExpr(token);
+        return node;
+    }
 
     if((*token)->kind == TK_ENUM)
         return parseEnumExpr(token);

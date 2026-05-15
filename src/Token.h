@@ -13,6 +13,7 @@ typedef enum {
     TK_STRUCT,
     TK_ENUM,
     TK_RETURN,
+    TK_TYPE,
     TK_IF,
     TK_ELSE,
     TK_FOR,
@@ -49,6 +50,8 @@ typedef enum {
     TK_RIGHT_PARENTHESIS,
     TK_LEFT_BRACE,
     TK_RIGHT_BRACE,
+    TK_LEFT_BRACKET,
+    TK_RIGHT_BRACKET,
     TK_COMMA,
     TK_COLON,
     TK_DOT,
@@ -119,6 +122,7 @@ const char* tokenKindToString(TokenKind kind)
         case TK_ENUM: return "TK_ENUM";
         case TK_STRUCT: return "TK_STRUCT";
         case TK_RETURN: return "TK_RETURN";
+        case TK_TYPE: return "TK_TYPE";
         case TK_IF: return "TK_IF";
         case TK_ELSE: return "TK_ELSE";
         case TK_FOR: return "TK_FOR";
@@ -154,6 +158,8 @@ const char* tokenKindToString(TokenKind kind)
         case TK_RIGHT_PARENTHESIS: return "TK_RIGHT_PARENTHESIS";
         case TK_LEFT_BRACE: return "TK_LEFT_BRACE";
         case TK_RIGHT_BRACE: return "TK_RIGHT_BRACE";
+        case TK_LEFT_BRACKET: return "TK_LEFT_BRACKET";
+        case TK_RIGHT_BRACKET: return "TK_RIGHT_BRACKET";
         case TK_COMMA: return "TK_COMMA";
         case TK_COLON: return "TK_COLON";
         case TK_DOT: return "TK_DOT";
@@ -180,6 +186,7 @@ void printToken(Token token)
         case TK_ENUM: {printf("TK_ENUM\n");}break;
         case TK_STRUCT: {printf("TK_STRUCT\n");}break;
         case TK_RETURN: {printf("TK_RETURN\n");}break;
+        case TK_TYPE: {printf("TK_TYPE\n");}break;
         case TK_IF: {printf("TK_IF\n");}break;
         case TK_ELSE: {printf("TK_ELSE\n");}break;
         case TK_FOR: {printf("TK_FOR\n");}break;
@@ -216,6 +223,8 @@ void printToken(Token token)
         case TK_RIGHT_PARENTHESIS: {printf("TK_RIGHT_PARENTHESIS\n");}break;
         case TK_LEFT_BRACE: {printf("TK_LEFT_BRACE\n");}break;
         case TK_RIGHT_BRACE: {printf("TK_RIGHT_BRACE\n");}break;
+        case TK_LEFT_BRACKET: {printf("TK_LEFT_BRACKET\n");}break;
+        case TK_RIGHT_BRACKET: {printf("TK_RIGHT_BRACKET\n");}break;
         case TK_COMMA: {printf("TK_COMMA\n");}break;
         case TK_COLON: {printf("TK_COLON\n");}break;
         case TK_DOT: {printf("TK_DOT\n");}break;

@@ -55,6 +55,7 @@ typedef enum ASTNodeKind {
     AST_EXPR_DEREF,
     AST_EXPR_PARENTHESIS,
     AST_EXPR_VARIABLE,
+    AST_EXPR_TYPE_LITERAL,
     AST_EXPR_LITERAL_BOOL,
     AST_EXPR_LITERAL_CHAR,
     AST_EXPR_LITERAL_INTEGER,
@@ -63,6 +64,7 @@ typedef enum ASTNodeKind {
 
 typedef enum ASTPrimaryDataType {
     AST_PRIMARY_DATA_TYPE_VOID,
+    AST_PRIMARY_DATA_TYPE_TYPE,
     AST_PRIMARY_DATA_TYPE_I8,
     AST_PRIMARY_DATA_TYPE_I16,
     AST_PRIMARY_DATA_TYPE_I32,
@@ -86,6 +88,7 @@ typedef enum ASTDataTypeKind {
     AST_DATA_TYPE_KIND_REFERENCE,
     AST_DATA_TYPE_KIND_FUNCTION,
     AST_DATA_TYPE_KIND_NAMED,
+    AST_DATA_TYPE_KIND_APPLY,
     AST_DATA_TYPE_KIND_ENUM,
     AST_DATA_TYPE_KIND_STRUCT,
 } ASTDataTypeKind;
@@ -95,6 +98,8 @@ typedef struct ASTNode ASTNode;
 typedef struct ASTStructMember ASTStructMember;
 typedef struct ASTStructLiteralField ASTStructLiteralField;
 typedef struct ASTEnumVariant ASTEnumVariant;
+typedef struct ASTTypeArgument ASTTypeArgument;
+typedef struct ASTFunctionCapture ASTFunctionCapture;
 
 typedef struct ASTFunctionParameter {
     struct ASTFunctionParameter *next;
@@ -111,11 +116,33 @@ typedef struct ASTDataType {
     ASTPrimaryDataType primary;
     char identifier[MAX_IDENTIFIER_LENGTH];
     struct ASTDataType *child;
+    struct ASTDataType *callee;
+    ASTTypeArgument *arguments;
     ASTFunctionParameter *parameters;
     struct ASTDataType *return_data_type;
     ASTStructMember *members;
     ASTEnumVariant *variants;
 } ASTDataType;
+
+struct ASTTypeArgument {
+    struct ASTTypeArgument *next;
+    ASTDataType *data_type;
+};
+
+typedef enum ASTFunctionCaptureKind {
+    AST_FUNCTION_CAPTURE_VALUE,
+    AST_FUNCTION_CAPTURE_REFERENCE,
+    AST_FUNCTION_CAPTURE_MUT_REFERENCE,
+} ASTFunctionCaptureKind;
+
+struct ASTFunctionCapture {
+    struct ASTFunctionCapture *next;
+    const char *filename;
+    int line_number;
+    int column_number;
+    ASTFunctionCaptureKind kind;
+    char identifier[MAX_IDENTIFIER_LENGTH];
+};
 
 struct ASTEnumVariant {
     struct ASTEnumVariant *next;
@@ -173,6 +200,7 @@ struct ASTNode {
 
     // function literal
     ASTFunctionParameter *parameters;
+    ASTFunctionCapture *captures;
     ASTDataType *return_data_type;
     ASTNode *body;
 
@@ -235,6 +263,16 @@ ASTDataType* newNamedDataType(const char *identifier)
     return data_type;
 }
 
+ASTDataType* newAppliedDataType(ASTDataType *callee, ASTTypeArgument *arguments)
+{
+    ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    memset(data_type, 0, sizeof(ASTDataType));
+    data_type->kind = AST_DATA_TYPE_KIND_APPLY;
+    data_type->callee = callee;
+    data_type->arguments = arguments;
+    return data_type;
+}
+
 ASTDataType* newWrappedDataType(ASTDataTypeKind kind, bool mutable, ASTDataType *child)
 {
     ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
@@ -280,6 +318,8 @@ ASTDataType* newEnumDataType(const char *identifier, ASTEnumVariant *variants)
 ASTDataType* cloneDataType(ASTDataType *data_type);
 ASTStructMember* cloneStructMembers(ASTStructMember *member);
 ASTEnumVariant* cloneEnumVariants(ASTEnumVariant *variant);
+ASTTypeArgument* cloneTypeArguments(ASTTypeArgument *argument);
+ASTFunctionCapture* cloneFunctionCaptures(ASTFunctionCapture *capture);
 
 ASTFunctionParameter* cloneFunctionParameters(ASTFunctionParameter *parameter)
 {
@@ -307,6 +347,24 @@ ASTStructMember* newASTStructMemberFromToken(Token *token)
     member->line_number = token->line_number;
     member->column_number = token->column_number;
     return member;
+}
+
+ASTTypeArgument* newASTTypeArgument(ASTDataType *data_type)
+{
+    ASTTypeArgument *argument = (ASTTypeArgument*) malloc(sizeof(ASTTypeArgument));
+    memset(argument, 0, sizeof(ASTTypeArgument));
+    argument->data_type = data_type;
+    return argument;
+}
+
+ASTFunctionCapture* newASTFunctionCaptureFromToken(Token *token)
+{
+    ASTFunctionCapture *capture = (ASTFunctionCapture*) malloc(sizeof(ASTFunctionCapture));
+    memset(capture, 0, sizeof(ASTFunctionCapture));
+    capture->filename = token->filename;
+    capture->line_number = token->line_number;
+    capture->column_number = token->column_number;
+    return capture;
 }
 
 ASTStructLiteralField* newASTStructLiteralFieldFromToken(Token *token)
@@ -337,6 +395,8 @@ ASTDataType* cloneDataType(ASTDataType *data_type)
     ASTDataType *new_data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
     *new_data_type = *data_type;
     new_data_type->child = NULL;
+    new_data_type->callee = NULL;
+    new_data_type->arguments = NULL;
     new_data_type->parameters = NULL;
     new_data_type->return_data_type = NULL;
     new_data_type->members = NULL;
@@ -344,6 +404,10 @@ ASTDataType* cloneDataType(ASTDataType *data_type)
 
     if(data_type->child)
         new_data_type->child = cloneDataType(data_type->child);
+    if(data_type->callee)
+        new_data_type->callee = cloneDataType(data_type->callee);
+    if(data_type->arguments)
+        new_data_type->arguments = cloneTypeArguments(data_type->arguments);
     if(data_type->parameters)
         new_data_type->parameters = cloneFunctionParameters(data_type->parameters);
     if(data_type->return_data_type)
@@ -353,6 +417,20 @@ ASTDataType* cloneDataType(ASTDataType *data_type)
     if(data_type->variants)
         new_data_type->variants = cloneEnumVariants(data_type->variants);
     return new_data_type;
+}
+
+ASTTypeArgument* cloneTypeArguments(ASTTypeArgument *argument)
+{
+    if(argument == NULL)
+        return NULL;
+
+    ASTTypeArgument *new_argument = (ASTTypeArgument*) malloc(sizeof(ASTTypeArgument));
+    memset(new_argument, 0, sizeof(ASTTypeArgument));
+    if(argument->data_type)
+        new_argument->data_type = cloneDataType(argument->data_type);
+    if(argument->next)
+        new_argument->next = cloneTypeArguments(argument->next);
+    return new_argument;
 }
 
 ASTStructMember* cloneStructMembers(ASTStructMember *member)
@@ -383,6 +461,19 @@ ASTEnumVariant* cloneEnumVariants(ASTEnumVariant *variant)
     if(variant->next)
         new_variant->next = cloneEnumVariants(variant->next);
     return new_variant;
+}
+
+ASTFunctionCapture* cloneFunctionCaptures(ASTFunctionCapture *capture)
+{
+    if(capture == NULL)
+        return NULL;
+
+    ASTFunctionCapture *new_capture = (ASTFunctionCapture*) malloc(sizeof(ASTFunctionCapture));
+    *new_capture = *capture;
+    new_capture->next = NULL;
+    if(capture->next)
+        new_capture->next = cloneFunctionCaptures(capture->next);
+    return new_capture;
 }
 
 const char* astNodeKindToString(ASTNodeKind kind)
@@ -435,6 +526,7 @@ const char* astNodeKindToString(ASTNodeKind kind)
         case AST_EXPR_DEREF: return "AST_EXPR_DEREF";
         case AST_EXPR_PARENTHESIS: return "AST_EXPR_PARENTHESIS";
         case AST_EXPR_VARIABLE: return "AST_EXPR_VARIABLE";
+        case AST_EXPR_TYPE_LITERAL: return "AST_EXPR_TYPE_LITERAL";
         case AST_EXPR_LITERAL_BOOL: return "AST_EXPR_LITERAL_BOOL";
         case AST_EXPR_LITERAL_CHAR: return "AST_EXPR_LITERAL_CHAR";
         case AST_EXPR_LITERAL_INTEGER: return "AST_EXPR_LITERAL_INTEGER";
@@ -450,6 +542,7 @@ const char* astPrimaryDataTypeToString(ASTPrimaryDataType primary)
     switch(primary)
     {
         case AST_PRIMARY_DATA_TYPE_VOID: return "void";
+        case AST_PRIMARY_DATA_TYPE_TYPE: return "Type";
         case AST_PRIMARY_DATA_TYPE_I8: return "i8";
         case AST_PRIMARY_DATA_TYPE_I16: return "i16";
         case AST_PRIMARY_DATA_TYPE_I32: return "i32";
@@ -473,6 +566,8 @@ const char* astPrimaryDataTypeToString(ASTPrimaryDataType primary)
 void printASTDataType(ASTDataType *data_type);
 void printASTNode(ASTNode node);
 void printEnumVariants(ASTEnumVariant *variant);
+void printFunctionCaptures(ASTFunctionCapture *capture);
+void printTypeArguments(ASTTypeArgument *argument);
 
 void printFunctionParameters(ASTFunctionParameter *parameter)
 {
@@ -483,6 +578,32 @@ void printFunctionParameters(ASTFunctionParameter *parameter)
         if(parameter->next)
             printf(", ");
         parameter = parameter->next;
+    }
+}
+
+void printFunctionCaptures(ASTFunctionCapture *capture)
+{
+    while(capture)
+    {
+        if(capture->kind == AST_FUNCTION_CAPTURE_REFERENCE)
+            printf("&");
+        else if(capture->kind == AST_FUNCTION_CAPTURE_MUT_REFERENCE)
+            printf("&mut ");
+        printf("%s", capture->identifier);
+        if(capture->next)
+            printf(", ");
+        capture = capture->next;
+    }
+}
+
+void printTypeArguments(ASTTypeArgument *argument)
+{
+    while(argument)
+    {
+        printASTDataType(argument->data_type);
+        if(argument->next)
+            printf(", ");
+        argument = argument->next;
     }
 }
 
@@ -541,13 +662,20 @@ void printASTDataType(ASTDataType *data_type)
             printASTDataType(data_type->child);
         } break;
         case AST_DATA_TYPE_KIND_FUNCTION: {
-            printf("fn(");
+            printf("Function([");
             printFunctionParameters(data_type->parameters);
-            printf(") ");
+            printf("], ");
             printASTDataType(data_type->return_data_type);
+            printf(")");
         } break;
         case AST_DATA_TYPE_KIND_NAMED: {
             printf("%s", data_type->identifier);
+        } break;
+        case AST_DATA_TYPE_KIND_APPLY: {
+            printASTDataType(data_type->callee);
+            printf("(");
+            printTypeArguments(data_type->arguments);
+            printf(")");
         } break;
         case AST_DATA_TYPE_KIND_ENUM: {
             if(data_type->identifier[0] != '\0')
@@ -681,6 +809,12 @@ void printASTNode(ASTNode node)
         } break;
         case AST_EXPR_FUNCTION: {
             printf("AST_EXPR_FUNCTION(");
+            if(node.captures)
+            {
+                printf("|");
+                printFunctionCaptures(node.captures);
+                printf("| ");
+            }
             printFunctionParameters(node.parameters);
             printf(") ");
             printASTDataType(node.return_data_type);
@@ -899,6 +1033,11 @@ void printASTNode(ASTNode node)
         } break;
         case AST_EXPR_VARIABLE: {
             printf("AST_EXPR_VARIABLE(%s)", node.identifier);
+        } break;
+        case AST_EXPR_TYPE_LITERAL: {
+            printf("AST_EXPR_TYPE_LITERAL(");
+            printASTDataType(node.data_type);
+            printf(")");
         } break;
         case AST_EXPR_LITERAL_BOOL: {
             printf("AST_EXPR_LITERAL_BOOL(%s)", node.literal_bool ? "true" : "false");

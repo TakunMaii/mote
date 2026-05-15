@@ -87,7 +87,39 @@ void declareFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scop
         VariableInfo *variable_info = declareVariableInfo(scope, parameter->identifier);
         variable_info->mutable = false;
         variable_info->data_type = cloneDataType(parameter->data_type);
+        if(parameter->data_type != NULL &&
+           parameter->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           parameter->data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
+        {
+            variable_info->type_value = newNamedDataType(parameter->identifier);
+        }
         parameter = parameter->next;
+    }
+}
+
+void declareFunctionCaptures(ASTFunctionCapture *capture, ScopeFrame *target_scope, ScopeFrame *source_scope)
+{
+    while(capture)
+    {
+        if(findVariableInfoInScope(target_scope, capture->identifier) >= 0)
+        {
+            printf("Function capture %s is declared more than once\n", capture->identifier);
+            exit(1);
+        }
+
+        VariableInfo *outer_variable = findVariableInfo(source_scope, capture->identifier);
+        if(outer_variable == NULL)
+        {
+            printf("Unknown function capture %s\n", capture->identifier);
+            exit(1);
+        }
+
+        VariableInfo *variable_info = declareVariableInfo(target_scope, capture->identifier);
+        variable_info->mutable = false;
+        variable_info->data_type = cloneDataType(outer_variable->data_type);
+        variable_info->type_value = cloneDataType(outer_variable->type_value);
+        variable_info->function_value = outer_variable->function_value;
+        capture = capture->next;
     }
 }
 
@@ -96,9 +128,11 @@ void checkFunctionExprSemantics(ASTNode *node, ScopeFrame *scope)
     ScopeFrame function_scope = {0};
     initScopeFrame(&function_scope, scope);
     declareFunctionParameters(node->parameters, &function_scope);
+    declareFunctionCaptures(node->captures, &function_scope, scope);
 
     FunctionContext function_context = {0};
     function_context.return_data_type = node->return_data_type;
+    function_context.self_available_as_type_value = false;
     function_context.loop_depth = 0;
     function_context.inside_defer = false;
 
@@ -123,6 +157,11 @@ void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
 
     if(node->kind == AST_EXPR_VARIABLE)
     {
+        if(strcmp(node->identifier, "Self") == 0)
+            return;
+        if(builtinIdentifierToDataType(node->identifier) != NULL)
+            return;
+
         if(findVariableInfo(scope, node->identifier) == NULL && findTypeInfo(scope, node->identifier) == NULL)
         {
             printf("Use of undeclared variable %s in expression\n", node->identifier);
@@ -564,6 +603,55 @@ void checkFunctionReturnStatement(ASTNode *node, ScopeFrame *scope, FunctionCont
     }
 }
 
+ASTFunctionParameter* resolveFunctionTypeParameters(ASTFunctionParameter *parameter, ScopeFrame *outer_scope,
+                                                    ASTDataType *self_data_type)
+{
+    ASTFunctionParameter *head = NULL;
+    ASTFunctionParameter *tail = NULL;
+
+    while(parameter)
+    {
+        ASTFunctionParameter *resolved_parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
+        *resolved_parameter = *parameter;
+        resolved_parameter->next = NULL;
+        resolved_parameter->data_type = resolveNamedDataType(parameter->data_type, outer_scope, self_data_type);
+
+        if(head == NULL)
+            head = resolved_parameter;
+        else
+            tail->next = resolved_parameter;
+        tail = resolved_parameter;
+        parameter = parameter->next;
+    }
+
+    return head;
+}
+
+ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope, ASTDataType *self_data_type)
+{
+    ASTFunctionParameter *resolved_parameters = resolveFunctionTypeParameters(node->parameters, outer_scope, self_data_type);
+
+    ScopeFrame signature_scope = {0};
+    initScopeFrame(&signature_scope, outer_scope);
+    ASTFunctionParameter *parameter = resolved_parameters;
+    while(parameter)
+    {
+        VariableInfo *variable_info = declareVariableInfo(&signature_scope, parameter->identifier);
+        variable_info->mutable = false;
+        variable_info->data_type = cloneDataType(parameter->data_type);
+        if(parameter->data_type != NULL &&
+           parameter->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           parameter->data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
+        {
+            variable_info->type_value = newNamedDataType(parameter->identifier);
+        }
+        parameter = parameter->next;
+    }
+
+    ASTDataType *resolved_return_type = resolveNamedDataType(node->return_data_type, &signature_scope, self_data_type);
+    return newFunctionDataType(resolved_parameters, resolved_return_type);
+}
+
 void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scope, ASTDataType *self_data_type)
 {
     while(parameter)
@@ -576,23 +664,38 @@ void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFra
 
         VariableInfo *variable_info = declareVariableInfo(scope, parameter->identifier);
         variable_info->mutable = false;
-        variable_info->data_type = resolveNamedDataType(parameter->data_type, scope, self_data_type);
+        variable_info->data_type = cloneDataType(parameter->data_type);
+        if(variable_info->data_type != NULL &&
+           variable_info->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           variable_info->data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
+        {
+            variable_info->type_value = newNamedDataType(parameter->identifier);
+        }
         parameter = parameter->next;
     }
 }
 
 void checkFunctionExprTypes(ASTNode *node, ScopeFrame *scope, ASTDataType *self_data_type)
 {
-    node->data_type = resolveNamedDataType(node->data_type, scope, self_data_type);
+    node->data_type = resolveFunctionExprDataType(node, scope, self_data_type);
     node->return_data_type = cloneDataType(node->data_type->return_data_type);
 
     ScopeFrame function_scope = {0};
     initScopeFrame(&function_scope, scope);
-    declareResolvedFunctionParameters(node->parameters, &function_scope, self_data_type);
+    declareResolvedFunctionParameters(node->data_type->parameters, &function_scope, self_data_type);
+    declareFunctionCaptures(node->captures, &function_scope, scope);
+    if(self_data_type != NULL)
+    {
+        VariableInfo *self_variable = declareVariableInfo(&function_scope, "Self");
+        self_variable->mutable = false;
+        self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
+        self_variable->type_value = cloneDataType(self_data_type);
+    }
 
     FunctionContext function_context = {0};
     function_context.return_data_type = node->data_type->return_data_type;
     function_context.self_data_type = self_data_type;
+    function_context.self_available_as_type_value = self_data_type != NULL;
     function_context.loop_depth = 0;
     function_context.inside_defer = false;
     checkAssignTypesInBlock(node->body, &function_scope, &function_context);
@@ -787,6 +890,10 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
         new_variable_info->mutable = node->modifier.mutable;
         new_variable_info->data_type = cloneDataType(node->data_type);
+        if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+            new_variable_info->type_value = cloneDataType(expr_type.data_type);
+        if(node->rhs->kind == AST_EXPR_FUNCTION)
+            new_variable_info->function_value = node->rhs;
     }
     else
     {
@@ -803,6 +910,10 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
             new_variable_info->mutable = false;
             new_variable_info->data_type = cloneDataType(declared_type);
+            if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+                new_variable_info->type_value = cloneDataType(expr_type.data_type);
+            if(node->rhs->kind == AST_EXPR_FUNCTION)
+                new_variable_info->function_value = node->rhs;
 
             if(!canImplicitConvertDataType(expr_type, node->rhs, declared_type))
                 typeErrorAssign(node, node->rhs, expr_type, declared_type);
