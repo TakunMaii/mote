@@ -1011,6 +1011,11 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
         case AST_EXPR_LITERAL_CHAR:
             return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR));
+        case AST_EXPR_LITERAL_STRING:
+            return newValueExprType(newArrayDataType(
+                newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR),
+                strlen(node->literal_string)
+            ));
         case AST_EXPR_LITERAL_INTEGER:
             return newLiteralIntegerExprType();
         case AST_EXPR_LITERAL_FLOAT:

@@ -241,6 +241,12 @@ ASTNode* parseLiteralValue(Token **token)
         node->literal_char = (*token)->literal_char;
         (*token) = (*token)->next;
     }
+    else if((*token)->kind == TK_LITERAL_STRING)
+    {
+        node->kind = AST_EXPR_LITERAL_STRING;
+        strcpy(node->literal_string, (*token)->literal_string);
+        (*token) = (*token)->next;
+    }
     else if((*token)->kind == TK_LITERAL_INTEGER)
     {
         node->literal_integer = (*token)->literal_integer;

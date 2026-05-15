@@ -205,6 +205,9 @@ void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
         return;
     }
 
+    if(node->kind == AST_EXPR_LITERAL_STRING)
+        return;
+
     checkExprDeclaredVariable(node->lhs, scope);
     checkExprDeclaredVariable(node->rhs, scope);
 }

@@ -1,0 +1,22 @@
+// 字符串字面量是数组字面量的语法糖。
+// "abc" 的类型是 Array(char, 3)，不是零结尾 C 字符串。
+
+empty: Array(char, 0) = "";
+abc: Array(char, 3) = "abc";
+same = ['a', 'b', 'c'];
+
+a0: char = abc[0];
+a1: char = abc[1];
+
+first_ptr: *char = &abc[0];
+
+mut escapes = "a\n\t\\\"";
+esc0: char = escapes[0];
+esc1: char = escapes[1];
+
+grid: Array(Array(char, 2), 2) = [
+    "ab",
+    "cd",
+];
+
+grid_1_0: char = grid[1][0];

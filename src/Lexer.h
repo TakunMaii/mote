@@ -48,6 +48,7 @@ char parseEscapedChar(char escape_char, const char *filename, int line, int colu
         case 't': return '\t';
         case '\\': return '\\';
         case '\'': return '\'';
+        case '"': return '"';
         default:
             printf("Unknown escaped char %c at file %s, line %d, column %d\n",
                    escape_char, filename, line, column);
@@ -494,6 +495,55 @@ Token* tokenize(char *code, const char* filename)
                 exit(1);
             }
 
+            code ++;
+            column ++;
+        }
+        else if(expectStr("\"", 1, code)) {
+            int literal_line = line;
+            int literal_column = column;
+            int string_index = 0;
+
+            token->next = newToken(TK_LITERAL_STRING, filename, line, column);
+            token = token->next;
+            code ++;
+            column ++;
+
+            while(*code && *code != '"' && *code != '\n')
+            {
+                char ch = *code;
+                if(ch == '\\')
+                {
+                    code ++;
+                    column ++;
+                    if(*code == '\0' || *code == '\n')
+                    {
+                        printf("Unclosed string literal at file %s, line %d, column %d\n",
+                               filename, literal_line, literal_column);
+                        exit(1);
+                    }
+                    ch = parseEscapedChar(*code, filename, line, column);
+                }
+
+                if(string_index >= MAX_STRING_LITERAL_LENGTH - 1)
+                {
+                    printf("String literal too long at file %s, line %d, column %d\n",
+                           filename, literal_line, literal_column);
+                    exit(1);
+                }
+
+                token->literal_string[string_index++] = ch;
+                code ++;
+                column ++;
+            }
+
+            if(*code != '"')
+            {
+                printf("Unclosed string literal at file %s, line %d, column %d\n",
+                       filename, literal_line, literal_column);
+                exit(1);
+            }
+
+            token->literal_string[string_index] = '\0';
             code ++;
             column ++;
         }

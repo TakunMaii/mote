@@ -60,6 +60,7 @@ typedef enum ASTNodeKind {
     AST_EXPR_TYPE_LITERAL,
     AST_EXPR_LITERAL_BOOL,
     AST_EXPR_LITERAL_CHAR,
+    AST_EXPR_LITERAL_STRING,
     AST_EXPR_LITERAL_INTEGER,
     AST_EXPR_LITERAL_FLOAT,
 } ASTNodeKind;
@@ -194,6 +195,7 @@ struct ASTNode {
     // literal value
     bool literal_bool;
     char literal_char;
+    char literal_string[MAX_STRING_LITERAL_LENGTH];
     long long int literal_integer;
     long double literal_float;
 
@@ -545,6 +547,7 @@ const char* astNodeKindToString(ASTNodeKind kind)
         case AST_EXPR_TYPE_LITERAL: return "AST_EXPR_TYPE_LITERAL";
         case AST_EXPR_LITERAL_BOOL: return "AST_EXPR_LITERAL_BOOL";
         case AST_EXPR_LITERAL_CHAR: return "AST_EXPR_LITERAL_CHAR";
+        case AST_EXPR_LITERAL_STRING: return "AST_EXPR_LITERAL_STRING";
         case AST_EXPR_LITERAL_INTEGER: return "AST_EXPR_LITERAL_INTEGER";
         case AST_EXPR_LITERAL_FLOAT: return "AST_EXPR_LITERAL_FLOAT";
         default:
@@ -1086,6 +1089,9 @@ void printASTNode(ASTNode node)
             printf("AST_EXPR_LITERAL_CHAR(");
             printEscapedChar(node.literal_char);
             printf(")");
+        } break;
+        case AST_EXPR_LITERAL_STRING: {
+            printf("AST_EXPR_LITERAL_STRING(\"%s\")", node.literal_string);
         } break;
         case AST_EXPR_LITERAL_INTEGER: {
             printf("AST_EXPR_LITERAL_INTEGER(%lld)", node.literal_integer);

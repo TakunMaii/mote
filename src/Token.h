@@ -61,11 +61,13 @@ typedef enum {
     TK_IDENTIFIER,
 
     TK_LITERAL_CHAR,
+    TK_LITERAL_STRING,
     TK_LITERAL_INTEGER,
     TK_LITERAL_FLOAT,
 } TokenKind;
 
 #define MAX_IDENTIFIER_LENGTH 128
+#define MAX_STRING_LITERAL_LENGTH 4096
 
 typedef struct Token {
     struct Token *next;
@@ -81,6 +83,7 @@ typedef struct Token {
 
     // literal values
     char literal_char;
+    char literal_string[MAX_STRING_LITERAL_LENGTH];
     long long int literal_integer;
     long double literal_float;
 } Token;
@@ -167,6 +170,7 @@ const char* tokenKindToString(TokenKind kind)
         case TK_SEMICOLON: return "TK_SEMICOLON";
         case TK_IDENTIFIER: return "TK_IDENTIFIER";
         case TK_LITERAL_CHAR: return "TK_LITERAL_CHAR";
+        case TK_LITERAL_STRING: return "TK_LITERAL_STRING";
         case TK_LITERAL_INTEGER: return "TK_LITERAL_INTEGER";
         case TK_LITERAL_FLOAT: return "TK_LITERAL_FLOAT";
         default:
@@ -235,6 +239,7 @@ void printToken(Token token)
             printEscapedChar(token.literal_char);
             printf("\n");
         }break;
+        case TK_LITERAL_STRING: {printf("TK_LITERAL_STRING: \"%s\"\n", token.literal_string);}break;
         case TK_LITERAL_INTEGER: {printf("TK_LITERAL_INTEGER: %lld\n", token.literal_integer);}break;
         case TK_LITERAL_FLOAT: {printf("TK_LITERAL_FLOAT %Lf\n", token.literal_float);}break;
         default:
