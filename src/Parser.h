@@ -29,51 +29,47 @@ ASTAssignModifier parseModifier(Token **token)
     return modifier;
 }
 
-ASTPrimaryDataType parsePrimaryDataType(Token **token)
+ASTDataType* parsePrimaryDataType(Token **token)
 {
     if((*token)->kind == TK_VOID)
     {
         (*token) = (*token)->next;
-        return AST_PRIMARY_DATA_TYPE_VOID;
+        return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
     }
 
     const char *identifier = expectToken(*token, TK_IDENTIFIER)->identifier;
 
-    ASTPrimaryDataType primary;
+    ASTDataType *primary = NULL;
     if(strcmp(identifier, "i8") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_I8;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I8);
     else if(strcmp(identifier, "i16") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_I16;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I16);
     else if(strcmp(identifier, "i32") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_I32;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I32);
     else if(strcmp(identifier, "i64") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_I64;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
     else if(strcmp(identifier, "u8") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_U8;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_U8);
     else if(strcmp(identifier, "u16") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_U16;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_U16);
     else if(strcmp(identifier, "u32") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_U32;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_U32);
     else if(strcmp(identifier, "u64") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_U64;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_U64);
     else if(strcmp(identifier, "f8") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_F8;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_F8);
     else if(strcmp(identifier, "f16") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_F16;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_F16);
     else if(strcmp(identifier, "f32") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_F32;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_F32);
     else if(strcmp(identifier, "f64") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_F64;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_F64);
     else if(strcmp(identifier, "char") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_CHAR;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR);
     else if(strcmp(identifier, "bool") == 0)
-        primary = AST_PRIMARY_DATA_TYPE_BOOL;
+        primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL);
     else
-    {
-        printf("Unknown data type %s at file %s, line %d, column %d\n",
-               identifier, (*token)->filename, (*token)->line_number, (*token)->column_number);
-        exit(1);
-    }
+        primary = newNamedDataType(identifier);
 
     (*token) = (*token)->next;
     return primary;
@@ -109,13 +105,14 @@ ASTDataType* parseDataType(Token **token)
         return newWrappedDataType(AST_DATA_TYPE_KIND_REFERENCE, mutable, parseDataType(token));
     }
 
-    return newPrimaryDataType(parsePrimaryDataType(token));
+    return parsePrimaryDataType(token);
 }
 
 ASTNode* parseExpr(Token **token);
 ASTNode* parseUnary(Token **token);
 ASTNode* parseStatement(Token **token);
 ASTNode* parseBlock(Token **token);
+ASTNode* parseStructExpr(Token **token);
 
 ASTNode* parseLiteralValue(Token **token)
 {
@@ -259,6 +256,9 @@ ASTNode* parsePrimary(Token **token)
     if((*token)->kind == TK_FN)
         return parseFunctionExpr(token);
 
+    if((*token)->kind == TK_STRUCT)
+        return parseStructExpr(token);
+
     if((*token)->kind == TK_LEFT_PARENTHESIS)
     {
         ASTNode *parenthesis_node = newASTNodeFromToken(AST_EXPR_PARENTHESIS, *token);
@@ -275,6 +275,46 @@ ASTNode* parsePrimary(Token **token)
     }
 
     return parseLiteralValue(token);
+}
+
+ASTStructLiteralField* parseStructLiteralFields(Token **token)
+{
+    ASTStructLiteralField *head = NULL;
+    ASTStructLiteralField *tail = NULL;
+
+    expectToken(*token, TK_LEFT_BRACE);
+    (*token) = (*token)->next;
+
+    while((*token)->kind != TK_RIGHT_BRACE)
+    {
+        expectToken(*token, TK_DOT);
+        (*token) = (*token)->next;
+
+        Token *field_token = expectToken(*token, TK_IDENTIFIER);
+        ASTStructLiteralField *field = newASTStructLiteralFieldFromToken(field_token);
+        strcpy(field->identifier, field_token->identifier);
+        (*token) = (*token)->next;
+
+        expectToken(*token, TK_EQUAL);
+        (*token) = (*token)->next;
+        field->value = parseExpr(token);
+
+        if(head == NULL)
+            head = field;
+        else
+            tail->next = field;
+        tail = field;
+
+        if((*token)->kind == TK_COMMA)
+            (*token) = (*token)->next;
+        else
+            break;
+    }
+
+    expectToken(*token, TK_RIGHT_BRACE);
+    (*token) = (*token)->next;
+
+    return head;
 }
 
 ASTNode* parseArgumentList(Token **token)
@@ -312,12 +352,39 @@ ASTNode* parsePostfix(Token **token)
 {
     ASTNode *node = parsePrimary(token);
 
-    while((*token)->kind == TK_LEFT_PARENTHESIS)
+    while(true)
     {
-        ASTNode *call_node = newASTNodeFromToken(AST_EXPR_CALL, *token);
-        call_node->lhs = node;
-        call_node->rhs = parseArgumentList(token);
-        node = call_node;
+        if((*token)->kind == TK_LEFT_PARENTHESIS)
+        {
+            ASTNode *call_node = newASTNodeFromToken(AST_EXPR_CALL, *token);
+            call_node->lhs = node;
+            call_node->rhs = parseArgumentList(token);
+            node = call_node;
+            continue;
+        }
+
+        if((*token)->kind == TK_DOT)
+        {
+            (*token) = (*token)->next;
+            Token *member_token = expectToken(*token, TK_IDENTIFIER);
+            ASTNode *member_node = newASTNodeFromToken(AST_EXPR_MEMBER, member_token);
+            member_node->lhs = node;
+            strcpy(member_node->identifier, member_token->identifier);
+            (*token) = (*token)->next;
+            node = member_node;
+            continue;
+        }
+
+        if((*token)->kind == TK_LEFT_BRACE)
+        {
+            ASTNode *literal_node = newASTNodeFromToken(AST_EXPR_STRUCT_LITERAL, *token);
+            literal_node->lhs = node;
+            literal_node->struct_literal_fields = parseStructLiteralFields(token);
+            node = literal_node;
+            continue;
+        }
+
+        break;
     }
 
     return node;
@@ -325,24 +392,12 @@ ASTNode* parsePostfix(Token **token)
 
 ASTNode* parseLValue(Token **token)
 {
-    if((*token)->kind == TK_IDENTIFIER)
-    {
-        ASTNode *node = newASTNodeFromToken(AST_EXPR_VARIABLE, *token);
-        strcpy(node->identifier, (*token)->identifier);
-        (*token) = (*token)->next;
+    ASTNode *node = parseUnary(token);
+    if(node->kind == AST_EXPR_VARIABLE || node->kind == AST_EXPR_DEREF || node->kind == AST_EXPR_MEMBER)
         return node;
-    }
 
-    if((*token)->kind == TK_STAR)
-    {
-        ASTNode *node = newASTNodeFromToken(AST_EXPR_DEREF, *token);
-        (*token) = (*token)->next;
-        node->lhs = parseUnary(token);
-        return node;
-    }
-
-    printf("parseLValue: expected identifier or deref here at file %s, line %d, column %d\n",
-           (*token)->filename, (*token)->line_number, (*token)->column_number);
+    printf("parseLValue: expected assignable expression here at file %s, line %d, column %d\n",
+           node->filename, node->line_number, node->column_number);
     exit(1);
 }
 
@@ -576,6 +631,56 @@ ASTNode* parseExpr(Token **token)
         node = new_node;
     }
 
+    return node;
+}
+
+ASTNode* parseStructExpr(Token **token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_EXPR_STRUCT, *token);
+    expectToken(*token, TK_STRUCT);
+    (*token) = (*token)->next;
+
+    expectToken(*token, TK_LEFT_BRACE);
+    (*token) = (*token)->next;
+
+    ASTStructMember *head = NULL;
+    ASTStructMember *tail = NULL;
+
+    while((*token)->kind != TK_RIGHT_BRACE)
+    {
+        Token *member_token = expectToken(*token, TK_IDENTIFIER);
+        ASTStructMember *member = newASTStructMemberFromToken(member_token);
+        strcpy(member->identifier, member_token->identifier);
+        (*token) = (*token)->next;
+
+        expectToken(*token, TK_COLON);
+        (*token) = (*token)->next;
+
+        if((*token)->kind == TK_FN)
+        {
+            member->value = parseFunctionExpr(token);
+            member->data_type = cloneDataType(member->value->data_type);
+        }
+        else
+            member->data_type = parseDataType(token);
+
+        if(head == NULL)
+            head = member;
+        else
+            tail->next = member;
+        tail = member;
+
+        if((*token)->kind == TK_COMMA)
+            (*token) = (*token)->next;
+        else
+            break;
+    }
+
+    expectToken(*token, TK_RIGHT_BRACE);
+    (*token) = (*token)->next;
+
+    node->members = head;
+    node->data_type = newStructDataType("", cloneStructMembers(head));
     return node;
 }
 

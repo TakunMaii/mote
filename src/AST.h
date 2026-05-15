@@ -16,7 +16,10 @@ typedef enum ASTNodeKind {
     AST_ASSIGN,// assign or decl
 
     AST_EXPR_FUNCTION,
+    AST_EXPR_STRUCT,
+    AST_EXPR_STRUCT_LITERAL,
     AST_EXPR_CALL,
+    AST_EXPR_MEMBER,
     AST_EXPR_LOGICAL_OR,
     AST_EXPR_LOGICAL_AND,
     AST_EXPR_BIT_OR,
@@ -74,10 +77,14 @@ typedef enum ASTDataTypeKind {
     AST_DATA_TYPE_KIND_POINTER,
     AST_DATA_TYPE_KIND_REFERENCE,
     AST_DATA_TYPE_KIND_FUNCTION,
+    AST_DATA_TYPE_KIND_NAMED,
+    AST_DATA_TYPE_KIND_STRUCT,
 } ASTDataTypeKind;
 
 typedef struct ASTDataType ASTDataType;
 typedef struct ASTNode ASTNode;
+typedef struct ASTStructMember ASTStructMember;
+typedef struct ASTStructLiteralField ASTStructLiteralField;
 
 typedef struct ASTFunctionParameter {
     struct ASTFunctionParameter *next;
@@ -92,10 +99,31 @@ typedef struct ASTDataType {
     ASTDataTypeKind kind;
     bool mutable;
     ASTPrimaryDataType primary;
+    char identifier[MAX_IDENTIFIER_LENGTH];
     struct ASTDataType *child;
     ASTFunctionParameter *parameters;
     struct ASTDataType *return_data_type;
+    ASTStructMember *members;
 } ASTDataType;
+
+struct ASTStructMember {
+    struct ASTStructMember *next;
+    const char *filename;
+    int line_number;
+    int column_number;
+    char identifier[MAX_IDENTIFIER_LENGTH];
+    ASTDataType *data_type;
+    ASTNode *value;
+};
+
+struct ASTStructLiteralField {
+    struct ASTStructLiteralField *next;
+    const char *filename;
+    int line_number;
+    int column_number;
+    char identifier[MAX_IDENTIFIER_LENGTH];
+    ASTNode *value;
+};
 
 typedef struct {
     bool mutable;
@@ -127,6 +155,10 @@ struct ASTNode {
     ASTFunctionParameter *parameters;
     ASTDataType *return_data_type;
     ASTNode *body;
+
+    // struct literal
+    ASTStructMember *members;
+    ASTStructLiteralField *struct_literal_fields;
 };
 
 ASTNode* newASTNode(ASTNodeKind kind)
@@ -173,6 +205,15 @@ ASTDataType* newPrimaryDataType(ASTPrimaryDataType primary)
     return data_type;
 }
 
+ASTDataType* newNamedDataType(const char *identifier)
+{
+    ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    memset(data_type, 0, sizeof(ASTDataType));
+    data_type->kind = AST_DATA_TYPE_KIND_NAMED;
+    strcpy(data_type->identifier, identifier);
+    return data_type;
+}
+
 ASTDataType* newWrappedDataType(ASTDataTypeKind kind, bool mutable, ASTDataType *child)
 {
     ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
@@ -193,7 +234,19 @@ ASTDataType* newFunctionDataType(ASTFunctionParameter *parameters, ASTDataType *
     return data_type;
 }
 
+ASTDataType* newStructDataType(const char *identifier, ASTStructMember *members)
+{
+    ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    memset(data_type, 0, sizeof(ASTDataType));
+    data_type->kind = AST_DATA_TYPE_KIND_STRUCT;
+    if(identifier)
+        strcpy(data_type->identifier, identifier);
+    data_type->members = members;
+    return data_type;
+}
+
 ASTDataType* cloneDataType(ASTDataType *data_type);
+ASTStructMember* cloneStructMembers(ASTStructMember *member);
 
 ASTFunctionParameter* cloneFunctionParameters(ASTFunctionParameter *parameter)
 {
@@ -213,6 +266,26 @@ ASTFunctionParameter* cloneFunctionParameters(ASTFunctionParameter *parameter)
     return new_parameter;
 }
 
+ASTStructMember* newASTStructMemberFromToken(Token *token)
+{
+    ASTStructMember *member = (ASTStructMember*) malloc(sizeof(ASTStructMember));
+    memset(member, 0, sizeof(ASTStructMember));
+    member->filename = token->filename;
+    member->line_number = token->line_number;
+    member->column_number = token->column_number;
+    return member;
+}
+
+ASTStructLiteralField* newASTStructLiteralFieldFromToken(Token *token)
+{
+    ASTStructLiteralField *field = (ASTStructLiteralField*) malloc(sizeof(ASTStructLiteralField));
+    memset(field, 0, sizeof(ASTStructLiteralField));
+    field->filename = token->filename;
+    field->line_number = token->line_number;
+    field->column_number = token->column_number;
+    return field;
+}
+
 ASTDataType* cloneDataType(ASTDataType *data_type)
 {
     if(data_type == NULL)
@@ -223,6 +296,7 @@ ASTDataType* cloneDataType(ASTDataType *data_type)
     new_data_type->child = NULL;
     new_data_type->parameters = NULL;
     new_data_type->return_data_type = NULL;
+    new_data_type->members = NULL;
 
     if(data_type->child)
         new_data_type->child = cloneDataType(data_type->child);
@@ -230,7 +304,26 @@ ASTDataType* cloneDataType(ASTDataType *data_type)
         new_data_type->parameters = cloneFunctionParameters(data_type->parameters);
     if(data_type->return_data_type)
         new_data_type->return_data_type = cloneDataType(data_type->return_data_type);
+    if(data_type->members)
+        new_data_type->members = cloneStructMembers(data_type->members);
     return new_data_type;
+}
+
+ASTStructMember* cloneStructMembers(ASTStructMember *member)
+{
+    if(member == NULL)
+        return NULL;
+
+    ASTStructMember *new_member = (ASTStructMember*) malloc(sizeof(ASTStructMember));
+    *new_member = *member;
+    new_member->next = NULL;
+    new_member->data_type = NULL;
+
+    if(member->data_type)
+        new_member->data_type = cloneDataType(member->data_type);
+    if(member->next)
+        new_member->next = cloneStructMembers(member->next);
+    return new_member;
 }
 
 const char* astNodeKindToString(ASTNodeKind kind)
@@ -244,7 +337,10 @@ const char* astNodeKindToString(ASTNodeKind kind)
         case AST_STATEMENT_RETURN: return "AST_STATEMENT_RETURN";
         case AST_ASSIGN: return "AST_ASSIGN";
         case AST_EXPR_FUNCTION: return "AST_EXPR_FUNCTION";
+        case AST_EXPR_STRUCT: return "AST_EXPR_STRUCT";
+        case AST_EXPR_STRUCT_LITERAL: return "AST_EXPR_STRUCT_LITERAL";
         case AST_EXPR_CALL: return "AST_EXPR_CALL";
+        case AST_EXPR_MEMBER: return "AST_EXPR_MEMBER";
         case AST_EXPR_LOGICAL_OR: return "AST_EXPR_LOGICAL_OR";
         case AST_EXPR_LOGICAL_AND: return "AST_EXPR_LOGICAL_AND";
         case AST_EXPR_BIT_OR: return "AST_EXPR_BIT_OR";
@@ -308,6 +404,7 @@ const char* astPrimaryDataTypeToString(ASTPrimaryDataType primary)
 }
 
 void printASTDataType(ASTDataType *data_type);
+void printASTNode(ASTNode node);
 
 void printFunctionParameters(ASTFunctionParameter *parameter)
 {
@@ -318,6 +415,21 @@ void printFunctionParameters(ASTFunctionParameter *parameter)
         if(parameter->next)
             printf(", ");
         parameter = parameter->next;
+    }
+}
+
+void printStructMembers(ASTStructMember *member)
+{
+    while(member)
+    {
+        printf("%s: ", member->identifier);
+        if(member->value)
+            printASTNode(*(member->value));
+        else
+            printASTDataType(member->data_type);
+        if(member->next)
+            printf(", ");
+        member = member->next;
     }
 }
 
@@ -354,6 +466,19 @@ void printASTDataType(ASTDataType *data_type)
             printFunctionParameters(data_type->parameters);
             printf(") ");
             printASTDataType(data_type->return_data_type);
+        } break;
+        case AST_DATA_TYPE_KIND_NAMED: {
+            printf("%s", data_type->identifier);
+        } break;
+        case AST_DATA_TYPE_KIND_STRUCT: {
+            if(data_type->identifier[0] != '\0')
+                printf("%s", data_type->identifier);
+            else
+            {
+                printf("struct {");
+                printStructMembers(data_type->members);
+                printf("}");
+            }
         } break;
         default:
             printf("printASTDataType: unknown AST data type kind\n");
@@ -414,6 +539,26 @@ void printASTNode(ASTNode node)
             printf(" ");
             printASTNode(*(node.body));
         } break;
+        case AST_EXPR_STRUCT: {
+            printf("AST_EXPR_STRUCT {");
+            printStructMembers(node.members);
+            printf("}");
+        } break;
+        case AST_EXPR_STRUCT_LITERAL: {
+            printf("AST_EXPR_STRUCT_LITERAL(");
+            printASTNode(*(node.lhs));
+            printf(" {");
+            ASTStructLiteralField *field = node.struct_literal_fields;
+            while(field)
+            {
+                printf(".%s = ", field->identifier);
+                printASTNode(*(field->value));
+                if(field->next)
+                    printf(", ");
+                field = field->next;
+            }
+            printf("})");
+        } break;
         case AST_EXPR_CALL: {
             printf("AST_EXPR_CALL(callee(");
             printASTNode(*(node.lhs));
@@ -427,6 +572,11 @@ void printASTNode(ASTNode node)
                     printf(", ");
             }
             printf("))");
+        } break;
+        case AST_EXPR_MEMBER: {
+            printf("AST_EXPR_MEMBER(");
+            printASTNode(*(node.lhs));
+            printf(".%s)", node.identifier);
         } break;
         case AST_EXPR_ADD: {
             printf("AST_EXPR_ADD(");

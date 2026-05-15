@@ -8,6 +8,7 @@
 
 typedef enum TypeSystemExprTypeKind {
     TYPE_SYSTEM_EXPR_TYPE_VALUE,
+    TYPE_SYSTEM_EXPR_TYPE_TYPE,
     TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER,
     TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT,
 } TypeSystemExprTypeKind;
@@ -24,6 +25,14 @@ TypeSystemExprType newValueExprType(ASTDataType *data_type)
 {
     TypeSystemExprType expr_type = {0};
     expr_type.kind = TYPE_SYSTEM_EXPR_TYPE_VALUE;
+    expr_type.data_type = cloneDataType(data_type);
+    return expr_type;
+}
+
+TypeSystemExprType newTypeExprType(ASTDataType *data_type)
+{
+    TypeSystemExprType expr_type = {0};
+    expr_type.kind = TYPE_SYSTEM_EXPR_TYPE_TYPE;
     expr_type.data_type = cloneDataType(data_type);
     return expr_type;
 }
@@ -104,6 +113,26 @@ bool isVoidPrimary(ASTPrimaryDataType primary)
     return primary == AST_PRIMARY_DATA_TYPE_VOID;
 }
 
+bool isStructDataType(ASTDataType *data_type)
+{
+    return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_STRUCT;
+}
+
+ASTStructMember* findStructMember(ASTDataType *struct_type, const char *identifier)
+{
+    if(struct_type == NULL || struct_type->kind != AST_DATA_TYPE_KIND_STRUCT)
+        return NULL;
+
+    ASTStructMember *member = struct_type->members;
+    while(member)
+    {
+        if(strcmp(member->identifier, identifier) == 0)
+            return member;
+        member = member->next;
+    }
+    return NULL;
+}
+
 int getIntegerPrimaryWidth(ASTPrimaryDataType primary)
 {
     switch(primary)
@@ -159,6 +188,26 @@ bool isSameFunctionSignature(ASTDataType *lhs, ASTDataType *rhs)
     return isSameDataType(lhs->return_data_type, rhs->return_data_type);
 }
 
+bool isSameStructType(ASTDataType *lhs, ASTDataType *rhs)
+{
+    if(lhs->identifier[0] != '\0' || rhs->identifier[0] != '\0')
+        return strcmp(lhs->identifier, rhs->identifier) == 0;
+
+    ASTStructMember *lhs_member = lhs->members;
+    ASTStructMember *rhs_member = rhs->members;
+    while(lhs_member && rhs_member)
+    {
+        if(strcmp(lhs_member->identifier, rhs_member->identifier) != 0)
+            return false;
+        if(!isSameDataType(lhs_member->data_type, rhs_member->data_type))
+            return false;
+        lhs_member = lhs_member->next;
+        rhs_member = rhs_member->next;
+    }
+
+    return lhs_member == NULL && rhs_member == NULL;
+}
+
 bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
 {
     if(lhs == NULL || rhs == NULL)
@@ -178,8 +227,73 @@ bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
             return lhs->mutable == rhs->mutable && isSameDataType(lhs->child, rhs->child);
         case AST_DATA_TYPE_KIND_FUNCTION:
             return isSameFunctionSignature(lhs, rhs);
+        case AST_DATA_TYPE_KIND_NAMED:
+            return strcmp(lhs->identifier, rhs->identifier) == 0;
+        case AST_DATA_TYPE_KIND_STRUCT:
+            return isSameStructType(lhs, rhs);
         default:
             return false;
+    }
+}
+
+ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, ASTDataType *self_data_type)
+{
+    if(data_type == NULL)
+        return NULL;
+
+    switch(data_type->kind)
+    {
+        case AST_DATA_TYPE_KIND_INFER:
+        case AST_DATA_TYPE_KIND_PRIMARY:
+        case AST_DATA_TYPE_KIND_STRUCT:
+            return cloneDataType(data_type);
+        case AST_DATA_TYPE_KIND_NAMED: {
+            if(strcmp(data_type->identifier, "Self") == 0)
+            {
+                if(self_data_type == NULL)
+                {
+                    printf("Type error: Self is only allowed inside a struct method\n");
+                    exit(1);
+                }
+                return cloneDataType(self_data_type);
+            }
+
+            TypeInfo *type_info = findTypeInfo(scope, data_type->identifier);
+            if(type_info == NULL)
+            {
+                printf("Unknown data type %s\n", data_type->identifier);
+                exit(1);
+            }
+            return cloneDataType(type_info->data_type);
+        }
+        case AST_DATA_TYPE_KIND_POINTER:
+        case AST_DATA_TYPE_KIND_REFERENCE:
+            return newWrappedDataType(data_type->kind, data_type->mutable,
+                                      resolveNamedDataType(data_type->child, scope, self_data_type));
+        case AST_DATA_TYPE_KIND_FUNCTION: {
+            ASTFunctionParameter *head = NULL;
+            ASTFunctionParameter *tail = NULL;
+            ASTFunctionParameter *parameter = data_type->parameters;
+            while(parameter)
+            {
+                ASTFunctionParameter *new_parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
+                *new_parameter = *parameter;
+                new_parameter->next = NULL;
+                new_parameter->data_type = resolveNamedDataType(parameter->data_type, scope, self_data_type);
+
+                if(head == NULL)
+                    head = new_parameter;
+                else
+                    tail->next = new_parameter;
+                tail = new_parameter;
+                parameter = parameter->next;
+            }
+
+            return newFunctionDataType(head, resolveNamedDataType(data_type->return_data_type, scope, self_data_type));
+        }
+        default:
+            printf("resolveNamedDataType: unsupported AST data type kind\n");
+            exit(1);
     }
 }
 
@@ -236,6 +350,9 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
 
     if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
         return target_type->kind == AST_DATA_TYPE_KIND_PRIMARY && isFloatPrimary(target_type->primary);
+
+    if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+        return false;
 
     ASTDataType *source_data_type = source_type.data_type;
     if(isSameDataType(source_data_type, target_type))
@@ -294,6 +411,8 @@ void typeErrorBinaryOperator(ASTNode *node, const char *operator_name,
         printf("literal integer");
     else if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
         printf("literal float");
+    else if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+        printf("type");
     else
         printASTDataType(lhs_type.data_type);
     printf(" and ");
@@ -301,6 +420,8 @@ void typeErrorBinaryOperator(ASTNode *node, const char *operator_name,
         printf("literal integer");
     else if(rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
         printf("literal float");
+    else if(rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+        printf("type");
     else
         printASTDataType(rhs_type.data_type);
     printf(" at file %s, line %d, column %d\n",
@@ -315,6 +436,8 @@ void typeErrorUnaryOperator(ASTNode *node, const char *operator_name, TypeSystem
         printf("literal integer");
     else if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
         printf("literal float");
+    else if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+        printf("type");
     else
         printASTDataType(operand_type.data_type);
     printf(" at file %s, line %d, column %d\n",
@@ -329,6 +452,8 @@ void typeErrorAssign(ASTNode *node, ASTNode *source_node, TypeSystemExprType sou
         printf("literal integer");
     else if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
         printf("literal float");
+    else if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+        printf("type");
     else
         printASTDataType(source_type.data_type);
     printf(" to ");
@@ -344,6 +469,11 @@ ASTDataType* normalizeNumericDataType(TypeSystemExprType expr_type)
         return defaultIntegerDataType();
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
         return defaultFloatDataType();
+    if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+    {
+        printf("Type error: type cannot be used as a numeric expression\n");
+        exit(1);
+    }
     if(expr_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY && isCharPrimary(expr_type.data_type->primary))
         return defaultIntegerDataType();
     return cloneDataType(expr_type.data_type);
@@ -394,7 +524,7 @@ TypeSystemExprType getCommonNumericType(ASTNode *node, TypeSystemExprType lhs_ty
 
 bool isAddressableExpr(ASTNode *node)
 {
-    return node->kind == AST_EXPR_VARIABLE || node->kind == AST_EXPR_DEREF;
+    return node->kind == AST_EXPR_VARIABLE || node->kind == AST_EXPR_DEREF || node->kind == AST_EXPR_MEMBER;
 }
 
 bool isMutableAddressableExpr(ASTNode *node, ScopeFrame *scope)
@@ -404,7 +534,10 @@ bool isMutableAddressableExpr(ASTNode *node, ScopeFrame *scope)
         VariableInfo *variable_info = findVariableInfo(scope, node->identifier);
         if(variable_info == NULL)
             return false;
-        return variable_info->mutable;
+        return variable_info->mutable ||
+               (variable_info->data_type != NULL &&
+                variable_info->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE &&
+                variable_info->data_type->mutable);
     }
 
     if(node->kind == AST_EXPR_DEREF)
@@ -414,6 +547,19 @@ bool isMutableAddressableExpr(ASTNode *node, ScopeFrame *scope)
             return false;
         if(ptr_type.data_type->kind == AST_DATA_TYPE_KIND_POINTER || ptr_type.data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
             return ptr_type.data_type->mutable;
+    }
+
+    if(node->kind == AST_EXPR_MEMBER)
+    {
+        TypeSystemExprType owner_type = inferExprType(node->lhs, scope);
+        if(owner_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
+            return false;
+
+        ASTDataType *owner_data_type = owner_type.data_type;
+        if(owner_data_type->kind == AST_DATA_TYPE_KIND_POINTER || owner_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+            return owner_data_type->mutable;
+
+        return isMutableAddressableExpr(node->lhs, scope);
     }
 
     return false;
@@ -448,6 +594,69 @@ int countFunctionParameters(ASTFunctionParameter *parameter)
     return count;
 }
 
+void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argument, ScopeFrame *scope)
+{
+    while(parameter && argument)
+    {
+        TypeSystemExprType argument_type = inferExprType(argument, scope);
+        if(parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+        {
+            if(!canBindReferenceArgument(argument, scope, parameter->data_type))
+            {
+                printf("Type error: function reference argument type mismatch at file %s, line %d, column %d\n",
+                       argument->filename, argument->line_number, argument->column_number);
+                exit(1);
+            }
+        }
+        else if(!canImplicitConvertDataType(argument_type, argument, parameter->data_type))
+        {
+            printf("Type error: function argument type mismatch at file %s, line %d, column %d\n",
+                   argument->filename, argument->line_number, argument->column_number);
+            exit(1);
+        }
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+
+    if(parameter != NULL || argument != NULL)
+    {
+        printf("Type error: function argument count mismatch\n");
+        exit(1);
+    }
+}
+
+bool canBindMethodReceiver(ASTNode *receiver, ScopeFrame *scope, ASTDataType *parameter_type, ASTDataType *owner_type)
+{
+    TypeSystemExprType receiver_type = inferExprType(receiver, scope);
+
+    if(parameter_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+    {
+        if(!isAddressableExpr(receiver))
+            return false;
+        if(parameter_type->mutable && !isMutableAddressableExpr(receiver, scope))
+            return false;
+        return receiver_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+               isSameDataType(getReferenceTargetType(receiver_type.data_type), parameter_type->child);
+    }
+
+    if(parameter_type->kind == AST_DATA_TYPE_KIND_POINTER)
+    {
+        if(receiver_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+           receiver_type.data_type->kind == AST_DATA_TYPE_KIND_POINTER &&
+           canImplicitConvertDataType(receiver_type, receiver, parameter_type))
+            return true;
+
+        return isAddressableExpr(receiver) &&
+               (!parameter_type->mutable || isMutableAddressableExpr(receiver, scope)) &&
+               receiver_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+               isSameDataType(getReferenceTargetType(receiver_type.data_type), parameter_type->child);
+    }
+
+    return receiver_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+           isSameDataType(receiver_type.data_type, parameter_type) &&
+           isSameDataType(owner_type, parameter_type);
+}
+
 TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
 {
     switch(node->kind)
@@ -462,20 +671,148 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             return newLiteralFloatExprType();
         case AST_EXPR_VARIABLE: {
             VariableInfo *variable_info = findVariableInfo(scope, node->identifier);
-            if(variable_info == NULL)
+            if(variable_info != NULL)
             {
-                printf("Type inference: undeclared variable %s at file %s, line %d, column %d\n",
-                       node->identifier, node->filename, node->line_number, node->column_number);
-                exit(1);
+                ASTDataType *variable_data_type = variable_info->data_type;
+                if(variable_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+                    return newValueExprType(variable_data_type->child);
+                return newValueExprType(variable_data_type);
             }
-            ASTDataType *variable_data_type = variable_info->data_type;
-            if(variable_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-                return newValueExprType(variable_data_type->child);
-            return newValueExprType(variable_data_type);
+
+            TypeInfo *type_info = findTypeInfo(scope, node->identifier);
+            if(type_info != NULL)
+                return newTypeExprType(type_info->data_type);
+
+            printf("Type inference: undeclared variable %s at file %s, line %d, column %d\n",
+                   node->identifier, node->filename, node->line_number, node->column_number);
+            exit(1);
         }
         case AST_EXPR_FUNCTION:
             return newValueExprType(node->data_type);
+        case AST_EXPR_STRUCT:
+            return newTypeExprType(node->data_type);
+        case AST_EXPR_STRUCT_LITERAL: {
+            TypeSystemExprType type_expr = inferExprType(node->lhs, scope);
+            if(type_expr.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE || !isStructDataType(type_expr.data_type))
+            {
+                printf("Type error: struct literal requires a struct type at file %s, line %d, column %d\n",
+                       node->filename, node->line_number, node->column_number);
+                exit(1);
+            }
+
+            ASTStructMember *member = type_expr.data_type->members;
+            while(member)
+            {
+                if(member->value == NULL)
+                {
+                    ASTStructLiteralField *field = node->struct_literal_fields;
+                    while(field && strcmp(field->identifier, member->identifier) != 0)
+                        field = field->next;
+                    if(field == NULL)
+                    {
+                        printf("Type error: missing field %s in struct literal at file %s, line %d, column %d\n",
+                               member->identifier, node->filename, node->line_number, node->column_number);
+                        exit(1);
+                    }
+
+                    TypeSystemExprType field_type = inferExprType(field->value, scope);
+                    if(!canImplicitConvertDataType(field_type, field->value, member->data_type))
+                    {
+                        printf("Type error: struct field %s type mismatch at file %s, line %d, column %d\n",
+                               member->identifier, field->value->filename, field->value->line_number, field->value->column_number);
+                        exit(1);
+                    }
+                }
+                member = member->next;
+            }
+
+            ASTStructLiteralField *field = node->struct_literal_fields;
+            while(field)
+            {
+                ASTStructMember *declared_member = findStructMember(type_expr.data_type, field->identifier);
+                if(declared_member == NULL || declared_member->value != NULL)
+                {
+                    printf("Type error: unknown struct field %s at file %s, line %d, column %d\n",
+                           field->identifier, field->filename, field->line_number, field->column_number);
+                    exit(1);
+                }
+                field = field->next;
+            }
+
+            return newValueExprType(type_expr.data_type);
+        }
+        case AST_EXPR_MEMBER: {
+            TypeSystemExprType owner_type = inferExprType(node->lhs, scope);
+            ASTDataType *struct_type = NULL;
+
+            if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+                struct_type = owner_type.data_type;
+            else if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE)
+            {
+                struct_type = owner_type.data_type;
+                if(struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+                    struct_type = struct_type->child;
+            }
+
+            if(!isStructDataType(struct_type))
+            {
+                printf("Type error: member access requires a struct type at file %s, line %d, column %d\n",
+                       node->filename, node->line_number, node->column_number);
+                exit(1);
+            }
+
+            ASTStructMember *member = findStructMember(struct_type, node->identifier);
+            if(member == NULL)
+            {
+                printf("Type error: unknown struct member %s at file %s, line %d, column %d\n",
+                       node->identifier, node->filename, node->line_number, node->column_number);
+                exit(1);
+            }
+
+            if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE && member->value == NULL)
+            {
+                printf("Type error: struct field %s cannot be accessed on the type itself at file %s, line %d, column %d\n",
+                       node->identifier, node->filename, node->line_number, node->column_number);
+                exit(1);
+            }
+
+            if(member->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+                return newValueExprType(member->data_type->child);
+            return newValueExprType(member->data_type);
+        }
         case AST_EXPR_CALL: {
+            if(node->lhs->kind == AST_EXPR_MEMBER)
+            {
+                ASTNode *member_node = node->lhs;
+                TypeSystemExprType owner_type = inferExprType(member_node->lhs, scope);
+                ASTDataType *struct_type = NULL;
+                bool through_type = owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE;
+                if(through_type)
+                    struct_type = owner_type.data_type;
+                else if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE)
+                {
+                    struct_type = owner_type.data_type;
+                    if(struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+                        struct_type = struct_type->child;
+                }
+
+                if(isStructDataType(struct_type))
+                {
+                    ASTStructMember *member = findStructMember(struct_type, member_node->identifier);
+                    if(member != NULL && member->data_type != NULL &&
+                       member->data_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+                    {
+                        ASTFunctionParameter *parameter = member->data_type->parameters;
+                        if(!through_type && parameter != NULL &&
+                           canBindMethodReceiver(member_node->lhs, scope, parameter->data_type, struct_type))
+                        {
+                            checkFunctionCallArguments(parameter->next, node->rhs, scope);
+                            return newValueExprType(member->data_type->return_data_type);
+                        }
+                    }
+                }
+            }
+
             TypeSystemExprType callee_type = inferExprType(node->lhs, scope);
             if(callee_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || callee_type.data_type->kind != AST_DATA_TYPE_KIND_FUNCTION)
             {
@@ -484,36 +821,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 exit(1);
             }
 
-            ASTFunctionParameter *parameter = callee_type.data_type->parameters;
-            ASTNode *argument = node->rhs;
-            while(parameter && argument)
-            {
-                TypeSystemExprType argument_type = inferExprType(argument, scope);
-                if(parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-                {
-                    if(!canBindReferenceArgument(argument, scope, parameter->data_type))
-                    {
-                        printf("Type error: function reference argument type mismatch at file %s, line %d, column %d\n",
-                               argument->filename, argument->line_number, argument->column_number);
-                        exit(1);
-                    }
-                }
-                else if(!canImplicitConvertDataType(argument_type, argument, parameter->data_type))
-                {
-                    printf("Type error: function argument type mismatch at file %s, line %d, column %d\n",
-                           argument->filename, argument->line_number, argument->column_number);
-                    exit(1);
-                }
-                parameter = parameter->next;
-                argument = argument->next;
-            }
-
-            if(parameter != NULL || argument != NULL)
-            {
-                printf("Type error: function argument count mismatch at file %s, line %d, column %d\n",
-                       node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+            checkFunctionCallArguments(callee_type.data_type->parameters, node->rhs, scope);
 
             return newValueExprType(callee_type.data_type->return_data_type);
         }
@@ -578,9 +886,11 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 exit(1);
             }
 
+            bool mutable_pointer = node->kind == AST_EXPR_ADDRESS_OF_MUT || isMutableAddressableExpr(node->lhs, scope);
+
             return newValueExprType(newWrappedDataType(
                 AST_DATA_TYPE_KIND_POINTER,
-                node->kind == AST_EXPR_ADDRESS_OF_MUT,
+                mutable_pointer,
                 cloneDataType(getReferenceTargetType(operand_type.data_type))
             ));
         } break;

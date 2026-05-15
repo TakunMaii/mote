@@ -23,6 +23,16 @@ bool isPointerOrReferenceDataType(ASTDataType *data_type)
            (data_type->kind == AST_DATA_TYPE_KIND_POINTER || data_type->kind == AST_DATA_TYPE_KIND_REFERENCE);
 }
 
+bool isStructDeclAssign(ASTNode *node)
+{
+    return node != NULL &&
+           node->kind == AST_ASSIGN &&
+           node->lhs != NULL &&
+           node->lhs->kind == AST_EXPR_VARIABLE &&
+           node->rhs != NULL &&
+           node->rhs->kind == AST_EXPR_STRUCT;
+}
+
 void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope);
 void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context);
 void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context);
@@ -56,6 +66,17 @@ void checkFunctionExprSemantics(ASTNode *node, ScopeFrame *scope)
     checkAssignSemanticsInBlock(node->body, &function_scope, &function_context);
 }
 
+void checkStructExprSemantics(ASTNode *node, ScopeFrame *scope)
+{
+    ASTStructMember *member = node->members;
+    while(member)
+    {
+        if(member->value)
+            checkFunctionExprSemantics(member->value, scope);
+        member = member->next;
+    }
+}
+
 void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
 {
     if(node == NULL)
@@ -63,7 +84,7 @@ void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
 
     if(node->kind == AST_EXPR_VARIABLE)
     {
-        if(findVariableInfo(scope, node->identifier) == NULL)
+        if(findVariableInfo(scope, node->identifier) == NULL && findTypeInfo(scope, node->identifier) == NULL)
         {
             printf("Use of undeclared variable %s in expression\n", node->identifier);
             exit(1);
@@ -74,6 +95,24 @@ void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
     if(node->kind == AST_EXPR_FUNCTION)
     {
         checkFunctionExprSemantics(node, scope);
+        return;
+    }
+
+    if(node->kind == AST_EXPR_STRUCT)
+    {
+        checkStructExprSemantics(node, scope);
+        return;
+    }
+
+    if(node->kind == AST_EXPR_STRUCT_LITERAL)
+    {
+        checkExprDeclaredVariable(node->lhs, scope);
+        ASTStructLiteralField *field = node->struct_literal_fields;
+        while(field)
+        {
+            checkExprDeclaredVariable(field->value, scope);
+            field = field->next;
+        }
         return;
     }
 
@@ -119,10 +158,41 @@ void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, Funct
 
         if(node->kind == AST_ASSIGN)
         {
+            if(isStructDeclAssign(node))
+            {
+                if(findTypeInfoInScope(&current_scope, node->identifier) >= 0)
+                {
+                    printf("Type %s has already been declared in this scope\n", node->identifier);
+                    exit(1);
+                }
+
+                TypeInfo *type_info = declareTypeInfo(&current_scope, node->identifier);
+                type_info->data_type = cloneDataType(node->rhs->data_type);
+                strcpy(type_info->data_type->identifier, node->identifier);
+                node->data_type = cloneDataType(type_info->data_type);
+                checkStructExprSemantics(node->rhs, &current_scope);
+                node = node->next;
+                continue;
+            }
+
             checkExprDeclaredVariable(node->rhs, &current_scope);
 
             if(node->lhs->kind == AST_EXPR_DEREF)
             {
+                checkExprDeclaredVariable(node->lhs->lhs, &current_scope);
+                node = node->next;
+                continue;
+            }
+
+            if(node->lhs->kind == AST_EXPR_MEMBER)
+            {
+                if(node->modifier.mutable)
+                {
+                    printf("Semantic error: member assignment cannot use mut declaration syntax at file %s, line %d, column %d\n",
+                           node->filename, node->line_number, node->column_number);
+                    exit(1);
+                }
+
                 checkExprDeclaredVariable(node->lhs->lhs, &current_scope);
                 node = node->next;
                 continue;
@@ -192,6 +262,29 @@ void checkFunctionCallArgumentSemantics(ASTNode *call_node, ASTDataType *functio
     ASTFunctionParameter *parameter = function_type->parameters;
     ASTNode *argument = call_node->rhs;
 
+    if(call_node->lhs->kind == AST_EXPR_MEMBER)
+    {
+        ASTNode *member_node = call_node->lhs;
+        TypeSystemExprType owner_type = inferExprType(member_node->lhs, scope);
+        ASTDataType *struct_type = NULL;
+        bool through_type = owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE;
+
+        if(through_type)
+            struct_type = owner_type.data_type;
+        else if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE)
+        {
+            struct_type = owner_type.data_type;
+            if(struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+                struct_type = struct_type->child;
+        }
+
+        if(!through_type && isStructDataType(struct_type) && parameter != NULL &&
+           canBindMethodReceiver(member_node->lhs, scope, parameter->data_type, struct_type))
+        {
+            parameter = parameter->next;
+        }
+    }
+
     while(parameter && argument)
     {
         if(parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && parameter->data_type->mutable)
@@ -207,6 +300,47 @@ void checkFunctionCallArgumentSemantics(ASTNode *call_node, ASTDataType *functio
         parameter = parameter->next;
         argument = argument->next;
     }
+}
+
+ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
+{
+    ASTDataType *struct_type = newStructDataType(node->identifier, NULL);
+    TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
+    type_info->data_type = struct_type;
+
+    ASTStructMember *resolved_head = NULL;
+    ASTStructMember *resolved_tail = NULL;
+    ASTStructMember *member = node->rhs->members;
+    while(member)
+    {
+        if(findStructMember(struct_type, member->identifier) != NULL)
+        {
+            printf("Type error: duplicate struct member %s in %s\n", member->identifier, node->identifier);
+            exit(1);
+        }
+
+        ASTStructMember *resolved_member = (ASTStructMember*) malloc(sizeof(ASTStructMember));
+        memset(resolved_member, 0, sizeof(ASTStructMember));
+        resolved_member->filename = member->filename;
+        resolved_member->line_number = member->line_number;
+        resolved_member->column_number = member->column_number;
+        strcpy(resolved_member->identifier, member->identifier);
+        resolved_member->value = member->value;
+        resolved_member->data_type = resolveNamedDataType(member->data_type, scope, struct_type);
+        member->data_type = cloneDataType(resolved_member->data_type);
+
+        if(resolved_head == NULL)
+            resolved_head = resolved_member;
+        else
+            resolved_tail->next = resolved_member;
+        resolved_tail = resolved_member;
+        struct_type->members = resolved_head;
+        member = member->next;
+    }
+
+    node->data_type = cloneDataType(struct_type);
+    node->rhs->data_type = cloneDataType(struct_type);
+    return struct_type;
 }
 
 void checkFunctionReturnStatement(ASTNode *node, ScopeFrame *scope, FunctionContext *function_context)
@@ -240,14 +374,35 @@ void checkFunctionReturnStatement(ASTNode *node, ScopeFrame *scope, FunctionCont
     }
 }
 
-void checkFunctionExprTypes(ASTNode *node, ScopeFrame *scope)
+void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scope, ASTDataType *self_data_type)
 {
+    while(parameter)
+    {
+        if(findVariableInfoInScope(scope, parameter->identifier) >= 0)
+        {
+            printf("Function parameter %s is declared more than once\n", parameter->identifier);
+            exit(1);
+        }
+
+        VariableInfo *variable_info = declareVariableInfo(scope, parameter->identifier);
+        variable_info->mutable = false;
+        variable_info->data_type = resolveNamedDataType(parameter->data_type, scope, self_data_type);
+        parameter = parameter->next;
+    }
+}
+
+void checkFunctionExprTypes(ASTNode *node, ScopeFrame *scope, ASTDataType *self_data_type)
+{
+    node->data_type = resolveNamedDataType(node->data_type, scope, self_data_type);
+    node->return_data_type = cloneDataType(node->data_type->return_data_type);
+
     ScopeFrame function_scope = {0};
     initScopeFrame(&function_scope, scope);
-    declareFunctionParameters(node->parameters, &function_scope);
+    declareResolvedFunctionParameters(node->parameters, &function_scope, self_data_type);
 
     FunctionContext function_context = {0};
-    function_context.return_data_type = node->return_data_type;
+    function_context.return_data_type = node->data_type->return_data_type;
+    function_context.self_data_type = self_data_type;
     checkAssignTypesInBlock(node->body, &function_scope, &function_context);
 }
 
@@ -285,7 +440,7 @@ void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionC
                 }
                 else if(node->lhs->kind == AST_EXPR_FUNCTION)
                 {
-                    checkFunctionExprTypes(node->lhs, &current_scope);
+                    checkFunctionExprTypes(node->lhs, &current_scope, function_context == NULL ? NULL : function_context->self_data_type);
                 }
                 else
                 {
@@ -314,7 +469,7 @@ void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionC
             }
             else if(node->lhs->kind == AST_EXPR_FUNCTION)
             {
-                checkFunctionExprTypes(node->lhs, &current_scope);
+                checkFunctionExprTypes(node->lhs, &current_scope, function_context == NULL ? NULL : function_context->self_data_type);
             }
             else
             {
@@ -326,6 +481,27 @@ void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionC
 
         if(node->kind == AST_ASSIGN)
         {
+            if(isStructDeclAssign(node))
+            {
+                if(findTypeInfoInScope(&current_scope, node->identifier) >= 0)
+                {
+                    printf("Type %s has already been declared in this scope\n", node->identifier);
+                    exit(1);
+                }
+
+                ASTDataType *struct_type = declareStructType(node, &current_scope);
+                ASTStructMember *member = node->rhs->members;
+                while(member)
+                {
+                    if(member->value)
+                        checkFunctionExprTypes(member->value, &current_scope, struct_type);
+                    member = member->next;
+                }
+
+                node = node->next;
+                continue;
+            }
+
             if(node->lhs->kind == AST_EXPR_DEREF)
             {
                 TypeSystemExprType expr_type = inferExprType(node->rhs, &current_scope);
@@ -350,13 +526,61 @@ void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionC
                 continue;
             }
 
+            if(node->lhs->kind == AST_EXPR_MEMBER)
+            {
+                TypeSystemExprType expr_type = inferExprType(node->rhs, &current_scope);
+                TypeSystemExprType owner_type = inferExprType(node->lhs->lhs, &current_scope);
+                ASTDataType *struct_type = owner_type.data_type;
+                if(owner_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
+                {
+                    printf("Type error: member assignment requires a value receiver at file %s, line %d, column %d\n",
+                           node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+                    exit(1);
+                }
+
+                if(struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+                    struct_type = struct_type->child;
+                if(!isStructDataType(struct_type))
+                {
+                    printf("Type error: member assignment requires a struct receiver at file %s, line %d, column %d\n",
+                           node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+                    exit(1);
+                }
+
+                ASTStructMember *member = findStructMember(struct_type, node->lhs->identifier);
+                if(member == NULL || member->value != NULL)
+                {
+                    printf("Type error: cannot assign to member %s at file %s, line %d, column %d\n",
+                           node->lhs->identifier, node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+                    exit(1);
+                }
+
+                if(!isMutableAddressableExpr(node->lhs, &current_scope))
+                {
+                    printf("Type error: cannot assign through immutable member access at file %s, line %d, column %d\n",
+                           node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+                    exit(1);
+                }
+
+                ASTDataType *target_type = member->data_type;
+                if(target_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+                    target_type = target_type->child;
+
+                if(!canImplicitConvertDataType(expr_type, node->rhs, target_type))
+                    typeErrorAssign(node, node->rhs, expr_type, target_type);
+
+                node->data_type = cloneDataType(target_type);
+                node = node->next;
+                continue;
+            }
+
             VariableInfo *local_variable_info = NULL;
             int local_index = findVariableInfoInScope(&current_scope, node->identifier);
             if(local_index >= 0)
                 local_variable_info = &(current_scope.variable_infos[local_index]);
 
             if(node->rhs->kind == AST_EXPR_FUNCTION)
-                checkFunctionExprTypes(node->rhs, &current_scope);
+                checkFunctionExprTypes(node->rhs, &current_scope, function_context == NULL ? NULL : function_context->self_data_type);
             if(node->rhs->kind == AST_EXPR_CALL)
             {
                 TypeSystemExprType callee_type = inferExprType(node->rhs->lhs, &current_scope);
@@ -379,7 +603,11 @@ void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionC
                     declared_type = inferDeclaredTypeFromExpr(node->rhs, &current_scope);
                     node->data_type = declared_type;
                 }
-                else if(isReferenceDataType(declared_type))
+                else
+                    declared_type = node->data_type = resolveNamedDataType(declared_type, &current_scope,
+                                                                           function_context == NULL ? NULL : function_context->self_data_type);
+
+                if(isReferenceDataType(declared_type))
                 {
                     if(node->rhs->kind != AST_EXPR_VARIABLE && node->rhs->kind != AST_EXPR_DEREF)
                     {

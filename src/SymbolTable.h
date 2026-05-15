@@ -10,15 +10,23 @@ typedef struct VariableInfo {
     char identifier[MAX_IDENTIFIER_LENGTH];
 } VariableInfo;
 
+typedef struct TypeInfo {
+    ASTDataType *data_type;
+    char identifier[MAX_IDENTIFIER_LENGTH];
+} TypeInfo;
+
 typedef struct FunctionContext {
     struct FunctionContext *parent;
     ASTDataType *return_data_type;
+    ASTDataType *self_data_type;
 } FunctionContext;
 
 typedef struct ScopeFrame {
     struct ScopeFrame *parent;
     VariableInfo variable_infos[1024];
     int variable_count;
+    TypeInfo type_infos[256];
+    int type_count;
 } ScopeFrame;
 
 void initScopeFrame(ScopeFrame *scope, ScopeFrame *parent)
@@ -56,6 +64,37 @@ VariableInfo* declareVariableInfo(ScopeFrame *scope, const char *identifier)
     memset(variable_info, 0, sizeof(VariableInfo));
     strcpy(variable_info->identifier, identifier);
     return variable_info;
+}
+
+int findTypeInfoInScope(ScopeFrame *scope, const char *identifier)
+{
+    for(int i = 0;i<scope->type_count;i++)
+    {
+        if(strcmp(scope->type_infos[i].identifier, identifier) == 0)
+            return i;
+    }
+    return -1;
+}
+
+TypeInfo* findTypeInfo(ScopeFrame *scope, const char *identifier)
+{
+    ScopeFrame *current = scope;
+    while(current)
+    {
+        int index = findTypeInfoInScope(current, identifier);
+        if(index >= 0)
+            return &(current->type_infos[index]);
+        current = current->parent;
+    }
+    return NULL;
+}
+
+TypeInfo* declareTypeInfo(ScopeFrame *scope, const char *identifier)
+{
+    TypeInfo *type_info = &(scope->type_infos[scope->type_count++]);
+    memset(type_info, 0, sizeof(TypeInfo));
+    strcpy(type_info->identifier, identifier);
+    return type_info;
 }
 
 #endif /* SYMBOL_TABLE_H */

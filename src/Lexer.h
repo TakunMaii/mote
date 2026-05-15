@@ -136,6 +136,14 @@ Token* tokenize(char *code, const char* filename)
             code += 2;
             column += 2;
         }
+        else if(expectStr("struct", 6, code)) {
+            if(isIdentifier(code[6]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_STRUCT, filename, line, column);
+            token = token->next;
+            code += 6;
+            column += 6;
+        }
         else if(expectStr("return", 6, code)) {
             if(isIdentifier(code[6]))
                 goto tokenize_identifier;
@@ -332,6 +340,12 @@ Token* tokenize(char *code, const char* filename)
         }
         else if(expectStr(":", 1, code)) {
             token->next = newToken(TK_COLON, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr(".", 1, code)) {
+            token->next = newToken(TK_DOT, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
