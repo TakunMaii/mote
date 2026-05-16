@@ -2034,23 +2034,42 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
         case AST_EXPR_CALL:
             return lowerCallExpr(state, scope, node, expected_type);
         case AST_EXPR_UNARY_PLUS:
+            if(expected_type != NULL)
+            {
+                TypeSystemExprType operand_type = inferExprType(node->lhs, &(scope->type_scope));
+                if((operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER ||
+                    operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT) &&
+                   expected_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+                   (isIntegerPrimary(expected_type->primary) || isFloatPrimary(expected_type->primary)))
+                    return lowerExprAsValue(state, scope, node->lhs, expected_type);
+            }
             return lowerExprAsValue(state, scope, node->lhs, expected_type);
         case AST_EXPR_UNARY_MINUS: {
             ASTDataType *result_type = mirResolvedExprValueType(node, &(scope->type_scope));
+            TypeSystemExprType operand_type = inferExprType(node->lhs, &(scope->type_scope));
+            if(expected_type != NULL &&
+               expected_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+               (isIntegerPrimary(expected_type->primary) || isFloatPrimary(expected_type->primary)) &&
+               (operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER ||
+                operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT))
+                result_type = expected_type;
             MirValueId operand = lowerExprAsValue(state, scope, node->lhs, result_type);
-            return mirEmitUnary(state, MIR_INST_NEG, operand, result_type,
-                                node->filename, node->line_number, node->column_number);
+            MirValueId value = mirEmitUnary(state, MIR_INST_NEG, operand, result_type,
+                                            node->filename, node->line_number, node->column_number);
+            return mirMaybeConvertValue(state, scope, node, value, expected_type);
         }
         case AST_EXPR_UNARY_LOGICAL_NOT: {
             MirValueId operand = lowerExprAsValue(state, scope, node->lhs, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
-            return mirEmitUnary(state, MIR_INST_NOT, operand, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL),
-                                node->filename, node->line_number, node->column_number);
+            MirValueId value = mirEmitUnary(state, MIR_INST_NOT, operand, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL),
+                                            node->filename, node->line_number, node->column_number);
+            return mirMaybeConvertValue(state, scope, node, value, expected_type);
         }
         case AST_EXPR_UNARY_BIT_NOT: {
             ASTDataType *result_type = mirResolvedExprValueType(node, &(scope->type_scope));
             MirValueId operand = lowerExprAsValue(state, scope, node->lhs, result_type);
-            return mirEmitUnary(state, MIR_INST_BIT_NOT, operand, result_type,
-                                node->filename, node->line_number, node->column_number);
+            MirValueId value = mirEmitUnary(state, MIR_INST_BIT_NOT, operand, result_type,
+                                            node->filename, node->line_number, node->column_number);
+            return mirMaybeConvertValue(state, scope, node, value, expected_type);
         }
         case AST_EXPR_ADDRESS_OF:
         case AST_EXPR_ADDRESS_OF_MUT:
@@ -2089,8 +2108,9 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
             else if(node->kind == AST_EXPR_BIT_AND) kind = MIR_INST_BIT_AND;
             else if(node->kind == AST_EXPR_BIT_OR) kind = MIR_INST_BIT_OR;
             else if(node->kind == AST_EXPR_BIT_XOR) kind = MIR_INST_BIT_XOR;
-            return mirEmitBinary(state, kind, lhs, rhs, result_type,
-                                 node->filename, node->line_number, node->column_number);
+            MirValueId value = mirEmitBinary(state, kind, lhs, rhs, result_type,
+                                             node->filename, node->line_number, node->column_number);
+            return mirMaybeConvertValue(state, scope, node, value, expected_type);
         }
         case AST_EXPR_EQUAL:
         case AST_EXPR_NOT_EQUAL:
@@ -2107,8 +2127,9 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
             else if(node->kind == AST_EXPR_LESS_EQUAL) kind = MIR_INST_LE;
             else if(node->kind == AST_EXPR_GREATER) kind = MIR_INST_GT;
             else if(node->kind == AST_EXPR_GREATER_EQUAL) kind = MIR_INST_GE;
-            return mirEmitBinary(state, kind, lhs, rhs, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL),
-                                 node->filename, node->line_number, node->column_number);
+            MirValueId value = mirEmitBinary(state, kind, lhs, rhs, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL),
+                                             node->filename, node->line_number, node->column_number);
+            return mirMaybeConvertValue(state, scope, node, value, expected_type);
         }
         default:
             printf("MIR lowering error: unsupported expression kind %s\n", astNodeKindToString(node->kind));

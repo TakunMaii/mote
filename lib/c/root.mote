@@ -38,11 +38,14 @@ pub strncmp = @extern("strncmp", Function([*char, *char, size_t], i32));
 pub isdigit = @extern("isdigit", Function([i32], i32));
 pub atoi = @extern("atoi", Function([*char], i32));
 
-pub sinf = @extern("sinf", Function([f32], f32));
-pub cosf = @extern("cosf", Function([f32], f32));
-pub sqrtf = @extern("sqrtf", Function([f32], f32));
-pub fabsf = @extern("fabsf", Function([f32], f32));
-pub fminf = @extern("fminf", Function([f32, f32], f32));
+pub sinf = @extern("mote_sinf", Function([f32], f32));
+pub cosf = @extern("mote_cosf", Function([f32], f32));
+pub sqrtf = @extern("mote_sqrtf", Function([f32], f32));
+pub fabs = @extern("mote_fabs", Function([f64], f64));
+pub fabsf = fn(x: f32) f32 {
+    return @as(f32, fabs(@as(f64, x)));
+};
+pub fminf = @extern("mote_fminf", Function([f32, f32], f32));
 
 pub stderr_handle = @extern("mote_stderr_handle", Function([], *void));
 pub printf = @extern("printf", Function([*char, ...], i32));

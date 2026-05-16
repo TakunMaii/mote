@@ -516,6 +516,15 @@ static ASTDataType* llvmResolvedValueType(LLVMFunctionEmitContext *context, int 
     return context->function->values[resolved].data_type;
 }
 
+static ASTDataType* llvmResolvedFunctionValueType(LLVMFunctionEmitContext *context, int value_id)
+{
+    ASTDataType *data_type = llvmResolvedValueType(context, value_id);
+    if(data_type != NULL &&
+       data_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+        return data_type;
+    return NULL;
+}
+
 static MirInst* llvmFindValueProducer(LLVMFunctionEmitContext *context, int value_id)
 {
     int resolved = llvmResolveAlias(context, value_id);
@@ -1493,6 +1502,8 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
         case MIR_INST_CALL: {
             char code_name[32];
             char env_name[32];
+            ASTDataType *callee_type = llvmResolvedFunctionValueType(context, inst->data.call.callee);
+            ASTFunctionParameter *parameter = callee_type != NULL ? callee_type->parameters : NULL;
             llvmMakeTempName(context, code_name, sizeof(code_name));
             llvmMakeTempName(context, env_name, sizeof(env_name));
 
@@ -1516,10 +1527,13 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             fprintf(stream, " %s(ptr %s", code_name, env_name);
             for(int i = 0; i < inst->data.call.arguments.count; i++)
             {
+                ASTDataType *arg_type = llvmResolvedValueType(context, inst->data.call.arguments.items[i]);
                 fprintf(stream, ", ");
-                llvmEmitCallArgumentABIType(stream, llvmResolvedValueType(context, inst->data.call.arguments.items[i]));
+                llvmEmitCallArgumentABIType(stream, parameter != NULL ? parameter->data_type : arg_type);
                 fprintf(stream, " ");
                 llvmEmitValueRef(stream, context, inst->data.call.arguments.items[i]);
+                if(parameter != NULL)
+                    parameter = parameter->next;
             }
             fprintf(stream, ")\n");
             return;
@@ -1569,9 +1583,34 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
 
             if(return_abi.kind != LLVM_EXTERN_ABI_SRET_POINTER)
                 fprintf(stream, "call ");
-            llvmEmitNativeExternReturnType(stream, inst->result_type);
-            fprintf(stream, " ");
-            llvmEmitNativeExternCallTarget(stream, inst->data.extern_call.symbol_name, function_type);
+            if(function_type != NULL && function_type->is_variadic)
+            {
+                llvmEmitNativeExternReturnType(stream, inst->result_type);
+                fprintf(stream, " (");
+                ASTFunctionParameter *typed_parameter = function_type->parameters;
+                bool typed_need_comma = false;
+                while(typed_parameter)
+                {
+                    if(typed_need_comma)
+                        fprintf(stream, ", ");
+                    llvmEmitNativeExternParameterType(stream, typed_parameter->data_type);
+                    typed_need_comma = true;
+                    typed_parameter = typed_parameter->next;
+                }
+                if(function_type->is_variadic)
+                {
+                    if(typed_need_comma)
+                        fprintf(stream, ", ");
+                    fprintf(stream, "...");
+                }
+                fprintf(stream, ") @%s", inst->data.extern_call.symbol_name);
+            }
+            else
+            {
+                llvmEmitNativeExternReturnType(stream, inst->result_type);
+                fprintf(stream, " ");
+                llvmEmitNativeExternCallTarget(stream, inst->data.extern_call.symbol_name, function_type);
+            }
             fprintf(stream, "(");
 
             bool need_comma = false;
