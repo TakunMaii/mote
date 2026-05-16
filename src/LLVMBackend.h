@@ -197,6 +197,22 @@ static ASTDataType* llvmResolvedValueType(LLVMFunctionEmitContext *context, int 
     return context->function->values[resolved].data_type;
 }
 
+static MirInst* llvmFindValueProducer(LLVMFunctionEmitContext *context, int value_id)
+{
+    int resolved = llvmResolveAlias(context, value_id);
+    for(int block_index = 0; block_index < context->function->block_count; block_index++)
+    {
+        MirBlock *block = &(context->function->blocks[block_index]);
+        for(int inst_index = 0; inst_index < block->inst_count; inst_index++)
+        {
+            MirInst *inst = &(block->insts[inst_index]);
+            if(inst->result == resolved)
+                return inst;
+        }
+    }
+    return NULL;
+}
+
 static void llvmEmitValueRef(FILE *stream, LLVMFunctionEmitContext *context, int value_id)
 {
     fprintf(stream, "%%v%d", llvmResolveAlias(context, value_id));
@@ -288,6 +304,26 @@ static void llvmEmitConstZero(FILE *stream, ASTDataType *data_type)
         fprintf(stream, "null");
     else
         fprintf(stream, "0");
+}
+
+static void llvmEmitZeroValueInst(FILE *stream, LLVMFunctionEmitContext *context, int result_value_id, ASTDataType *data_type)
+{
+    char slot_name[32];
+    llvmMakeTempName(context, slot_name, sizeof(slot_name));
+
+    llvmEmitTempAssignPrefix(stream, slot_name);
+    fprintf(stream, "alloca ");
+    llvmEmitType(stream, data_type);
+    fprintf(stream, "\n");
+
+    fprintf(stream, "    store ");
+    llvmEmitType(stream, data_type);
+    fprintf(stream, " zeroinitializer, ptr %s\n", slot_name);
+
+    llvmEmitInstructionPrefix(stream, result_value_id);
+    fprintf(stream, "load ");
+    llvmEmitType(stream, data_type);
+    fprintf(stream, ", ptr %s\n", slot_name);
 }
 
 static void llvmEmitConstAllOnes(FILE *stream, ASTDataType *data_type)
@@ -437,10 +473,7 @@ static void llvmEmitArrayLiteral(FILE *stream, LLVMFunctionEmitContext *context,
 {
     if(inst->data.array_literal.elements.count == 0)
     {
-        llvmEmitInstructionPrefix(stream, inst->result);
-        fprintf(stream, "freeze ");
-        llvmEmitType(stream, inst->result_type);
-        fprintf(stream, " zeroinitializer\n");
+        llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type);
         return;
     }
 
@@ -478,10 +511,7 @@ static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context
     int field_count = inst->data.struct_literal.fields.count;
     if(field_count == 0)
     {
-        llvmEmitInstructionPrefix(stream, inst->result);
-        fprintf(stream, "freeze ");
-        llvmEmitType(stream, inst->result_type);
-        fprintf(stream, " zeroinitializer\n");
+        llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type);
         return;
     }
 
@@ -769,6 +799,9 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
 {
     switch(inst->kind)
     {
+        case MIR_INST_ZERO:
+            llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type);
+            return;
         case MIR_INST_CONST_BOOL:
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "or i1 false, %s\n", inst->data.const_bool.value ? "true" : "false");
@@ -808,10 +841,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             int length = (int)inst->result_type->array_length;
             if(length == 0)
             {
-                llvmEmitInstructionPrefix(stream, inst->result);
-                fprintf(stream, "freeze ");
-                llvmEmitType(stream, inst->result_type);
-                fprintf(stream, " zeroinitializer\n");
+                llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type);
                 return;
             }
 
@@ -911,7 +941,11 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             fprintf(stream, "    store ");
             llvmEmitType(stream, llvmResolvedValueType(context, inst->data.store.value));
             fprintf(stream, " ");
-            llvmEmitValueRef(stream, context, inst->data.store.value);
+            MirInst *stored_value_inst = llvmFindValueProducer(context, inst->data.store.value);
+            if(stored_value_inst != NULL && stored_value_inst->kind == MIR_INST_ZERO)
+                fprintf(stream, "zeroinitializer");
+            else
+                llvmEmitValueRef(stream, context, inst->data.store.value);
             fprintf(stream, ", ptr ");
             llvmEmitValueRef(stream, context, inst->data.store.address);
             fprintf(stream, "\n");

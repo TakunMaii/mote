@@ -12,6 +12,7 @@ typedef int MirValueId;
 typedef int MirBlockId;
 
 typedef enum MirInstKind {
+    MIR_INST_ZERO,
     MIR_INST_CONST_BOOL,
     MIR_INST_CONST_CHAR,
     MIR_INST_CONST_INT,
@@ -673,6 +674,12 @@ static MirValueId mirEmitConstBool(MirFunctionState *state, bool value, const ch
                                           filename, line, column);
     mirGetLastInst(state)->data.const_bool.value = value;
     return result;
+}
+
+static MirValueId mirEmitZero(MirFunctionState *state, ASTDataType *data_type,
+                              const char *filename, int line, int column)
+{
+    return mirEmitResultInst(state, MIR_INST_ZERO, data_type, filename, line, column);
 }
 
 static MirValueId mirEmitConstChar(MirFunctionState *state, char value, const char *filename, int line, int column)
@@ -1571,6 +1578,15 @@ static MirValueId lowerExternBuiltinExpr(MirFunctionState *state, MirLowerScope 
     return mirMaybeConvertValue(state, scope, node, function_ref, expected_type);
 }
 
+static MirValueId lowerZeroBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
+                                       ASTDataType *expected_type)
+{
+    ASTDataType *value_type = mirResolvedExprValueType(node, &(scope->type_scope));
+    MirValueId zero_value = mirEmitZero(state, value_type,
+                                        node->filename, node->line_number, node->column_number);
+    return mirMaybeConvertValue(state, scope, node, zero_value, expected_type);
+}
+
 static ASTDataType* inferComparisonOperandType(ASTNode *lhs, ASTNode *rhs, ScopeFrame *scope)
 {
     TypeSystemExprType lhs_type = inferExprType(lhs, scope);
@@ -1780,6 +1796,8 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
         case AST_EXPR_BUILTIN:
             if(strcmp(node->identifier, "extern") == 0)
                 return lowerExternBuiltinExpr(state, scope, node, expected_type);
+            if(strcmp(node->identifier, "zero") == 0)
+                return lowerZeroBuiltinExpr(state, scope, node, expected_type);
             printf("MIR lowering error: unsupported builtin @%s at file %s, line %d, column %d\n",
                    node->identifier, node->filename, node->line_number, node->column_number);
             exit(1);
@@ -2057,6 +2075,11 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
                 binding->kind = MIR_RUNTIME_BINDING_GLOBAL_SLOT;
                 strcpy(binding->global_name, node->identifier);
                 mirEnsureGlobal(state->lowering, node->identifier, declared_type, node->modifier.mutable);
+
+                if(state->is_top_level_init &&
+                   node->rhs->kind == AST_EXPR_BUILTIN &&
+                   strcmp(node->rhs->identifier, "zero") == 0)
+                    return;
             }
             else
                 binding->kind = MIR_RUNTIME_BINDING_LOCAL_SLOT;

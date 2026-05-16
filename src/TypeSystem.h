@@ -711,6 +711,34 @@ ASTDataType* inferExternBuiltinFunctionType(ASTNode *node, ScopeFrame *scope)
     return function_type;
 }
 
+ASTDataType* inferZeroBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    if(node->lhs == NULL || node->lhs->next != NULL)
+    {
+        printf("Type error: @zero expects exactly one argument at file %s, line %d, column %d\n",
+               node->filename, node->line_number, node->column_number);
+        exit(1);
+    }
+
+    TypeSystemExprType type_expr = inferExprType(node->lhs, scope);
+    if(type_expr.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
+    {
+        printf("Type error: @zero expects a type argument at file %s, line %d, column %d\n",
+               node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+        exit(1);
+    }
+
+    ASTDataType *value_type = resolveNamedDataType(type_expr.data_type, scope, NULL);
+    if(value_type == NULL)
+    {
+        printf("Type error: @zero could not resolve its type argument at file %s, line %d, column %d\n",
+               node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+        exit(1);
+    }
+
+    return value_type;
+}
+
 bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_node, ASTDataType *target_type)
 {
     if(target_type == NULL || isInferDataType(target_type))
@@ -1089,6 +1117,8 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         case AST_EXPR_BUILTIN:
             if(strcmp(node->identifier, "extern") == 0)
                 return newValueExprType(inferExternBuiltinFunctionType(node, scope));
+            if(strcmp(node->identifier, "zero") == 0)
+                return newValueExprType(inferZeroBuiltinValueType(node, scope));
             printf("Type error: unknown builtin @%s at file %s, line %d, column %d\n",
                    node->identifier, node->filename, node->line_number, node->column_number);
             exit(1);

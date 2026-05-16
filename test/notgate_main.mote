@@ -1,0 +1,3 @@
+ng = @import("notgate");
+
+ng.run();

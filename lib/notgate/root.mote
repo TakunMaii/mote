@@ -1,0 +1,1242 @@
+rl = @import("raylib");
+c = @import("c");
+
+pub WINDOW_WIDTH = 1200;
+pub WINDOW_HEIGHT = 800;
+
+pub MAP_MAX_WIDTH = 23;
+pub MAP_MAX_HEIGHT = 15;
+pub MAP_MAX_CELLS = 345;
+pub MAP_COUNT = 25;
+
+pub UNDO_MAX = 256;
+pub COMMAND_BUFFER_CAP = 32;
+pub HINT_BUFFER_CAP = 64;
+
+pub KEY_0 = 48;
+pub KEY_1 = 49;
+pub KEY_2 = 50;
+pub KEY_3 = 51;
+pub KEY_4 = 52;
+pub KEY_5 = 53;
+pub KEY_6 = 54;
+pub KEY_7 = 55;
+pub KEY_8 = 56;
+pub KEY_9 = 57;
+pub KEY_E = 69;
+pub KEY_L = 76;
+pub KEY_O = 79;
+pub KEY_S_LOWER = 83;
+pub KEY_V = 86;
+
+pub STATIC_TILE_EMPTY = 0;
+pub STATIC_TILE_WALL = 1;
+pub STATIC_TILE_PORTAL = 2;
+pub STATIC_TILE_FIXED_SIGNAL_SOURCE = 3;
+pub STATIC_TILE_FIXED_REPEATER = 4;
+pub STATIC_TILE_FIXED_NOT_SIGNAL = 5;
+
+pub DYNAMIC_TILE_NONE = 0;
+pub DYNAMIC_TILE_BOX = 1;
+pub DYNAMIC_TILE_SIGNAL_SOURCE = 2;
+pub DYNAMIC_TILE_REPEATER = 3;
+pub DYNAMIC_TILE_NOT_SIGNAL = 4;
+
+pub COLOR_BG: rl.Color = rl.Color {.r = 22, .g = 28, .b = 34, .a = 255};
+pub COLOR_FLOOR: rl.Color = rl.Color {.r = 47, .g = 62, .b = 70, .a = 255};
+pub COLOR_WALL: rl.Color = rl.Color {.r = 108, .g = 117, .b = 125, .a = 255};
+pub COLOR_BOX: rl.Color = rl.Color {.r = 181, .g = 101, .b = 29, .a = 255};
+pub COLOR_SIGNAL: rl.Color = rl.Color {.r = 95, .g = 205, .b = 228, .a = 255};
+pub COLOR_REPEATER_OFF: rl.Color = rl.Color {.r = 54, .g = 162, .b = 164, .a = 255};
+pub COLOR_REPEATER_ON: rl.Color = rl.Color {.r = 0, .g = 228, .b = 48, .a = 255};
+pub COLOR_NOT_OFF: rl.Color = rl.Color {.r = 255, .g = 159, .b = 28, .a = 255};
+pub COLOR_NOT_ON: rl.Color = rl.Color {.r = 230, .g = 41, .b = 55, .a = 255};
+pub COLOR_PORTAL_OFF: rl.Color = rl.Color {.r = 76, .g = 109, .b = 184, .a = 255};
+pub COLOR_PORTAL_ON: rl.Color = rl.Color {.r = 72, .g = 199, .b = 142, .a = 255};
+pub COLOR_HERO: rl.Color = rl.Color {.r = 245, .g = 245, .b = 245, .a = 255};
+
+pub Vec2i = struct {
+    x: i32,
+    y: i32,
+};
+
+pub Viewport = struct {
+    origin_x: i32,
+    origin_y: i32,
+    cell_size: i32,
+};
+
+pub UndoState = struct {
+    hero_x: i32,
+    hero_y: i32,
+    dynamic_types: Array(i32, 345),
+    static_activated: Array(bool, 345),
+    dynamic_activated: Array(bool, 345),
+};
+
+pub CharBuf32 = struct {
+    data: Array(char, 32),
+};
+
+pub CharBuf64 = struct {
+    data: Array(char, 64),
+};
+
+pub CharBuf128 = struct {
+    data: Array(char, 128),
+};
+
+pub MapFileBuf = struct {
+    data: Array(char, 1024),
+};
+
+pub ActivationScratch = struct {
+    prev_static_activated: Array(bool, 345),
+    prev_dynamic_activated: Array(bool, 345),
+    const_emitter: Array(bool, 345),
+    const_hits_not: Array(bool, 345),
+    force_not_off: Array(bool, 345),
+    emit_curr: Array(bool, 345),
+    emit_next: Array(bool, 345),
+    is_variable: Array(bool, 345),
+    component_id: Array(i32, 345),
+    queue: Array(i32, 345),
+    history: Array(bool, 8280),
+    component_size: Array(i32, 345),
+    component_hit_count: Array(i32, 345),
+};
+
+pub State = struct {
+    map_width: i32,
+    map_height: i32,
+    current_level: i32,
+
+    hero_x: i32,
+    hero_y: i32,
+
+    static_tiles: Array(i32, 345),
+    dynamic_types: Array(i32, 345),
+    static_activated: Array(bool, 345),
+    dynamic_activated: Array(bool, 345),
+
+    undo_count: i32,
+    undo_states: Array(UndoState, 256),
+
+    command_visible: bool,
+    command_len: i32,
+    command_buffer: Array(char, 32),
+
+    hint_len: i32,
+    hint_buffer: Array(char, 64),
+    hint_timer: f32,
+};
+
+mut runtime_state: State = @zero(State);
+
+pub abs_i32 = fn(x: i32) i32 {
+    if(x < 0) {
+        return -x;
+    }
+    return x;
+};
+
+pub min_i32 = fn(a: i32, b: i32) i32 {
+    if(a < b) {
+        return a;
+    }
+    return b;
+};
+
+pub map_index = fn(state: &State, x: i32, y: i32) i32 {
+    return y * state.map_width + x;
+};
+
+pub map_in_bounds = fn(state: &State, x: i32, y: i32) bool {
+    return x >= 0 && x < state.map_width && y >= 0 && y < state.map_height;
+};
+
+pub clear_command = fn(state: &mut State) void {
+    state.command_visible = false;
+    state.command_len = 0;
+    state.command_buffer[0] = '\0';
+};
+
+pub set_hint = fn(state: &mut State, src: *char, len: i32, timer: f32) void {
+    mut copy_len: i32 = len;
+    if(copy_len < 0) {
+        copy_len = 0;
+    }
+    if(copy_len >= HINT_BUFFER_CAP) {
+        copy_len = HINT_BUFFER_CAP - 1;
+    }
+    if(copy_len > 0) {
+        c.memcpy(&state.hint_buffer[0], src, copy_len);
+    }
+    state.hint_buffer[copy_len] = '\0';
+    state.hint_len = copy_len;
+    state.hint_timer = timer;
+};
+
+pub reset_runtime_state = fn(state: &mut State) void {
+    state.undo_count = 0;
+    clear_command(state);
+    state.hint_len = 0;
+    state.hint_buffer[0] = '\0';
+    state.hint_timer = 0.0;
+};
+
+pub clear_map_arrays = fn(state: &mut State) void {
+    c.memset(&state.static_tiles[0], 0, MAP_MAX_CELLS * 4);
+    c.memset(&state.dynamic_types[0], 0, MAP_MAX_CELLS * 4);
+    c.memset(&state.static_activated[0], 0, MAP_MAX_CELLS);
+    c.memset(&state.dynamic_activated[0], 0, MAP_MAX_CELLS);
+};
+
+pub clear_undo_state = fn(snapshot: &mut UndoState) void {
+    snapshot.hero_x = 0;
+    snapshot.hero_y = 0;
+    c.memset(&snapshot.dynamic_types[0], 0, MAP_MAX_CELLS * 4);
+    c.memset(&snapshot.static_activated[0], 0, MAP_MAX_CELLS);
+    c.memset(&snapshot.dynamic_activated[0], 0, MAP_MAX_CELLS);
+};
+
+pub init_empty_state = fn(state: &mut State) void {
+    state.map_width = 0;
+    state.map_height = 0;
+    state.current_level = 0;
+    state.hero_x = 0;
+    state.hero_y = 0;
+    clear_map_arrays(state);
+
+    state.undo_count = 0;
+    mut undo_idx: i32 = 0;
+    while(undo_idx < UNDO_MAX) {
+        clear_undo_state(state.undo_states[undo_idx]);
+        undo_idx = undo_idx + 1;
+    }
+
+    state.command_visible = false;
+    state.command_len = 0;
+    c.memset(&state.command_buffer[0], 0, COMMAND_BUFFER_CAP);
+
+    state.hint_len = 0;
+    c.memset(&state.hint_buffer[0], 0, HINT_BUFFER_CAP);
+    state.hint_timer = 0.0;
+};
+
+pub level_path = fn(level: i32) CharBuf64 {
+    mut out: CharBuf64 = @zero(CharBuf64);
+    fmt: Array(char, 30) = ['N', 'o', 't', 'g', 'a', 't', 'e', '/', 'a', 's', 's', 'e', 't', 's', '/', 'm', 'a', 'p', 's', '/', 'm', 'a', 'p', '%', 'd', '.', 't', 'x', 't', '\0'];
+    c.snprintf_i32(&out.data[0], 64, &fmt[0], level);
+    return out;
+};
+
+pub level_exists = fn(level: i32) bool {
+    mut path: CharBuf64 = level_path(level);
+    read_mode: Array(char, 3) = ['r', 'b', '\0'];
+    null_file: *void = 0;
+    file: *void = c.fopen(&path.data[0], &read_mode[0]);
+    if(file == null_file) {
+        return false;
+    }
+    c.fclose(file);
+    return true;
+};
+
+pub static_is_walkable_for_hero = fn(tile: i32, activated: bool) bool {
+    if(tile == STATIC_TILE_EMPTY) {
+        return true;
+    }
+    if(tile == STATIC_TILE_PORTAL) {
+        return activated;
+    }
+    return false;
+};
+
+pub static_is_activatable = fn(tile: i32) bool {
+    return tile == STATIC_TILE_PORTAL
+        || tile == STATIC_TILE_FIXED_REPEATER
+        || tile == STATIC_TILE_FIXED_NOT_SIGNAL;
+};
+
+pub dynamic_is_activatable = fn(tile: i32) bool {
+    return tile == DYNAMIC_TILE_REPEATER || tile == DYNAMIC_TILE_NOT_SIGNAL;
+};
+
+pub cell_has_not_signal = fn(state: &State, idx: i32) bool {
+    return state.static_tiles[idx] == STATIC_TILE_FIXED_NOT_SIGNAL
+        || state.dynamic_types[idx] == DYNAMIC_TILE_NOT_SIGNAL;
+};
+
+pub cell_can_emit_signal = fn(state: &State, idx: i32) bool {
+    if(state.static_tiles[idx] == STATIC_TILE_FIXED_SIGNAL_SOURCE) {
+        return true;
+    }
+    if(state.dynamic_types[idx] == DYNAMIC_TILE_SIGNAL_SOURCE) {
+        return true;
+    }
+    if(state.static_tiles[idx] == STATIC_TILE_FIXED_REPEATER && state.static_activated[idx]) {
+        return true;
+    }
+    if(state.dynamic_types[idx] == DYNAMIC_TILE_REPEATER && state.dynamic_activated[idx]) {
+        return true;
+    }
+    if(state.static_tiles[idx] == STATIC_TILE_FIXED_NOT_SIGNAL && !state.static_activated[idx]) {
+        return true;
+    }
+    if(state.dynamic_types[idx] == DYNAMIC_TILE_NOT_SIGNAL && !state.dynamic_activated[idx]) {
+        return true;
+    }
+    return false;
+};
+
+pub try_push_chain = fn(state: &mut State, start_x: i32, start_y: i32, dx: i32, dy: i32) bool {
+    mut cursor_x: i32 = start_x;
+    mut cursor_y: i32 = start_y;
+    if(!map_in_bounds(state, cursor_x, cursor_y)) {
+        return false;
+    }
+
+    cursor_idx: i32 = map_index(state, cursor_x, cursor_y);
+    if(state.dynamic_types[cursor_idx] == DYNAMIC_TILE_NONE) {
+        return false;
+    }
+
+    while(map_in_bounds(state, cursor_x, cursor_y)
+        && state.dynamic_types[map_index(state, cursor_x, cursor_y)] != DYNAMIC_TILE_NONE) {
+        cursor_x = cursor_x + dx;
+        cursor_y = cursor_y + dy;
+    }
+
+    if(!map_in_bounds(state, cursor_x, cursor_y)) {
+        return false;
+    }
+
+    target_idx: i32 = map_index(state, cursor_x, cursor_y);
+    if(state.static_tiles[target_idx] != STATIC_TILE_EMPTY) {
+        return false;
+    }
+
+    mut x: i32 = cursor_x - dx;
+    mut y: i32 = cursor_y - dy;
+    while(x != start_x - dx || y != start_y - dy) {
+        src_idx: i32 = map_index(state, x, y);
+        dst_x: i32 = x + dx;
+        dst_y: i32 = y + dy;
+        dst_idx: i32 = map_index(state, dst_x, dst_y);
+
+        state.dynamic_types[dst_idx] = state.dynamic_types[src_idx];
+        state.dynamic_activated[dst_idx] = state.dynamic_activated[src_idx];
+        if(state.dynamic_types[dst_idx] == DYNAMIC_TILE_NOT_SIGNAL) {
+            state.dynamic_activated[dst_idx] = true;
+        }
+        state.dynamic_types[src_idx] = DYNAMIC_TILE_NONE;
+        state.dynamic_activated[src_idx] = false;
+
+        x = x - dx;
+        y = y - dy;
+    }
+
+    return true;
+};
+
+pub recalculate_activation = fn(state: &mut State) void {
+    cell_count: i32 = state.map_width * state.map_height;
+    if(cell_count <= 0) {
+        return;
+    }
+
+    mut scratch: ActivationScratch = @zero(ActivationScratch);
+
+    mut idx: i32 = 0;
+    while(idx < cell_count) {
+        scratch.prev_static_activated[idx] = state.static_activated[idx];
+        scratch.prev_dynamic_activated[idx] = state.dynamic_activated[idx];
+        if(static_is_activatable(state.static_tiles[idx])) {
+            state.static_activated[idx] = false;
+        }
+        if(dynamic_is_activatable(state.dynamic_types[idx])) {
+            state.dynamic_activated[idx] = false;
+        }
+        scratch.component_id[idx] = -1;
+        idx = idx + 1;
+    }
+
+    mut q_head: i32 = 0;
+    mut q_tail: i32 = 0;
+    mut y: i32 = 0;
+    while(y < state.map_height) {
+        mut x: i32 = 0;
+        while(x < state.map_width) {
+            idx = map_index(state, x, y);
+            if(state.static_tiles[idx] == STATIC_TILE_FIXED_SIGNAL_SOURCE
+                || state.dynamic_types[idx] == DYNAMIC_TILE_SIGNAL_SOURCE) {
+                if(!scratch.const_emitter[idx]) {
+                    scratch.const_emitter[idx] = true;
+                    scratch.queue[q_tail] = idx;
+                    q_tail = q_tail + 1;
+                }
+            }
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+
+    while(q_head < q_tail) {
+        emitter_idx: i32 = scratch.queue[q_head];
+        q_head = q_head + 1;
+        ex: i32 = emitter_idx % state.map_width;
+        ey: i32 = emitter_idx / state.map_width;
+
+        mut dy: i32 = -3;
+        while(dy <= 3) {
+            max_abs_dx: i32 = 3 - abs_i32(dy);
+            mut dx: i32 = -max_abs_dx;
+            while(dx <= max_abs_dx) {
+                tx: i32 = ex + dx;
+                ty: i32 = ey + dy;
+                if(map_in_bounds(state, tx, ty)) {
+                    idx = map_index(state, tx, ty);
+                    if(state.static_tiles[idx] == STATIC_TILE_PORTAL) {
+                        state.static_activated[idx] = true;
+                    }
+                    if(state.static_tiles[idx] == STATIC_TILE_FIXED_REPEATER && !scratch.const_emitter[idx]) {
+                        scratch.const_emitter[idx] = true;
+                        scratch.queue[q_tail] = idx;
+                        q_tail = q_tail + 1;
+                    }
+                    if(state.dynamic_types[idx] == DYNAMIC_TILE_REPEATER && !scratch.const_emitter[idx]) {
+                        scratch.const_emitter[idx] = true;
+                        scratch.queue[q_tail] = idx;
+                        q_tail = q_tail + 1;
+                    }
+                    if(cell_has_not_signal(state, idx)) {
+                        scratch.const_hits_not[idx] = true;
+                    }
+                }
+                dx = dx + 1;
+            }
+            dy = dy + 1;
+        }
+    }
+
+    mut component_count: i32 = 0;
+    idx = 0;
+    while(idx < cell_count) {
+        if(!cell_has_not_signal(state, idx) || scratch.component_id[idx] >= 0) {
+            idx = idx + 1;
+            continue;
+        }
+
+        mut local_head: i32 = 0;
+        mut local_tail: i32 = 0;
+        scratch.queue[local_tail] = idx;
+        local_tail = local_tail + 1;
+        scratch.component_id[idx] = component_count;
+
+        while(local_head < local_tail) {
+            current: i32 = scratch.queue[local_head];
+            local_head = local_head + 1;
+            cx: i32 = current % state.map_width;
+            cy: i32 = current / state.map_width;
+            scratch.component_size[component_count] = scratch.component_size[component_count] + 1;
+            if(scratch.const_hits_not[current]) {
+                scratch.component_hit_count[component_count] = scratch.component_hit_count[component_count] + 1;
+            }
+
+            mut other: i32 = 0;
+            while(other < cell_count) {
+                if(scratch.component_id[other] < 0 && cell_has_not_signal(state, other)) {
+                    ox: i32 = other % state.map_width;
+                    oy: i32 = other / state.map_width;
+                    if(abs_i32(cx - ox) + abs_i32(cy - oy) <= 3) {
+                        scratch.component_id[other] = component_count;
+                        scratch.queue[local_tail] = other;
+                        local_tail = local_tail + 1;
+                    }
+                }
+                other = other + 1;
+            }
+        }
+
+        component_count = component_count + 1;
+        idx = idx + 1;
+    }
+
+    idx = 0;
+    while(idx < cell_count) {
+        if(cell_has_not_signal(state, idx)) {
+            cid: i32 = scratch.component_id[idx];
+            if(cid >= 0) {
+                size: i32 = scratch.component_size[cid];
+                hits: i32 = scratch.component_hit_count[cid];
+                hit: bool = scratch.const_hits_not[idx];
+                if(size <= 1) {
+                    scratch.force_not_off[idx] = hit;
+                } else if(hits > 0 && hits < size) {
+                    scratch.force_not_off[idx] = hit;
+                } else {
+                    scratch.force_not_off[idx] = false;
+                }
+            }
+        }
+        idx = idx + 1;
+    }
+
+    idx = 0;
+    while(idx < cell_count) {
+        has_static_repeater: bool = state.static_tiles[idx] == STATIC_TILE_FIXED_REPEATER;
+        has_dynamic_repeater: bool = state.dynamic_types[idx] == DYNAMIC_TILE_REPEATER;
+        has_static_not: bool = state.static_tiles[idx] == STATIC_TILE_FIXED_NOT_SIGNAL;
+        has_dynamic_not: bool = state.dynamic_types[idx] == DYNAMIC_TILE_NOT_SIGNAL;
+        has_signal: bool = state.static_tiles[idx] == STATIC_TILE_FIXED_SIGNAL_SOURCE
+            || state.dynamic_types[idx] == DYNAMIC_TILE_SIGNAL_SOURCE;
+
+        if(has_signal) {
+            scratch.emit_curr[idx] = true;
+            scratch.is_variable[idx] = false;
+            idx = idx + 1;
+            continue;
+        }
+
+        if(has_static_repeater || has_dynamic_repeater) {
+            if(scratch.const_emitter[idx]) {
+                scratch.emit_curr[idx] = true;
+                scratch.is_variable[idx] = false;
+            } else {
+                if(has_static_repeater) {
+                    scratch.emit_curr[idx] = scratch.prev_static_activated[idx];
+                } else {
+                    scratch.emit_curr[idx] = scratch.prev_dynamic_activated[idx];
+                }
+                scratch.is_variable[idx] = true;
+            }
+            idx = idx + 1;
+            continue;
+        }
+
+        if(has_static_not || has_dynamic_not) {
+            if(scratch.force_not_off[idx]) {
+                scratch.emit_curr[idx] = false;
+                scratch.is_variable[idx] = false;
+            } else {
+                if(has_static_not) {
+                    scratch.emit_curr[idx] = !scratch.prev_static_activated[idx];
+                } else {
+                    scratch.emit_curr[idx] = !scratch.prev_dynamic_activated[idx];
+                }
+                scratch.is_variable[idx] = true;
+            }
+        }
+
+        idx = idx + 1;
+    }
+
+    mut history_count: i32 = 0;
+    mut settled: bool = false;
+    mut iter: i32 = 0;
+    while(iter < 24) {
+        idx = 0;
+        while(idx < cell_count) {
+            history_idx: i32 = history_count * MAP_MAX_CELLS + idx;
+            scratch.history[history_idx] = scratch.is_variable[idx] && scratch.emit_curr[idx];
+            idx = idx + 1;
+        }
+        history_count = history_count + 1;
+
+        idx = 0;
+        while(idx < cell_count) {
+            scratch.emit_next[idx] = scratch.emit_curr[idx];
+            if(scratch.is_variable[idx]) {
+                x: i32 = idx % state.map_width;
+                y = idx / state.map_width;
+                mut has_input: bool = false;
+                mut dy: i32 = -3;
+                while(dy <= 3 && !has_input) {
+                    max_abs_dx = 3 - abs_i32(dy);
+                    mut dx: i32 = -max_abs_dx;
+                    while(dx <= max_abs_dx) {
+                        if(dx != 0 || dy != 0) {
+                            tx = x + dx;
+                            ty = y + dy;
+                            if(map_in_bounds(state, tx, ty)) {
+                                src_idx: i32 = map_index(state, tx, ty);
+                                if(scratch.emit_curr[src_idx]) {
+                                    has_input = true;
+                                    break;
+                                }
+                            }
+                        }
+                        dx = dx + 1;
+                    }
+                    dy = dy + 1;
+                }
+
+                if(state.static_tiles[idx] == STATIC_TILE_FIXED_REPEATER
+                    || state.dynamic_types[idx] == DYNAMIC_TILE_REPEATER) {
+                    scratch.emit_next[idx] = has_input;
+                } else if(state.static_tiles[idx] == STATIC_TILE_FIXED_NOT_SIGNAL
+                    || state.dynamic_types[idx] == DYNAMIC_TILE_NOT_SIGNAL) {
+                    scratch.emit_next[idx] = !has_input;
+                }
+            }
+            idx = idx + 1;
+        }
+
+        mut changed: bool = false;
+        idx = 0;
+        while(idx < cell_count) {
+            if(scratch.is_variable[idx] && scratch.emit_next[idx] != scratch.emit_curr[idx]) {
+                changed = true;
+                break;
+            }
+            idx = idx + 1;
+        }
+        if(!changed) {
+            settled = true;
+            break;
+        }
+
+        mut cycle_start: i32 = -1;
+        mut t: i32 = 0;
+        while(t < history_count) {
+            mut equal: bool = true;
+            idx = 0;
+            while(idx < cell_count) {
+                if(scratch.is_variable[idx]) {
+                    history_idx = t * MAP_MAX_CELLS + idx;
+                    if(scratch.history[history_idx] != scratch.emit_next[idx]) {
+                        equal = false;
+                        break;
+                    }
+                }
+                idx = idx + 1;
+            }
+            if(equal) {
+                cycle_start = t;
+                break;
+            }
+            t = t + 1;
+        }
+
+        if(cycle_start >= 0) {
+            idx = 0;
+            while(idx < cell_count) {
+                if(scratch.is_variable[idx]) {
+                    first: bool = scratch.history[cycle_start * MAP_MAX_CELLS + idx];
+                    mut oscillating: bool = false;
+                    t = cycle_start + 1;
+                    while(t < history_count) {
+                        if(scratch.history[t * MAP_MAX_CELLS + idx] != first) {
+                            oscillating = true;
+                            break;
+                        }
+                        t = t + 1;
+                    }
+                    if(!oscillating && scratch.emit_next[idx] != first) {
+                        oscillating = true;
+                    }
+                    if(oscillating) {
+                        scratch.emit_curr[idx] = false;
+                    } else {
+                        scratch.emit_curr[idx] = scratch.emit_next[idx];
+                    }
+                }
+                idx = idx + 1;
+            }
+            settled = true;
+            break;
+        }
+
+        idx = 0;
+        while(idx < cell_count) {
+            scratch.emit_curr[idx] = scratch.emit_next[idx];
+            idx = idx + 1;
+        }
+
+        iter = iter + 1;
+    }
+
+    if(!settled) {
+        idx = 0;
+        while(idx < cell_count) {
+            if(scratch.is_variable[idx]) {
+                scratch.emit_curr[idx] = false;
+            }
+            idx = idx + 1;
+        }
+    }
+
+    idx = 0;
+    while(idx < cell_count) {
+        if(state.static_tiles[idx] == STATIC_TILE_PORTAL) {
+            state.static_activated[idx] = false;
+        }
+        if(state.static_tiles[idx] == STATIC_TILE_FIXED_REPEATER) {
+            state.static_activated[idx] = scratch.emit_curr[idx];
+        } else if(state.dynamic_types[idx] == DYNAMIC_TILE_REPEATER) {
+            state.dynamic_activated[idx] = scratch.emit_curr[idx];
+        }
+
+        if(state.static_tiles[idx] == STATIC_TILE_FIXED_NOT_SIGNAL) {
+            state.static_activated[idx] = !scratch.emit_curr[idx];
+        } else if(state.dynamic_types[idx] == DYNAMIC_TILE_NOT_SIGNAL) {
+            state.dynamic_activated[idx] = !scratch.emit_curr[idx];
+        }
+        idx = idx + 1;
+    }
+
+    y = 0;
+    while(y < state.map_height) {
+        mut x: i32 = 0;
+        while(x < state.map_width) {
+            idx = map_index(state, x, y);
+            if(state.static_tiles[idx] == STATIC_TILE_PORTAL) {
+                mut on: bool = false;
+                mut dy: i32 = -3;
+                while(dy <= 3 && !on) {
+                    max_abs_dx = 3 - abs_i32(dy);
+                    mut dx: i32 = -max_abs_dx;
+                    while(dx <= max_abs_dx) {
+                        tx = x + dx;
+                        ty = y + dy;
+                        if(map_in_bounds(state, tx, ty)) {
+                            src_idx = map_index(state, tx, ty);
+                            if(scratch.emit_curr[src_idx]) {
+                                on = true;
+                                break;
+                            }
+                        }
+                        dx = dx + 1;
+                    }
+                    dy = dy + 1;
+                }
+                state.static_activated[idx] = on;
+            }
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+};
+
+pub load_level = fn(state: &mut State, level: i32) bool {
+    mut path: CharBuf64 = level_path(level);
+    read_mode: Array(char, 3) = ['r', 'b', '\0'];
+    null_file: *void = 0;
+    file: *void = c.fopen(&path.data[0], &read_mode[0]);
+    if(file == null_file) {
+        return false;
+    }
+
+    mut raw: MapFileBuf = @zero(MapFileBuf);
+    mut line: CharBuf128 = @zero(CharBuf128);
+    mut read_count: i32 = 0;
+    null_line: *mut char = 0;
+    while(c.fgets(&line.data[0], 128, file) != null_line) {
+        mut j: i32 = 0;
+        while(j < 127 && line.data[j] != '\0' && read_count < 1023) {
+            raw.data[read_count] = line.data[j];
+            read_count = read_count + 1;
+            j = j + 1;
+        }
+    }
+    c.fclose(file);
+    raw.data[read_count] = '\0';
+
+    clear_map_arrays(state);
+    reset_runtime_state(state);
+    state.current_level = level;
+    state.hero_x = 0;
+    state.hero_y = 0;
+
+    mut width: i32 = 0;
+    mut height: i32 = 0;
+    mut x: i32 = 0;
+    mut i: i32 = 0;
+    while(i < read_count) {
+        ch: char = raw.data[i];
+        if(ch == '\r') {
+            i = i + 1;
+            continue;
+        }
+        if(ch == '\n') {
+            if(x > width) {
+                width = x;
+            }
+            height = height + 1;
+            x = 0;
+        } else {
+            x = x + 1;
+        }
+        i = i + 1;
+    }
+    if(x > 0) {
+        if(x > width) {
+            width = x;
+        }
+        height = height + 1;
+    }
+
+    if(width <= 0 || height <= 0 || width > MAP_MAX_WIDTH || height > MAP_MAX_HEIGHT) {
+        state.map_width = 0;
+        state.map_height = 0;
+        return false;
+    }
+
+    state.map_width = width;
+    state.map_height = height;
+
+    x = 0;
+    mut y: i32 = 0;
+    i = 0;
+    while(i < read_count && y < height) {
+        ch = raw.data[i];
+        if(ch == '\r') {
+            i = i + 1;
+            continue;
+        }
+        if(ch == '\n') {
+            y = y + 1;
+            x = 0;
+            i = i + 1;
+            continue;
+        }
+        if(x < width) {
+            idx: i32 = map_index(state, x, y);
+            if(ch == '#') {
+                state.static_tiles[idx] = STATIC_TILE_WALL;
+            } else if(ch == '@') {
+                state.hero_x = x;
+                state.hero_y = y;
+            } else if(ch == 'o') {
+                state.dynamic_types[idx] = DYNAMIC_TILE_BOX;
+            } else if(ch == 's') {
+                state.dynamic_types[idx] = DYNAMIC_TILE_SIGNAL_SOURCE;
+            } else if(ch == 'r') {
+                state.dynamic_types[idx] = DYNAMIC_TILE_REPEATER;
+            } else if(ch == 'n') {
+                state.dynamic_types[idx] = DYNAMIC_TILE_NOT_SIGNAL;
+            } else if(ch == 'P') {
+                state.static_tiles[idx] = STATIC_TILE_PORTAL;
+            } else if(ch == 'S') {
+                state.static_tiles[idx] = STATIC_TILE_FIXED_SIGNAL_SOURCE;
+            } else if(ch == 'R') {
+                state.static_tiles[idx] = STATIC_TILE_FIXED_REPEATER;
+            } else if(ch == 'N') {
+                state.static_tiles[idx] = STATIC_TILE_FIXED_NOT_SIGNAL;
+            }
+        }
+        x = x + 1;
+        i = i + 1;
+    }
+
+    recalculate_activation(state);
+    return true;
+};
+
+pub push_undo = fn(state: &mut State) void {
+    if(state.undo_count >= UNDO_MAX) {
+        mut i: i32 = 1;
+        while(i < UNDO_MAX) {
+            state.undo_states[i - 1] = state.undo_states[i];
+            i = i + 1;
+        }
+        state.undo_count = UNDO_MAX - 1;
+    }
+
+    mut snapshot: UndoState = @zero(UndoState);
+    snapshot.hero_x = state.hero_x;
+    snapshot.hero_y = state.hero_y;
+    mut i: i32 = 0;
+    while(i < MAP_MAX_CELLS) {
+        snapshot.dynamic_types[i] = state.dynamic_types[i];
+        snapshot.static_activated[i] = state.static_activated[i];
+        snapshot.dynamic_activated[i] = state.dynamic_activated[i];
+        i = i + 1;
+    }
+
+    state.undo_states[state.undo_count] = snapshot;
+    state.undo_count = state.undo_count + 1;
+};
+
+pub pop_undo = fn(state: &mut State) bool {
+    if(state.undo_count <= 0) {
+        return false;
+    }
+
+    state.undo_count = state.undo_count - 1;
+    snapshot: UndoState = state.undo_states[state.undo_count];
+    state.hero_x = snapshot.hero_x;
+    state.hero_y = snapshot.hero_y;
+
+    mut i: i32 = 0;
+    while(i < MAP_MAX_CELLS) {
+        state.dynamic_types[i] = snapshot.dynamic_types[i];
+        state.static_activated[i] = snapshot.static_activated[i];
+        state.dynamic_activated[i] = snapshot.dynamic_activated[i];
+        i = i + 1;
+    }
+
+    return true;
+};
+
+pub next_level = fn(state: &mut State) bool {
+    mut next: i32 = state.current_level + 1;
+    if(!level_exists(next)) {
+        next = 1;
+    }
+    return load_level(state, next);
+};
+
+pub try_move = fn(state: &mut State, dx: i32, dy: i32) bool {
+    new_x: i32 = state.hero_x + dx;
+    new_y: i32 = state.hero_y + dy;
+    if(!map_in_bounds(state, new_x, new_y)) {
+        return false;
+    }
+
+    target_idx: i32 = map_index(state, new_x, new_y);
+    push_undo(state);
+
+    mut moved: bool = false;
+    if(state.dynamic_types[target_idx] != DYNAMIC_TILE_NONE) {
+        if(try_push_chain(state, new_x, new_y, dx, dy)) {
+            state.hero_x = new_x;
+            state.hero_y = new_y;
+            moved = true;
+        }
+    } else if(static_is_walkable_for_hero(state.static_tiles[target_idx], state.static_activated[target_idx])) {
+        state.hero_x = new_x;
+        state.hero_y = new_y;
+        moved = true;
+    }
+
+    if(!moved) {
+        state.undo_count = state.undo_count - 1;
+        return false;
+    }
+
+    recalculate_activation(state);
+    if(state.static_tiles[target_idx] == STATIC_TILE_PORTAL && state.static_activated[target_idx]) {
+        next_level(state);
+    }
+    return true;
+};
+
+pub command_is_solve = fn(state: &State) bool {
+    solve_text: Array(char, 7) = ['/', 's', 'o', 'l', 'v', 'e', '\0'];
+    if(state.command_len != 6) {
+        return false;
+    }
+    mut i: i32 = 0;
+    while(i < 6) {
+        if(state.command_buffer[i] != solve_text[i]) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+};
+
+pub parse_level_command = fn(state: &State) i32 {
+    if(state.command_len < 2 || state.command_buffer[0] != '/') {
+        return -1;
+    }
+
+    mut value: i32 = 0;
+    mut i: i32 = 1;
+    while(i < state.command_len) {
+        ch: char = state.command_buffer[i];
+        if(ch < '0' || ch > '9') {
+            return -1;
+        }
+        value = value * 10 + (ch - '0');
+        i = i + 1;
+    }
+    return value;
+};
+
+pub submit_command = fn(state: &mut State) void {
+    solver_unavailable: Array(char, 19) = ['s', 'o', 'l', 'v', 'e', 'r', ' ', 'u', 'n', 'a', 'v', 'a', 'i', 'l', 'a', 'b', 'l', 'e', '\0'];
+    level_not_found: Array(char, 16) = ['l', 'e', 'v', 'e', 'l', ' ', 'n', 'o', 't', ' ', 'f', 'o', 'u', 'n', 'd', '\0'];
+    syntax_error: Array(char, 13) = ['s', 'y', 'n', 't', 'a', 'x', ' ', 'e', 'r', 'r', 'o', 'r', '\0'];
+
+    if(command_is_solve(state)) {
+        set_hint(state, &solver_unavailable[0], 18, 2.0);
+        clear_command(state);
+        return;
+    }
+
+    level: i32 = parse_level_command(state);
+    if(level > 0) {
+        if(load_level(state, level)) {
+            clear_command(state);
+            return;
+        }
+        set_hint(state, &level_not_found[0], 15, 2.0);
+        clear_command(state);
+        return;
+    }
+
+    set_hint(state, &syntax_error[0], 12, 2.0);
+    clear_command(state);
+};
+
+pub append_command_char = fn(state: &mut State, ch: char) void {
+    if(state.command_visible && state.command_len < COMMAND_BUFFER_CAP - 1) {
+        state.command_buffer[state.command_len] = ch;
+        state.command_len = state.command_len + 1;
+        state.command_buffer[state.command_len] = '\0';
+    }
+};
+
+pub handle_command_input = fn(state: &mut State) void {
+    mut opened_this_frame: bool = false;
+    if(!state.command_visible && rl.IsKeyPressed(rl.KEY_SLASH)) {
+        state.command_visible = true;
+        state.command_len = 1;
+        state.command_buffer[0] = '/';
+        state.command_buffer[1] = '\0';
+        opened_this_frame = true;
+    }
+
+    if(!state.command_visible) {
+        return;
+    }
+
+    if(!opened_this_frame) {
+        if(rl.IsKeyPressed(KEY_0)) { append_command_char(state, '0'); }
+        if(rl.IsKeyPressed(KEY_1)) { append_command_char(state, '1'); }
+        if(rl.IsKeyPressed(KEY_2)) { append_command_char(state, '2'); }
+        if(rl.IsKeyPressed(KEY_3)) { append_command_char(state, '3'); }
+        if(rl.IsKeyPressed(KEY_4)) { append_command_char(state, '4'); }
+        if(rl.IsKeyPressed(KEY_5)) { append_command_char(state, '5'); }
+        if(rl.IsKeyPressed(KEY_6)) { append_command_char(state, '6'); }
+        if(rl.IsKeyPressed(KEY_7)) { append_command_char(state, '7'); }
+        if(rl.IsKeyPressed(KEY_8)) { append_command_char(state, '8'); }
+        if(rl.IsKeyPressed(KEY_9)) { append_command_char(state, '9'); }
+        if(rl.IsKeyPressed(KEY_E)) { append_command_char(state, 'e'); }
+        if(rl.IsKeyPressed(KEY_L)) { append_command_char(state, 'l'); }
+        if(rl.IsKeyPressed(KEY_O)) { append_command_char(state, 'o'); }
+        if(rl.IsKeyPressed(KEY_S_LOWER)) { append_command_char(state, 's'); }
+        if(rl.IsKeyPressed(KEY_V)) { append_command_char(state, 'v'); }
+    }
+
+    if(rl.IsKeyPressed(rl.KEY_BACKSPACE) && state.command_len > 0) {
+        state.command_len = state.command_len - 1;
+        state.command_buffer[state.command_len] = '\0';
+        if(state.command_len == 0) {
+            state.command_visible = false;
+        }
+    }
+
+    if(rl.IsKeyPressed(rl.KEY_ESCAPE)) {
+        clear_command(state);
+    } else if(rl.IsKeyPressed(rl.KEY_ENTER) || rl.IsKeyPressed(rl.KEY_KP_ENTER)) {
+        submit_command(state);
+    }
+};
+
+pub update_game = fn(state: &mut State) void {
+    handle_command_input(state);
+    if(!state.command_visible) {
+        if(rl.IsKeyPressed(rl.KEY_R)) {
+            load_level(state, state.current_level);
+        } else if(rl.IsKeyPressed(rl.KEY_Z)) {
+            pop_undo(state);
+        } else if(rl.IsKeyPressed(rl.KEY_W)) {
+            try_move(state, 0, -1);
+        } else if(rl.IsKeyPressed(rl.KEY_S)) {
+            try_move(state, 0, 1);
+        } else if(rl.IsKeyPressed(rl.KEY_A)) {
+            try_move(state, -1, 0);
+        } else if(rl.IsKeyPressed(rl.KEY_D)) {
+            try_move(state, 1, 0);
+        }
+    }
+
+    if(state.hint_timer > 0.0) {
+        state.hint_timer = state.hint_timer - rl.GetFrameTime();
+        if(state.hint_timer < 0.0) {
+            state.hint_timer = 0.0;
+        }
+    }
+};
+
+pub draw_static_tile = fn(tile: i32, activated: bool, px: i32, py: i32, cell_size: i32) void {
+    rl.DrawRectangle(px, py, cell_size, cell_size, COLOR_FLOOR);
+
+    if(tile == STATIC_TILE_WALL) {
+        rl.DrawRectangle(px, py, cell_size, cell_size, COLOR_WALL);
+        return;
+    }
+
+    if(tile == STATIC_TILE_PORTAL) {
+        inset: i32 = cell_size / 6;
+        mut color: rl.Color = COLOR_PORTAL_OFF;
+        if(activated) {
+            color = COLOR_PORTAL_ON;
+        }
+        rl.DrawRectangle(px + inset, py + inset, cell_size - inset * 2, cell_size - inset * 2, color);
+        return;
+    }
+
+    if(tile == STATIC_TILE_FIXED_SIGNAL_SOURCE) {
+        inset: i32 = cell_size / 5;
+        rl.DrawRectangle(px + inset, py + inset, cell_size - inset * 2, cell_size - inset * 2, COLOR_SIGNAL);
+        return;
+    }
+
+    if(tile == STATIC_TILE_FIXED_REPEATER) {
+        inset: i32 = cell_size / 5;
+        mut color: rl.Color = COLOR_REPEATER_OFF;
+        if(activated) {
+            color = COLOR_REPEATER_ON;
+        }
+        rl.DrawRectangle(px + inset, py + inset, cell_size - inset * 2, cell_size - inset * 2, color);
+        rl.DrawRectangle(px + cell_size / 3, py + cell_size / 3, cell_size / 3, cell_size / 3, COLOR_BG);
+        return;
+    }
+
+    if(tile == STATIC_TILE_FIXED_NOT_SIGNAL) {
+        inset: i32 = cell_size / 5;
+        mut color: rl.Color = COLOR_NOT_OFF;
+        if(activated) {
+            color = COLOR_NOT_ON;
+        }
+        rl.DrawRectangle(px + inset, py + inset, cell_size - inset * 2, cell_size - inset * 2, color);
+        rl.DrawRectangle(px + cell_size / 3, py + cell_size / 3, cell_size / 3, cell_size / 3, COLOR_BG);
+    }
+};
+
+pub draw_dynamic_tile = fn(tile: i32, activated: bool, px: i32, py: i32, cell_size: i32) void {
+    if(tile == DYNAMIC_TILE_NONE) {
+        return;
+    }
+
+    inset: i32 = cell_size / 4;
+    size: i32 = cell_size - inset * 2;
+    mut color: rl.Color = COLOR_BOX;
+    if(tile == DYNAMIC_TILE_SIGNAL_SOURCE) {
+        color = COLOR_SIGNAL;
+    } else if(tile == DYNAMIC_TILE_REPEATER) {
+        color = COLOR_REPEATER_OFF;
+        if(activated) {
+            color = COLOR_REPEATER_ON;
+        }
+    } else if(tile == DYNAMIC_TILE_NOT_SIGNAL) {
+        color = COLOR_NOT_OFF;
+        if(activated) {
+            color = COLOR_NOT_ON;
+        }
+    }
+    rl.DrawRectangle(px + inset, py + inset, size, size, color);
+};
+
+pub compute_viewport = fn(state: &State) Viewport {
+    padding_x: i32 = 120;
+    padding_y: i32 = 100;
+    available_w: i32 = WINDOW_WIDTH - padding_x * 2;
+    available_h: i32 = WINDOW_HEIGHT - padding_y * 2;
+    cell_w: i32 = available_w / state.map_width;
+    cell_h: i32 = available_h / state.map_height;
+    mut cell_size: i32 = min_i32(cell_w, cell_h);
+    if(cell_size < 16) {
+        cell_size = 16;
+    }
+
+    map_px_w: i32 = state.map_width * cell_size;
+    map_px_h: i32 = state.map_height * cell_size;
+    return Viewport {
+        .origin_x = (WINDOW_WIDTH - map_px_w) / 2,
+        .origin_y = (WINDOW_HEIGHT - map_px_h) / 2,
+        .cell_size = cell_size,
+    };
+};
+
+pub draw_map_cells = fn(state: &State, view: &Viewport) void {
+    mut y: i32 = 0;
+    while(y < state.map_height) {
+        mut x: i32 = 0;
+        while(x < state.map_width) {
+            idx: i32 = map_index(state, x, y);
+            px: i32 = view.origin_x + x * view.cell_size;
+            py: i32 = view.origin_y + y * view.cell_size;
+            draw_static_tile(state.static_tiles[idx], state.static_activated[idx], px, py, view.cell_size);
+            draw_dynamic_tile(state.dynamic_types[idx], state.dynamic_activated[idx], px, py, view.cell_size);
+
+            if(state.hero_x == x && state.hero_y == y) {
+                hero_inset: i32 = view.cell_size / 3;
+                rl.DrawRectangle(px + hero_inset, py + hero_inset, view.cell_size - hero_inset * 2, view.cell_size - hero_inset * 2, COLOR_HERO);
+            }
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+};
+
+pub draw_overlay = fn(state: &State) void {
+    level_fmt: Array(char, 9) = ['L', 'e', 'v', 'e', 'l', ' ', '%', 'd', '\0'];
+    mut level_text: CharBuf32 = @zero(CharBuf32);
+    c.snprintf_i32(&level_text.data[0], 32, &level_fmt[0], state.current_level);
+    rl.DrawText(&level_text.data[0], 24, 24, 28, rl.RAYWHITE);
+
+    help_text: Array(char, 14) = ['W', 'A', 'S', 'D', ' ', 'Z', ' ', 'R', ' ', '/', '<', 'n', '>', '\0'];
+    rl.DrawText(&help_text[0], 24, WINDOW_HEIGHT - 48, 20, rl.LIGHTGRAY);
+
+    if(state.hint_timer > 0.0 && state.hint_len > 0) {
+        rl.DrawRectangle(20, 62, 260, 32, rl.Fade(rl.BLACK, 0.55));
+        rl.DrawText(&state.hint_buffer[0], 28, 68, 20, rl.RAYWHITE);
+    }
+
+    if(state.command_visible) {
+        rl.DrawRectangle(20, 104, 320, 40, rl.Fade(rl.BLACK, 0.7));
+        rl.DrawText(&state.command_buffer[0], 28, 114, 22, rl.RAYWHITE);
+    }
+};
+
+pub draw_game = fn(state: &State) void {
+    rl.ClearBackground(COLOR_BG);
+
+    if(state.map_width <= 0 || state.map_height <= 0) {
+        if(state.hint_len > 0) {
+            rl.DrawText(&state.hint_buffer[0], 24, 24, 24, rl.RAYWHITE);
+        }
+        return;
+    }
+
+    mut view: Viewport = compute_viewport(state);
+    draw_map_cells(state, view);
+    draw_overlay(state);
+};
+
+pub init_window = fn() void {
+    mut title: Array(char, 8) = ['N', 'o', 't', 'g', 'a', 't', 'e', '\0'];
+    rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, &title[0]);
+    rl.SetTargetFPS(60);
+};
+
+pub initial_load = fn(state: &mut State) void {
+    mut load_failed: Array(char, 12) = ['l', 'o', 'a', 'd', ' ', 'f', 'a', 'i', 'l', 'e', 'd', '\0'];
+    if(!load_level(state, 1)) {
+        set_hint(state, &load_failed[0], 11, 60.0);
+    }
+};
+
+pub run_frame = fn(state: &mut State) void {
+    update_game(state);
+    rl.BeginDrawing();
+    draw_game(&state);
+    rl.EndDrawing();
+};
+
+pub run = fn() void {
+    init_empty_state(runtime_state);
+    init_window();
+    initial_load(runtime_state);
+    while(!rl.WindowShouldClose()) {
+        run_frame(runtime_state);
+    }
+
+    rl.CloseWindow();
+};
