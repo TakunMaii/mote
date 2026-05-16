@@ -5,5 +5,10 @@ mote
 *.obj
 *.exe
 *.ll
+*.o
 mote_out.txt
 mote_err.txt
+test/artifacts/
+test/game/notgate/*.ll
+test/game/notgate/*.exe
+test/game/notgate/*.obj

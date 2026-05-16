@@ -1,6 +1,0 @@
-rl = @import("raylib");
-
-title: Array(char, 12) = "raylib smoke\0";
-
-rl.InitWindow(320, 240, &title[0]);
-rl.CloseWindow();

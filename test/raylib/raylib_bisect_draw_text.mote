@@ -1,0 +1,16 @@
+rl = @import("raylib");
+
+mut frames: i32 = 0;
+
+rl.InitWindow(320, 240, @as(*char, "bisect draw text"));
+rl.SetTargetFPS(60);
+
+while(!rl.WindowShouldClose() && frames < 2) {
+    rl.BeginDrawing();
+    rl.ClearBackground(rl.RAYWHITE);
+    rl.DrawText(@as(*char, "hello text"), 10, 10, 20, rl.DARKGRAY);
+    rl.EndDrawing();
+    frames = frames + 1;
+}
+
+rl.CloseWindow();

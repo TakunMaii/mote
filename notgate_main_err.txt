@@ -1,5 +1,0 @@
-notgate: run beginnotgate: initial_load beginnotgate: initial_load endnotgate: before loop
-notgate: loop tick
-notgate: run_frame beginnotgate: after update_gamenotgate: after BeginDrawing
-dg0
-dg1

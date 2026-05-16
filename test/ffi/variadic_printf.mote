@@ -1,0 +1,5 @@
+c = @import("c");
+
+main = fn() void {
+    c.printf(@as(*char, "val=%d %s\n"), 42, @as(*char, "ok"));
+};

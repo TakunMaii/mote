@@ -42,8 +42,8 @@ mote [--pkg name=path]... --emit-exe <input> [output.exe]
 
 ## Output Naming
 
-- `--emit-llvm test\simple.mote` defaults to `test\simple.ll`
-- `--emit-exe test\simple.mote` defaults to `test\simple.exe` on Windows
+- `--emit-llvm test\basic\simple.mote` defaults to `test\basic\simple.ll`
+- `--emit-exe test\basic\simple.mote` defaults to `test\basic\simple.exe` on Windows
 - You can always override the output path explicitly
 
 ## Examples
@@ -51,43 +51,49 @@ mote [--pkg name=path]... --emit-exe <input> [output.exe]
 Inspect AST and MIR only:
 
 ```powershell
-.\mote.exe test\simple.mote
+.\mote.exe test\basic\simple.mote
 ```
 
 Emit LLVM IR:
 
 ```powershell
-.\mote.exe --emit-llvm test\simple.mote
+.\mote.exe --emit-llvm test\basic\simple.mote
 ```
 
 Emit LLVM IR to a custom file:
 
 ```powershell
-.\mote.exe --emit-llvm test\simple.mote out.ll
+.\mote.exe --emit-llvm test\basic\simple.mote out.ll
 ```
 
 Build an executable:
 
 ```powershell
-.\mote.exe --emit-exe test\simple.mote
+.\mote.exe --emit-exe test\basic\simple.mote
 ```
 
 Build an executable with a custom output path:
 
 ```powershell
-.\mote.exe --emit-exe test\simple.mote bin\simple.exe
+.\mote.exe --emit-exe test\basic\simple.mote bin\simple.exe
 ```
 
 Compile with the built-in C FFI package:
 
 ```powershell
-.\mote.exe --pkg c=lib\c --emit-exe test\ffi_main.mote
+.\mote.exe --pkg c=lib\c --emit-exe test\ffi\ffi_main.mote
 ```
 
 Compile a package-based multi-file program:
 
 ```powershell
 .\mote.exe --pkg app=test\pkg\app --emit-exe test\multi\package_main.mote
+```
+
+Compile the `notgate` test package:
+
+```powershell
+.\mote_stage4.exe --pkg raylib=lib\raylib --pkg c=lib\c --pkg notgate=test\game\notgate --link-arg test\game\notgate\build\raylib.lib --link-arg opengl32.lib --link-arg gdi32.lib --link-arg winmm.lib --link-arg user32.lib --link-arg shell32.lib --emit-exe test\game\notgate_main.mote test\artifacts\notgate.exe
 ```
 
 ## Import Resolution

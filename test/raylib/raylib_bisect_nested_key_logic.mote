@@ -1,0 +1,23 @@
+rl = @import("raylib");
+
+mut color_index: i32 = 0;
+mut frames: i32 = 0;
+
+rl.InitWindow(320, 240, @as(*char, "bisect nested key logic"));
+rl.SetTargetFPS(60);
+
+while(!rl.WindowShouldClose() && frames < 2) {
+    if(rl.IsKeyPressed(rl.KEY_SPACE)) {
+        color_index = color_index + 1;
+        if(color_index >= 4) {
+            color_index = 0;
+        }
+    }
+
+    rl.BeginDrawing();
+    rl.ClearBackground(rl.RAYWHITE);
+    rl.EndDrawing();
+    frames = frames + 1;
+}
+
+rl.CloseWindow();

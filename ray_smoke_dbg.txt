@@ -1,4 +1,0 @@
-WROTE LLVM IR ===============
-
-test\raylib_smoke.ll
-

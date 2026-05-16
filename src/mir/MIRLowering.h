@@ -236,6 +236,8 @@ typedef struct MirGlobal {
     char name[MIR_MAX_NAME_LENGTH];
     ASTDataType *data_type;
     bool mutable;
+    bool has_const_string_initializer;
+    char const_string_initializer[MAX_STRING_LITERAL_LENGTH];
 } MirGlobal;
 
 typedef struct MirExternFunction {
@@ -1055,6 +1057,21 @@ static MirGlobal* mirEnsureGlobal(MirLowering *lowering, const char *name, ASTDa
     return global;
 }
 
+static const char* mirEnsureStringLiteralGlobal(MirLowering *lowering, const char *value)
+{
+    char name[MIR_MAX_NAME_LENGTH];
+    snprintf(name, sizeof(name), "__mote_str_%d", lowering->unique_global_counter++);
+
+    ASTDataType *string_type = newArrayDataType(
+        newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR),
+        strlen(value) + 1
+    );
+    MirGlobal *global = mirEnsureGlobal(lowering, name, string_type, false);
+    global->has_const_string_initializer = true;
+    strcpy(global->const_string_initializer, value);
+    return global->name;
+}
+
 static void mirDeclareVariableInfo(MirLowerScope *scope, ASTNode *assign_node, ASTDataType *declared_type,
                                    TypeSystemExprType expr_type)
 {
@@ -1639,6 +1656,26 @@ static MirValueId lowerAsBuiltinExpr(MirFunctionState *state, MirLowerScope *sco
     ASTNode *target_type_expr = node->lhs;
     ASTNode *value_expr = target_type_expr != NULL ? target_type_expr->next : NULL;
     ASTDataType *target_type = mirResolvedExprValueType(node, &(scope->type_scope));
+
+    if(value_expr != NULL &&
+       value_expr->kind == AST_EXPR_LITERAL_STRING &&
+       target_type != NULL &&
+       target_type->kind == AST_DATA_TYPE_KIND_POINTER &&
+       target_type->child != NULL &&
+       target_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       target_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR)
+    {
+        const char *global_name = mirEnsureStringLiteralGlobal(state->lowering, value_expr->literal_string);
+        ASTDataType *global_type = newArrayDataType(
+            newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR),
+            strlen(value_expr->literal_string) + 1
+        );
+        MirValueId global_addr = mirEmitGlobalAddr(state, global_name, global_type,
+                                                   node->filename, node->line_number, node->column_number);
+        MirValueId ptr_value = mirEmitConvert(state, global_addr, target_type,
+                                              node->filename, node->line_number, node->column_number);
+        return mirMaybeConvertValue(state, scope, node, ptr_value, expected_type);
+    }
 
     MirValueId value = lowerExprAsValue(state, scope, value_expr, NULL);
     value = mirEmitConvert(state, value, target_type,

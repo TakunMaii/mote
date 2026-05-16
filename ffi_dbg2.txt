@@ -1,4 +1,0 @@
-WROTE LLVM IR ===============
-
-test\ffi_main.ll
-

@@ -33,11 +33,11 @@ static void print_usage(const char *argv0)
     printf("  - If output is omitted, the compiler derives it from the input file name.\n");
     printf("\n");
     printf("Examples:\n");
-    printf("  %s test\\\\simple.mote\n", argv0);
-    printf("  %s --emit-llvm test\\\\simple.mote\n", argv0);
-    printf("  %s --emit-exe test\\\\simple.mote test\\\\simple.exe\n", argv0);
+    printf("  %s test\\\\basic\\\\simple.mote\n", argv0);
+    printf("  %s --emit-llvm test\\\\basic\\\\simple.mote\n", argv0);
+    printf("  %s --emit-exe test\\\\basic\\\\simple.mote test\\\\basic\\\\simple.exe\n", argv0);
     printf("  %s --link-arg -Lthird_party\\\\lib --link-arg -lfoo --emit-exe app.mote\n", argv0);
-    printf("  %s --pkg c=lib\\\\c --emit-exe test\\\\ffi_main.mote\n", argv0);
+    printf("  %s --pkg c=lib\\\\c --emit-exe test\\\\ffi\\\\ffi_main.mote\n", argv0);
     printf("  %s --pkg app=test\\\\pkg\\\\app --emit-exe test\\\\multi\\\\package_main.mote\n", argv0);
 }
 

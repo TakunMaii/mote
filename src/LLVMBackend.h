@@ -1718,7 +1718,24 @@ static void emitLLVMProgramToFile(MirProgram *program, const char *module_name, 
         MirGlobal *global = &(program->globals[i]);
         fprintf(stream, "@%s = global ", global->name);
         llvmEmitType(stream, global->data_type);
-        fprintf(stream, " zeroinitializer\n");
+        if(global->has_const_string_initializer)
+        {
+            int length = (int)global->data_type->array_length;
+            fprintf(stream, " c\"");
+            for(int j = 0; j < length; j++)
+            {
+                unsigned char ch = j + 1 == length
+                    ? 0
+                    : (unsigned char)global->const_string_initializer[j];
+                if(ch >= 32 && ch <= 126 && ch != '\\' && ch != '"')
+                    fputc(ch, stream);
+                else
+                    fprintf(stream, "\\%02X", ch);
+            }
+            fprintf(stream, "\"\n");
+        }
+        else
+            fprintf(stream, " zeroinitializer\n");
     }
 
     if(program->global_count > 0)

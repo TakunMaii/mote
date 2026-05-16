@@ -224,6 +224,37 @@ ASTNode* parseArgumentList(Token **token);
 ASTNode* parseSimpleAssignNoSemicolon(Token **token);
 ASTNode* parseExprStatementNoSemicolon(Token **token);
 
+static bool tokenStartsDataType(Token *token)
+{
+    if(token == NULL)
+        return false;
+
+    if(token->kind == TK_STAR || token->kind == TK_AMPERSAND)
+        return true;
+
+    if(token->kind != TK_IDENTIFIER)
+        return false;
+
+    if(strcmp(token->identifier, "Function") == 0 || strcmp(token->identifier, "Array") == 0)
+        return true;
+
+    if(strcmp(token->identifier, "void") == 0 || strcmp(token->identifier, "Type") == 0)
+        return true;
+
+    if(strcmp(token->identifier, "bool") == 0 || strcmp(token->identifier, "char") == 0)
+        return true;
+
+    if(strcmp(token->identifier, "i8") == 0 || strcmp(token->identifier, "i16") == 0 ||
+       strcmp(token->identifier, "i32") == 0 || strcmp(token->identifier, "i64") == 0 ||
+       strcmp(token->identifier, "u8") == 0 || strcmp(token->identifier, "u16") == 0 ||
+       strcmp(token->identifier, "u32") == 0 || strcmp(token->identifier, "u64") == 0 ||
+       strcmp(token->identifier, "f8") == 0 || strcmp(token->identifier, "f16") == 0 ||
+       strcmp(token->identifier, "f32") == 0 || strcmp(token->identifier, "f64") == 0)
+        return true;
+
+    return false;
+}
+
 ASTNode* parseBuiltinExpr(Token **token)
 {
     Token *at_token = expectToken(*token, TK_AT);
@@ -233,6 +264,46 @@ ASTNode* parseBuiltinExpr(Token **token)
     Token *builtin_token = expectToken(*token, TK_IDENTIFIER);
     strcpy(node->identifier, builtin_token->identifier);
     (*token) = (*token)->next;
+
+    if(strcmp(node->identifier, "as") == 0)
+    {
+        ASTNode *head = NULL;
+        ASTNode *tail = NULL;
+
+        expectToken(*token, TK_LEFT_PARENTHESIS);
+        (*token) = (*token)->next;
+
+        while((*token)->kind != TK_RIGHT_PARENTHESIS)
+        {
+            ASTNode *argument = NULL;
+            if(head == NULL && tokenStartsDataType(*token))
+            {
+                argument = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
+                argument->data_type = parseDataType(token);
+            }
+            else
+                argument = parseExpr(token);
+
+            if(head == NULL)
+                head = argument;
+            else
+                tail->next = argument;
+
+            tail = argument;
+            while(tail->next)
+                tail = tail->next;
+
+            if((*token)->kind == TK_COMMA)
+                (*token) = (*token)->next;
+            else
+                break;
+        }
+
+        expectToken(*token, TK_RIGHT_PARENTHESIS);
+        (*token) = (*token)->next;
+        node->lhs = head;
+        return node;
+    }
 
     node->lhs = parseArgumentList(token);
     return node;

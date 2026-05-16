@@ -1,7 +1,0 @@
-c = @import("c");
-
-main = fn() void {
-    fmt: Array(char, 12) = ['v', 'a', 'l', '=', '%', 'd', ' ', '%', 's', '\n', '\0', '\0'];
-    word: Array(char, 3) = ['o', 'k', '\0'];
-    c.printf(&fmt[0], 42, &word[0]);
-};

@@ -241,7 +241,10 @@ void printMIRProgram(MirProgram *program)
             MirGlobal *global = &(program->globals[i]);
             printf("  @%s: ", global->name);
             printASTDataType(global->data_type);
-            printf(" %s\n", global->mutable ? "mut" : "const");
+            printf(" %s", global->mutable ? "mut" : "const");
+            if(global->has_const_string_initializer)
+                printf(" = \"%s\"", global->const_string_initializer);
+            printf("\n");
         }
         printf("\n");
     }

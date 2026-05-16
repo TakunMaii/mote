@@ -768,6 +768,18 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     if(source_data_type->kind == AST_DATA_TYPE_KIND_POINTER && target_type->kind == AST_DATA_TYPE_KIND_POINTER)
         return true;
 
+    if(source_node != NULL &&
+       source_node->kind == AST_EXPR_LITERAL_STRING &&
+       source_data_type->kind == AST_DATA_TYPE_KIND_ARRAY &&
+       source_data_type->child != NULL &&
+       source_data_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       source_data_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR &&
+       target_type->kind == AST_DATA_TYPE_KIND_POINTER &&
+       target_type->child != NULL &&
+       target_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       target_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR)
+        return true;
+
     if(source_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && target_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
         return canExplicitConvertDataType(newValueExprType(source_data_type->child), source_node, target_type->child);
 

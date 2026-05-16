@@ -1,0 +1,18 @@
+rl = @import("raylib");
+
+mut pulse: f64 = 0.0;
+mut frames: i32 = 0;
+
+rl.InitWindow(320, 240, @as(*char, "bisect float"));
+rl.SetTargetFPS(60);
+
+while(!rl.WindowShouldClose() && frames < 2) {
+    pulse = pulse + rl.GetFrameTime() * 120.0;
+    if(pulse > 360.0) {
+        pulse = pulse - 360.0;
+    }
+
+    frames = frames + 1;
+}
+
+rl.CloseWindow();

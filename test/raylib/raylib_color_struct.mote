@@ -1,0 +1,21 @@
+rl = @import("raylib");
+
+mut frames: i32 = 0;
+
+rl.InitWindow(320, 240, @as(*char, "raylib color test"));
+rl.SetTargetFPS(60);
+
+while(!rl.WindowShouldClose() && frames < 2) {
+    mut draw_color: rl.Color = rl.BLUE;
+    if(frames == 1) {
+        draw_color = rl.RED;
+    }
+
+    rl.BeginDrawing();
+    rl.ClearBackground(rl.RAYWHITE);
+    rl.DrawCircleV(rl.Vector2 {.x = 160.0, .y = 120.0}, 40.0, draw_color);
+    rl.EndDrawing();
+    frames = frames + 1;
+}
+
+rl.CloseWindow();
