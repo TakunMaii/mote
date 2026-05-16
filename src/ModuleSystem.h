@@ -739,8 +739,7 @@ static void rewriteExpr(ModuleSourceFile *module, RewriteScope *scope, ASTNode *
             return;
         }
         case AST_EXPR_BUILTIN:
-            moduleSystemError("builtins are only supported in top-level import declarations during this stage",
-                              node->filename, node->line_number, node->column_number);
+            rewriteExprList(module, scope, node->lhs);
             return;
         case AST_EXPR_MEMBER: {
             if(node->lhs != NULL && node->lhs->kind == AST_EXPR_VARIABLE)
@@ -915,9 +914,15 @@ static void rewriteStatement(ModuleSourceFile *module, RewriteScope *scope, ASTN
                     strcpy(node->identifier, top_level_binding->mangled);
                     strcpy(node->lhs->identifier, top_level_binding->mangled);
                     declareRewriteValueBinding(scope, top_level_binding->original, top_level_binding->mangled);
+                    if(node->rhs != NULL && node->rhs->kind == AST_EXPR_TYPE_LITERAL)
+                        declareRewriteTypeBinding(scope, top_level_binding->original, top_level_binding->mangled);
                 }
                 else if(rewriteWouldDeclareNewVariable(scope, node))
+                {
                     declareRewriteValueBinding(scope, node->identifier, node->identifier);
+                    if(node->rhs != NULL && node->rhs->kind == AST_EXPR_TYPE_LITERAL)
+                        declareRewriteTypeBinding(scope, node->identifier, node->identifier);
+                }
                 return;
             }
 

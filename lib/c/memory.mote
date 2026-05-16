@@ -1,0 +1,10 @@
+pub size_t = i64;
+
+pub malloc = @extern("malloc", Function([size_t], *mut void));
+pub calloc = @extern("calloc", Function([size_t, size_t], *mut void));
+pub realloc = @extern("realloc", Function([*void, size_t], *mut void));
+pub free = @extern("free", Function([*void], void));
+pub memcpy = @extern("memcpy", Function([*mut void, *void, size_t], *mut void));
+pub memmove = @extern("memmove", Function([*mut void, *void, size_t], *mut void));
+pub memset = @extern("memset", Function([*mut void, i32, size_t], *mut void));
+pub memcmp = @extern("memcmp", Function([*void, *void, size_t], i32));

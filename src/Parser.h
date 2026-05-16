@@ -86,7 +86,7 @@ ASTDataType* parsePrimaryDataType(Token **token)
         while((*token)->kind != TK_RIGHT_BRACKET)
         {
             ASTFunctionParameter *parameter = newASTFunctionParameterFromToken(*token);
-            parameter->data_type = parseTypeExpr(token);
+            parameter->data_type = parseDataType(token);
             if(parameters == NULL)
                 parameters = parameter;
             else
@@ -103,7 +103,7 @@ ASTDataType* parsePrimaryDataType(Token **token)
         (*token) = (*token)->next;
         expectToken(*token, TK_COMMA);
         (*token) = (*token)->next;
-        ASTDataType *return_data_type = parseTypeExpr(token);
+        ASTDataType *return_data_type = parseDataType(token);
         expectToken(*token, TK_RIGHT_PARENTHESIS);
         (*token) = (*token)->next;
         return newFunctionDataType(parameters, return_data_type);

@@ -663,6 +663,50 @@ ASTDataType* getReferenceTargetType(ASTDataType *data_type)
     return data_type;
 }
 
+bool isVoidDataType(ASTDataType *data_type)
+{
+    return data_type != NULL &&
+           data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           data_type->primary == AST_PRIMARY_DATA_TYPE_VOID;
+}
+
+ASTDataType* inferExternBuiltinFunctionType(ASTNode *node, ScopeFrame *scope)
+{
+    if(node->lhs == NULL || node->lhs->next == NULL || node->lhs->next->next != NULL)
+    {
+        printf("Type error: @extern expects exactly two arguments at file %s, line %d, column %d\n",
+               node->filename, node->line_number, node->column_number);
+        exit(1);
+    }
+
+    ASTNode *symbol_expr = node->lhs;
+    ASTNode *type_expr = symbol_expr->next;
+    if(symbol_expr->kind != AST_EXPR_LITERAL_STRING)
+    {
+        printf("Type error: @extern expects a string literal symbol name at file %s, line %d, column %d\n",
+               symbol_expr->filename, symbol_expr->line_number, symbol_expr->column_number);
+        exit(1);
+    }
+
+    TypeSystemExprType function_type_expr = inferExprType(type_expr, scope);
+    if(function_type_expr.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
+    {
+        printf("Type error: @extern expects a function type as its second argument at file %s, line %d, column %d\n",
+               type_expr->filename, type_expr->line_number, type_expr->column_number);
+        exit(1);
+    }
+
+    ASTDataType *function_type = resolveNamedDataType(function_type_expr.data_type, scope, NULL);
+    if(function_type == NULL || function_type->kind != AST_DATA_TYPE_KIND_FUNCTION)
+    {
+        printf("Type error: @extern expects a Function(...) type at file %s, line %d, column %d\n",
+               type_expr->filename, type_expr->line_number, type_expr->column_number);
+        exit(1);
+    }
+
+    return function_type;
+}
+
 bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_node, ASTDataType *target_type)
 {
     if(target_type == NULL || isInferDataType(target_type))
@@ -723,8 +767,17 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
 
     if(source_data_type->kind == AST_DATA_TYPE_KIND_POINTER && target_type->kind == AST_DATA_TYPE_KIND_POINTER)
     {
-        if(source_data_type->mutable && !target_type->mutable && isSameDataType(source_data_type->child, target_type->child))
+        bool mutable_compatible = source_data_type->mutable == target_type->mutable ||
+                                  (source_data_type->mutable && !target_type->mutable);
+        if(!mutable_compatible)
+            return false;
+
+        if(isSameDataType(source_data_type->child, target_type->child))
             return true;
+
+        if(isVoidDataType(source_data_type->child) || isVoidDataType(target_type->child))
+            return true;
+
         return false;
     }
 
@@ -1026,6 +1079,12 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             return newLiteralFloatExprType();
         case AST_EXPR_TYPE_LITERAL:
             return newTypeExprType(node->data_type);
+        case AST_EXPR_BUILTIN:
+            if(strcmp(node->identifier, "extern") == 0)
+                return newValueExprType(inferExternBuiltinFunctionType(node, scope));
+            printf("Type error: unknown builtin @%s at file %s, line %d, column %d\n",
+                   node->identifier, node->filename, node->line_number, node->column_number);
+            exit(1);
         case AST_EXPR_VARIABLE: {
             if(strcmp(node->identifier, "Self") == 0)
                 return newTypeExprType(newNamedDataType("Self"));

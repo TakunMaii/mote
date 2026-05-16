@@ -1,0 +1,2 @@
+pub putchar = @extern("putchar", Function([i32], i32));
+pub puts = @extern("puts", Function([*char], i32));

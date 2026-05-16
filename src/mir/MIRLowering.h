@@ -231,9 +231,17 @@ typedef struct MirGlobal {
     bool mutable;
 } MirGlobal;
 
+typedef struct MirExternFunction {
+    char wrapper_name[MIR_MAX_NAME_LENGTH];
+    char symbol_name[MIR_MAX_NAME_LENGTH];
+    ASTDataType *function_type;
+} MirExternFunction;
+
 typedef struct MirProgram {
     MirGlobal *globals;
     int global_count;
+    MirExternFunction *extern_functions;
+    int extern_function_count;
     MirFunction *functions;
     int function_count;
 } MirProgram;
@@ -288,6 +296,7 @@ typedef struct MirLowering {
     int unique_function_counter;
     int unique_block_counter;
     int unique_global_counter;
+    int unique_extern_counter;
 } MirLowering;
 
 typedef struct MirFunctionState {
@@ -343,6 +352,17 @@ static MirFunction* mirAppendFunction(MirProgram *program)
     return function;
 }
 
+static MirExternFunction* mirAppendExternFunction(MirProgram *program)
+{
+    program->extern_functions = (MirExternFunction*) realloc(
+        program->extern_functions,
+        sizeof(MirExternFunction) * (program->extern_function_count + 1)
+    );
+    MirExternFunction *extern_function = &(program->extern_functions[program->extern_function_count++]);
+    memset(extern_function, 0, sizeof(MirExternFunction));
+    return extern_function;
+}
+
 static MirGlobal* mirAppendGlobal(MirProgram *program)
 {
     program->globals = (MirGlobal*) realloc(
@@ -396,6 +416,32 @@ static MirValueId mirAppendValue(MirFunction *function, ASTDataType *data_type, 
 static MirFunction* mirCurrentFunction(MirFunctionState *state)
 {
     return &(state->lowering->program->functions[state->function_index]);
+}
+
+static const char* mirEnsureExternFunction(MirLowering *lowering, const char *symbol_name, ASTDataType *function_type,
+                                           const char *filename, int line, int column)
+{
+    for(int i = 0; i < lowering->program->extern_function_count; i++)
+    {
+        MirExternFunction *extern_function = &(lowering->program->extern_functions[i]);
+        if(strcmp(extern_function->symbol_name, symbol_name) == 0)
+        {
+            if(!isSameDataType(extern_function->function_type, function_type))
+            {
+                printf("MIR lowering error: extern symbol %s is declared with conflicting function types at file %s, line %d, column %d\n",
+                       symbol_name, filename, line, column);
+                exit(1);
+            }
+            return extern_function->wrapper_name;
+        }
+    }
+
+    MirExternFunction *extern_function = mirAppendExternFunction(lowering->program);
+    snprintf(extern_function->wrapper_name, sizeof(extern_function->wrapper_name),
+             "__mote_extern_%d", lowering->unique_extern_counter++);
+    strcpy(extern_function->symbol_name, symbol_name);
+    extern_function->function_type = cloneDataType(function_type);
+    return extern_function->wrapper_name;
 }
 
 static ASTDataType* mirGetValueType(MirFunctionState *state, MirValueId value)
@@ -1507,6 +1553,24 @@ static MirValueId lowerLogicalShortCircuit(MirFunctionState *state, MirLowerScop
                        node->filename, node->line_number, node->column_number);
 }
 
+static MirValueId lowerExternBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
+                                         ASTDataType *expected_type)
+{
+    ASTDataType *function_type = mirResolvedExprValueType(node, &(scope->type_scope));
+    const char *wrapper_name = mirEnsureExternFunction(
+        state->lowering,
+        node->lhs->literal_string,
+        function_type,
+        node->filename,
+        node->line_number,
+        node->column_number
+    );
+
+    MirValueId function_ref = mirEmitFunctionRef(state, wrapper_name, function_type,
+                                                 node->filename, node->line_number, node->column_number);
+    return mirMaybeConvertValue(state, scope, node, function_ref, expected_type);
+}
+
 static ASTDataType* inferComparisonOperandType(ASTNode *lhs, ASTNode *rhs, ScopeFrame *scope)
 {
     TypeSystemExprType lhs_type = inferExprType(lhs, scope);
@@ -1713,6 +1777,12 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
             return mirEmitConstString(state, node->literal_string, string_type,
                                       node->filename, node->line_number, node->column_number);
         }
+        case AST_EXPR_BUILTIN:
+            if(strcmp(node->identifier, "extern") == 0)
+                return lowerExternBuiltinExpr(state, scope, node, expected_type);
+            printf("MIR lowering error: unsupported builtin @%s at file %s, line %d, column %d\n",
+                   node->identifier, node->filename, node->line_number, node->column_number);
+            exit(1);
         case AST_EXPR_VARIABLE:
             return lowerVariableValue(state, scope, node, expected_type);
         case AST_EXPR_PARENTHESIS:

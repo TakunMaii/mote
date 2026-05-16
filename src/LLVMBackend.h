@@ -16,6 +16,13 @@ typedef struct LLVMFunctionEmitContext {
     int temp_counter;
 } LLVMFunctionEmitContext;
 
+static bool llvmIsVoidDataType(ASTDataType *data_type)
+{
+    return data_type != NULL &&
+           data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           data_type->primary == AST_PRIMARY_DATA_TYPE_VOID;
+}
+
 static const char* llvmHostTargetTriple(void)
 {
 #if defined(_WIN64)
@@ -163,6 +170,17 @@ static void llvmEmitType(FILE *stream, ASTDataType *data_type)
     }
 
     llvmBackendError("unsupported runtime type shape", NULL, 0, 0);
+}
+
+static void llvmEmitRuntimeParameterType(FILE *stream, ASTDataType *source_type)
+{
+    if(source_type != NULL && source_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+    {
+        fprintf(stream, "ptr");
+        return;
+    }
+
+    llvmEmitType(stream, source_type);
 }
 
 static int llvmResolveAlias(LLVMFunctionEmitContext *context, int value_id)
@@ -518,6 +536,111 @@ static void llvmEmitFunctionSignature(FILE *stream, MirFunction *function)
     }
 
     fprintf(stream, ")");
+}
+
+static void llvmEmitNativeExternSignature(FILE *stream, const char *symbol_name, ASTDataType *function_type)
+{
+    llvmEmitType(stream, function_type->return_data_type);
+    fprintf(stream, " @%s(", symbol_name);
+
+    ASTFunctionParameter *parameter = function_type->parameters;
+    bool need_comma = false;
+    while(parameter)
+    {
+        if(need_comma)
+            fprintf(stream, ", ");
+        llvmEmitRuntimeParameterType(stream, parameter->data_type);
+        need_comma = true;
+        parameter = parameter->next;
+    }
+
+    fprintf(stream, ")");
+}
+
+static void llvmEmitNativeExternCallTarget(FILE *stream, const char *symbol_name, ASTDataType *function_type)
+{
+    llvmEmitType(stream, function_type->return_data_type);
+    fprintf(stream, " @%s", symbol_name);
+}
+
+static bool llvmProgramHasExternSymbol(MirProgram *program, const char *symbol_name)
+{
+    for(int i = 0; i < program->extern_function_count; i++)
+    {
+        if(strcmp(program->extern_functions[i].symbol_name, symbol_name) == 0)
+            return true;
+    }
+    return false;
+}
+
+static void llvmEmitExternDeclarations(FILE *stream, MirProgram *program)
+{
+    for(int i = 0; i < program->extern_function_count; i++)
+    {
+        MirExternFunction *extern_function = &(program->extern_functions[i]);
+        fprintf(stream, "declare ");
+        llvmEmitNativeExternSignature(stream, extern_function->symbol_name, extern_function->function_type);
+        fprintf(stream, "\n");
+    }
+}
+
+static void llvmEmitExternWrapperDefinition(FILE *stream, MirExternFunction *extern_function)
+{
+    ASTDataType *function_type = extern_function->function_type;
+    fprintf(stream, "define ");
+    llvmEmitType(stream, function_type->return_data_type);
+    fprintf(stream, " @%s(ptr %%env", extern_function->wrapper_name);
+
+    ASTFunctionParameter *parameter = function_type->parameters;
+    int parameter_index = 0;
+    while(parameter)
+    {
+        fprintf(stream, ", ");
+        llvmEmitRuntimeParameterType(stream, parameter->data_type);
+        fprintf(stream, " %%arg%d", parameter_index++);
+        parameter = parameter->next;
+    }
+
+    fprintf(stream, ") {\n");
+    fprintf(stream, "entry:\n");
+
+    if(llvmIsVoidDataType(function_type->return_data_type))
+        fprintf(stream, "    call ");
+    else
+        fprintf(stream, "    %%ret = call ");
+
+    llvmEmitNativeExternCallTarget(stream, extern_function->symbol_name, function_type);
+    fprintf(stream, "(");
+
+    parameter = function_type->parameters;
+    parameter_index = 0;
+    while(parameter)
+    {
+        if(parameter_index > 0)
+            fprintf(stream, ", ");
+        llvmEmitRuntimeParameterType(stream, parameter->data_type);
+        fprintf(stream, " %%arg%d", parameter_index++);
+        parameter = parameter->next;
+    }
+
+    fprintf(stream, ")\n");
+
+    if(llvmIsVoidDataType(function_type->return_data_type))
+        fprintf(stream, "    ret void\n");
+    else
+    {
+        fprintf(stream, "    ret ");
+        llvmEmitType(stream, function_type->return_data_type);
+        fprintf(stream, " %%ret\n");
+    }
+
+    fprintf(stream, "}\n\n");
+}
+
+static void llvmEmitExternWrapperDefinitions(FILE *stream, MirProgram *program)
+{
+    for(int i = 0; i < program->extern_function_count; i++)
+        llvmEmitExternWrapperDefinition(stream, &(program->extern_functions[i]));
 }
 
 static void llvmEmitBinaryInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst *inst, const char *float_op,
@@ -958,8 +1081,14 @@ static void emitLLVMProgramToFile(MirProgram *program, const char *module_name, 
     if(llvmHostTargetTriple() != NULL)
         fprintf(stream, "target triple = \"%s\"\n\n", llvmHostTargetTriple());
 
-    if(llvmProgramNeedsMalloc(program))
+    if(llvmProgramNeedsMalloc(program) && !llvmProgramHasExternSymbol(program, "malloc"))
         fprintf(stream, "declare ptr @malloc(i64)\n\n");
+
+    if(program->extern_function_count > 0)
+    {
+        llvmEmitExternDeclarations(stream, program);
+        fprintf(stream, "\n");
+    }
 
     for(int i = 0; i < program->global_count; i++)
     {
@@ -971,6 +1100,9 @@ static void emitLLVMProgramToFile(MirProgram *program, const char *module_name, 
 
     if(program->global_count > 0)
         fprintf(stream, "\n");
+
+    if(program->extern_function_count > 0)
+        llvmEmitExternWrapperDefinitions(stream, program);
 
     for(int i = 0; i < program->function_count; i++)
         llvmEmitFunctionDefinition(stream, &(program->functions[i]));
