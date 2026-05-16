@@ -340,8 +340,12 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
         case AST_DATA_TYPE_KIND_INFER:
         case AST_DATA_TYPE_KIND_PRIMARY:
         case AST_DATA_TYPE_KIND_ENUM:
-        case AST_DATA_TYPE_KIND_STRUCT:
             return cloneDataType(data_type);
+        case AST_DATA_TYPE_KIND_STRUCT: {
+            ASTDataType *resolved_struct = newStructDataType(data_type->identifier, NULL);
+            resolved_struct->members = resolveStructMembers(data_type->members, scope, resolved_struct);
+            return resolved_struct;
+        }
         case AST_DATA_TYPE_KIND_NAMED: {
             ASTDataType *builtin_type = builtinIdentifierToDataType(data_type->identifier);
             if(builtin_type != NULL)

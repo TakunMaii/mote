@@ -1,0 +1,17 @@
+pub Pair = fn(T: Type) Type {
+    return struct {
+        left: T,
+        right: T,
+
+        make: fn(left: T, right: T) Self {
+            return Self {
+                .left = left,
+                .right = right,
+            };
+        },
+    };
+};
+
+pub make_pair = fn(T: Type, left: T, right: T) Pair(T) {
+    return Pair(T).make(left, right);
+};

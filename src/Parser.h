@@ -23,6 +23,28 @@ ASTDataType* parseDataType(Token **token);
 ASTTypeArgument* parseTypeArgumentList(Token **token);
 ASTFunctionCapture* parseFunctionCaptures(Token **token);
 
+void parseQualifiedIdentifier(Token **token, char *buffer)
+{
+    Token *identifier_token = expectToken(*token, TK_IDENTIFIER);
+    strcpy(buffer, identifier_token->identifier);
+    (*token) = (*token)->next;
+
+    while((*token)->kind == TK_DOT)
+    {
+        (*token) = (*token)->next;
+        Token *member_token = expectToken(*token, TK_IDENTIFIER);
+        if(strlen(buffer) + 1 + strlen(member_token->identifier) >= MAX_IDENTIFIER_LENGTH)
+        {
+            printf("Qualified identifier is too long at file %s, line %d, column %d\n",
+                   member_token->filename, member_token->line_number, member_token->column_number);
+            exit(1);
+        }
+        strcat(buffer, ".");
+        strcat(buffer, member_token->identifier);
+        (*token) = (*token)->next;
+    }
+}
+
 ASTAssignModifier parseModifier(Token **token)
 {
     ASTAssignModifier modifier = {0};
@@ -48,13 +70,12 @@ ASTDataType* parsePrimaryDataType(Token **token)
         return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
     }
 
-    const char *identifier = expectToken(*token, TK_IDENTIFIER)->identifier;
+    char identifier[MAX_IDENTIFIER_LENGTH] = {0};
+    parseQualifiedIdentifier(token, identifier);
 
     ASTDataType *primary = NULL;
     if(strcmp(identifier, "Function") == 0)
     {
-        (*token) = (*token)->next;
-
         expectToken(*token, TK_LEFT_PARENTHESIS);
         (*token) = (*token)->next;
         expectToken(*token, TK_LEFT_BRACKET);
@@ -89,8 +110,6 @@ ASTDataType* parsePrimaryDataType(Token **token)
     }
     else if(strcmp(identifier, "Array") == 0)
     {
-        (*token) = (*token)->next;
-
         expectToken(*token, TK_LEFT_PARENTHESIS);
         (*token) = (*token)->next;
         ASTDataType *element_type = parseDataType(token);
@@ -133,8 +152,6 @@ ASTDataType* parsePrimaryDataType(Token **token)
         primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL);
     else
         primary = newNamedDataType(identifier);
-
-    (*token) = (*token)->next;
     return primary;
 }
 
@@ -216,8 +233,23 @@ ASTNode* parseBlock(Token **token);
 ASTNode* parseEnumExpr(Token **token);
 ASTNode* parseStructExpr(Token **token);
 ASTNode* parseArrayLiteral(Token **token);
+ASTNode* parseArgumentList(Token **token);
 ASTNode* parseSimpleAssignNoSemicolon(Token **token);
 ASTNode* parseExprStatementNoSemicolon(Token **token);
+
+ASTNode* parseBuiltinExpr(Token **token)
+{
+    Token *at_token = expectToken(*token, TK_AT);
+    ASTNode *node = newASTNodeFromToken(AST_EXPR_BUILTIN, at_token);
+    (*token) = (*token)->next;
+
+    Token *builtin_token = expectToken(*token, TK_IDENTIFIER);
+    strcpy(node->identifier, builtin_token->identifier);
+    (*token) = (*token)->next;
+
+    node->lhs = parseArgumentList(token);
+    return node;
+}
 
 ASTNode* parseLiteralValue(Token **token)
 {
@@ -452,6 +484,9 @@ ASTNode* parsePrimary(Token **token)
         (*token) = (*token)->next;
         return node;
     }
+
+    if((*token)->kind == TK_AT)
+        return parseBuiltinExpr(token);
 
     return parseLiteralValue(token);
 }
@@ -1141,6 +1176,13 @@ ASTNode* parseForStatement(Token **token)
 
 ASTNode* parseStatement(Token **token)
 {
+    if((*token)->kind == TK_PUB)
+    {
+        printf("pub is only allowed at the top level at file %s, line %d, column %d\n",
+               (*token)->filename, (*token)->line_number, (*token)->column_number);
+        exit(1);
+    }
+
     if((*token)->kind == TK_LEFT_BRACE)
         return parseBlock(token);
 
@@ -1215,7 +1257,16 @@ ASTNode* parse(Token *token)
 
     while(token && token->kind != TK_END_OF_CODE)
     {
-        ASTNode *stmt = parseStatement(&token);
+        bool is_pub = false;
+        if(token->kind == TK_PUB)
+        {
+            is_pub = true;
+            token = token->next;
+        }
+
+        ASTNode *stmt = is_pub ? parseAssign(&token) : parseStatement(&token);
+        if(is_pub)
+            stmt->is_pub = true;
         if(head == NULL)
             head = stmt;
         else

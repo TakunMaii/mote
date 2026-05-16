@@ -1085,7 +1085,7 @@ static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirL
     return inst_scope;
 }
 
-static MirMaybeValue tryLowerClosureFactoryCall(MirFunctionState *state, MirLowerScope *scope, ASTNode *call_node)
+static MirMaybeValue tryLowerComptimeFunctionCall(MirFunctionState *state, MirLowerScope *scope, ASTNode *call_node)
 {
     MirMaybeValue result = {0};
     if(call_node->lhs == NULL || call_node->lhs->kind != AST_EXPR_VARIABLE)
@@ -1096,7 +1096,13 @@ static MirMaybeValue tryLowerClosureFactoryCall(MirFunctionState *state, MirLowe
         return result;
 
     ASTNode *returned_expr = findReturnedExpr(callee_variable->function_value);
-    if(returned_expr == NULL || returned_expr->kind != AST_EXPR_FUNCTION)
+    if(returned_expr == NULL)
+        return result;
+
+    MirRuntimeBinding *callee_binding = findMirRuntimeBinding(scope, call_node->lhs->identifier);
+    bool callee_is_comptime_only = callee_binding != NULL &&
+                                   callee_binding->kind == MIR_RUNTIME_BINDING_COMPTIME_ONLY;
+    if(!callee_is_comptime_only && returned_expr->kind != AST_EXPR_FUNCTION)
         return result;
 
     MirLowerScope *inst_scope = instantiateFunctionCallScope(
@@ -1110,6 +1116,80 @@ static MirMaybeValue tryLowerClosureFactoryCall(MirFunctionState *state, MirLowe
     result.value = lowerExprAsValue(state, inst_scope, returned_expr, NULL);
     result.valid = true;
     return result;
+}
+
+static void bindSpecializedNamedTypes(MirLowerScope *scope, ASTDataType *source_type, ASTDataType *resolved_type)
+{
+    if(source_type == NULL || resolved_type == NULL)
+        return;
+
+    if(source_type->kind == AST_DATA_TYPE_KIND_NAMED)
+    {
+        ASTDataType *builtin_type = builtinIdentifierToDataType(source_type->identifier);
+        bool same_named = resolved_type->kind == AST_DATA_TYPE_KIND_NAMED &&
+                          strcmp(source_type->identifier, resolved_type->identifier) == 0;
+        if(builtin_type == NULL &&
+           strcmp(source_type->identifier, "Self") != 0 &&
+           !same_named &&
+           findVariableInfo(&(scope->type_scope), source_type->identifier) == NULL &&
+           findTypeInfo(&(scope->type_scope), source_type->identifier) == NULL)
+        {
+            VariableInfo *type_variable = declareVariableInfo(&(scope->type_scope), source_type->identifier);
+            type_variable->mutable = false;
+            type_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
+            type_variable->type_value = cloneDataType(resolved_type);
+        }
+        return;
+    }
+
+    if(source_type->kind != resolved_type->kind)
+        return;
+
+    switch(source_type->kind)
+    {
+        case AST_DATA_TYPE_KIND_POINTER:
+        case AST_DATA_TYPE_KIND_REFERENCE:
+        case AST_DATA_TYPE_KIND_ARRAY:
+            bindSpecializedNamedTypes(scope, source_type->child, resolved_type->child);
+            return;
+        case AST_DATA_TYPE_KIND_FUNCTION: {
+            ASTFunctionParameter *source_parameter = source_type->parameters;
+            ASTFunctionParameter *resolved_parameter = resolved_type->parameters;
+            while(source_parameter != NULL && resolved_parameter != NULL)
+            {
+                bindSpecializedNamedTypes(scope, source_parameter->data_type, resolved_parameter->data_type);
+                source_parameter = source_parameter->next;
+                resolved_parameter = resolved_parameter->next;
+            }
+            bindSpecializedNamedTypes(scope, source_type->return_data_type, resolved_type->return_data_type);
+            return;
+        }
+        case AST_DATA_TYPE_KIND_APPLY: {
+            bindSpecializedNamedTypes(scope, source_type->callee, resolved_type->callee);
+            ASTTypeArgument *source_argument = source_type->arguments;
+            ASTTypeArgument *resolved_argument = resolved_type->arguments;
+            while(source_argument != NULL && resolved_argument != NULL)
+            {
+                bindSpecializedNamedTypes(scope, source_argument->data_type, resolved_argument->data_type);
+                source_argument = source_argument->next;
+                resolved_argument = resolved_argument->next;
+            }
+            return;
+        }
+        case AST_DATA_TYPE_KIND_STRUCT: {
+            ASTStructMember *source_member = source_type->members;
+            ASTStructMember *resolved_member = resolved_type->members;
+            while(source_member != NULL && resolved_member != NULL)
+            {
+                bindSpecializedNamedTypes(scope, source_member->data_type, resolved_member->data_type);
+                source_member = source_member->next;
+                resolved_member = resolved_member->next;
+            }
+            return;
+        }
+        default:
+            return;
+    }
 }
 
 static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *scope, ASTNode *function_expr,
@@ -1389,6 +1469,9 @@ static MirValueId lowerMethodFunctionValue(MirFunctionState *state, MirLowerScop
         }
     }
 
+    if(member->value->data_type != NULL && member->data_type != NULL)
+        bindSpecializedNamedTypes(method_scope, member->value->data_type, member->data_type);
+
     return lowerFunctionExprAsValue(state, method_scope, member->value, hint, struct_type);
 }
 
@@ -1454,9 +1537,9 @@ static ASTDataType* inferComparisonOperandType(ASTNode *lhs, ASTNode *rhs, Scope
 
 static MirValueId lowerCallExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node, ASTDataType *expected_type)
 {
-    MirMaybeValue closure_factory = tryLowerClosureFactoryCall(state, scope, node);
-    if(closure_factory.valid)
-        return mirMaybeConvertValue(state, scope, node, closure_factory.value, expected_type);
+    MirMaybeValue comptime_call = tryLowerComptimeFunctionCall(state, scope, node);
+    if(comptime_call.valid)
+        return mirMaybeConvertValue(state, scope, node, comptime_call.value, expected_type);
 
     ASTNode *callee_expr = node->lhs;
     MirValueId callee = -1;

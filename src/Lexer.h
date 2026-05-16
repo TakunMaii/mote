@@ -129,6 +129,14 @@ Token* tokenize(char *code, const char* filename)
             code += 3;
             column += 3;
         }
+        else if(expectStr("pub", 3, code)) {
+            if(isIdentifier(code[3]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_PUB, filename, line, column);
+            token = token->next;
+            code += 3;
+            column += 3;
+        }
         else if(expectStr("fn", 2, code)) {
             if(isIdentifier(code[2]))
                 goto tokenize_identifier;
@@ -439,6 +447,12 @@ Token* tokenize(char *code, const char* filename)
         }
         else if(expectStr(".", 1, code)) {
             token->next = newToken(TK_DOT, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
+        }
+        else if(expectStr("@", 1, code)) {
+            token->next = newToken(TK_AT, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;

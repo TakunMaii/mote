@@ -7,42 +7,42 @@
 #include "Parser.h"
 #include "Semantic.h"
 #include "MIR.h"
+#include "ModuleSystem.h"
 #include "LLVMBackend.h"
 
-char *read_file(const char *path) {
-    FILE *f = fopen(path, "rb");
-    if (!f) return NULL;
+#define CLI_MAX_PACKAGES 128
 
-    if (fseek(f, 0, SEEK_END) != 0) {
-        fclose(f);
-        printf("Cannot open file %s\n", path);
-        return NULL;
+static void print_usage(const char *argv0)
+{
+    printf("Usage: %s [--pkg name=path]... [--emit-llvm <input> [output.ll]] | [--pkg name=path]... [--emit-exe <input> [output.exe]] | [--pkg name=path]... <input>\n",
+           argv0);
+}
+
+static void parse_package_argument(const char *arg, ModulePackage *package)
+{
+    const char *separator = strchr(arg, '=');
+    if(separator == NULL || separator == arg || separator[1] == '\0')
+    {
+        printf("Invalid --pkg argument: expected name=path, got %s\n", arg);
+        exit(1);
     }
 
-    long size = ftell(f);
-    if (size < 0) {
-        fclose(f);
-        return NULL;
+    size_t name_length = (size_t)(separator - arg);
+    if(name_length >= sizeof(package->name))
+    {
+        printf("Invalid --pkg argument: package name is too long\n");
+        exit(1);
+    }
+    if(strlen(separator + 1) >= sizeof(package->root_path))
+    {
+        printf("Invalid --pkg argument: package path is too long\n");
+        exit(1);
     }
 
-    rewind(f);
-
-    char *buf = malloc(size + 1);
-    if (!buf) {
-        fclose(f);
-        return NULL;
-    }
-
-    size_t read_bytes = fread(buf, 1, size, f);
-    if (read_bytes != (size_t)size) {
-        free(buf);
-        fclose(f);
-        return NULL;
-    }
-
-    buf[size] = '\0';
-    fclose(f);
-    return buf;
+    memset(package, 0, sizeof(ModulePackage));
+    memcpy(package->name, arg, name_length);
+    package->name[name_length] = '\0';
+    strcpy(package->root_path, separator + 1);
 }
 
 static void build_output_path(char *buffer, size_t buffer_size, const char *input_path, const char *extension)
@@ -88,40 +88,69 @@ int main(int argn, char** argv)
     const char *input_path = NULL;
     const char *llvm_output_path = NULL;
     const char *exe_output_path = NULL;
+    ModulePackage packages[CLI_MAX_PACKAGES] = {0};
+    int package_count = 0;
+    const char *positionals[2] = {0};
+    int positional_count = 0;
 
-    if(argn >= 2 && strcmp(argv[1], "--emit-llvm") == 0)
+    for(int i = 1; i < argn; i++)
     {
-        emit_llvm = true;
-        if(argn < 3)
+        if(strcmp(argv[i], "--emit-llvm") == 0)
         {
-            printf("Usage: %s [--emit-llvm <input> [output.ll]] | [--emit-exe <input> [output.exe]] | <input>\n", argv[0]);
-            exit(1);
+            emit_llvm = true;
+            emit_exe = false;
+            continue;
         }
 
-        input_path = argv[2];
-        if(argn >= 4)
-            llvm_output_path = argv[3];
-    }
-    else if(argn >= 2 && strcmp(argv[1], "--emit-exe") == 0)
-    {
-        emit_llvm = true;
-        emit_exe = true;
-        if(argn < 3)
+        if(strcmp(argv[i], "--emit-exe") == 0)
         {
-            printf("Usage: %s [--emit-llvm <input> [output.ll]] | [--emit-exe <input> [output.exe]] | <input>\n", argv[0]);
-            exit(1);
+            emit_llvm = true;
+            emit_exe = true;
+            continue;
         }
 
-        input_path = argv[2];
-        if(argn >= 4)
-            exe_output_path = argv[3];
+        if(strcmp(argv[i], "--pkg") == 0)
+        {
+            if(i + 1 >= argn)
+            {
+                print_usage(argv[0]);
+                exit(1);
+            }
+            if(package_count >= CLI_MAX_PACKAGES)
+            {
+                printf("Too many --pkg arguments\n");
+                exit(1);
+            }
+            parse_package_argument(argv[++i], &(packages[package_count++]));
+            continue;
+        }
+
+        if(positional_count >= 2)
+        {
+            print_usage(argv[0]);
+            exit(1);
+        }
+        positionals[positional_count++] = argv[i];
     }
-    else if(argn >= 2)
-        input_path = argv[1];
+
+    if(positional_count >= 1)
+        input_path = positionals[0];
+    if(positional_count >= 2)
+    {
+        if(emit_exe)
+            exe_output_path = positionals[1];
+        else if(emit_llvm)
+            llvm_output_path = positionals[1];
+        else
+        {
+            print_usage(argv[0]);
+            exit(1);
+        }
+    }
 
     if(input_path == NULL)
     {
-        printf("Usage: %s [--emit-llvm <input> [output.ll]] | [--emit-exe <input> [output.exe]] | <input>\n", argv[0]);
+        print_usage(argv[0]);
         exit(1);
     }
 
@@ -147,20 +176,7 @@ int main(int argn, char** argv)
     else if(emit_llvm && llvm_output_path == NULL)
         build_output_path(default_llvm_output_path, sizeof(default_llvm_output_path), input_path, ".ll"), llvm_output_path = default_llvm_output_path;
 
-    char *filecontent = read_file(input_path);
-
-    Token* tokens = tokenize(filecontent, input_path);
-
-    printf("PRINT TOKENS ===============\n\n");
-    Token *tkptr = tokens;
-    while(tkptr)
-    {
-        printToken(*tkptr);
-        tkptr = tkptr->next;
-    }
-    printf("END PRINT TOKENS ===============\n\n");
-
-    ASTNode *root = parse(tokens);
+    ASTNode *root = buildModuleProgramAST(input_path, packages, package_count);
     checkAssignSemantics(root);
     checkAssignTypes(root);
     printf("PRINT AST NODES ===============\n\n");

@@ -1,0 +1,5 @@
+app = @import("app");
+math = @import("app/math");
+util = @import("app/util");
+
+sum: i32 = math.add(app.base, util.scale(4));

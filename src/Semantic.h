@@ -636,19 +636,32 @@ ASTFunctionParameter* resolveFunctionTypeParameters(ASTFunctionParameter *parame
 {
     ASTFunctionParameter *head = NULL;
     ASTFunctionParameter *tail = NULL;
+    ScopeFrame signature_scope = {0};
+    initScopeFrame(&signature_scope, outer_scope);
 
     while(parameter)
     {
         ASTFunctionParameter *resolved_parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
         *resolved_parameter = *parameter;
         resolved_parameter->next = NULL;
-        resolved_parameter->data_type = resolveNamedDataType(parameter->data_type, outer_scope, self_data_type);
+        resolved_parameter->data_type = resolveNamedDataType(parameter->data_type, &signature_scope, self_data_type);
 
         if(head == NULL)
             head = resolved_parameter;
         else
             tail->next = resolved_parameter;
         tail = resolved_parameter;
+
+        VariableInfo *variable_info = declareVariableInfo(&signature_scope, resolved_parameter->identifier);
+        variable_info->mutable = false;
+        variable_info->data_type = cloneDataType(resolved_parameter->data_type);
+        if(resolved_parameter->data_type != NULL &&
+           resolved_parameter->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           resolved_parameter->data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
+        {
+            variable_info->type_value = newNamedDataType(resolved_parameter->identifier);
+        }
+
         parameter = parameter->next;
     }
 

@@ -1,0 +1,6 @@
+g = @import("./generic_types");
+
+pair: g.Pair(i32) = g.make_pair(i32, 1, 2);
+other: g.Pair(i32) = g.Pair(i32).make(3, 4);
+third: g.Pair(i32) = other.make(5, 6);
+sum: i32 = pair.left + pair.right + other.left + other.right + third.left + third.right;

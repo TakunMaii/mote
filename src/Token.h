@@ -9,6 +9,7 @@ typedef enum {
     TK_END_OF_CODE,
 
     TK_MUT,
+    TK_PUB,
     TK_FN,
     TK_STRUCT,
     TK_ENUM,
@@ -55,6 +56,7 @@ typedef enum {
     TK_COMMA,
     TK_COLON,
     TK_DOT,
+    TK_AT,
     TK_EQUAL,
     TK_SEMICOLON,
 
@@ -121,6 +123,7 @@ const char* tokenKindToString(TokenKind kind)
         case TK_START_OF_CODE: return "TK_START_OF_CODE";
         case TK_END_OF_CODE: return "TK_END_OF_CODE";
         case TK_MUT: return "TK_MUT";
+        case TK_PUB: return "TK_PUB";
         case TK_FN: return "TK_FN";
         case TK_ENUM: return "TK_ENUM";
         case TK_STRUCT: return "TK_STRUCT";
@@ -166,6 +169,7 @@ const char* tokenKindToString(TokenKind kind)
         case TK_COMMA: return "TK_COMMA";
         case TK_COLON: return "TK_COLON";
         case TK_DOT: return "TK_DOT";
+        case TK_AT: return "TK_AT";
         case TK_EQUAL: return "TK_EQUAL";
         case TK_SEMICOLON: return "TK_SEMICOLON";
         case TK_IDENTIFIER: return "TK_IDENTIFIER";
@@ -186,6 +190,7 @@ void printToken(Token token)
         case TK_START_OF_CODE: {printf("TK_START_OF_CODE\n");}break;
         case TK_END_OF_CODE: {printf("TK_END_OF_CODE\n");}break;
         case TK_MUT: {printf("TK_MUT\n");}break;
+        case TK_PUB: {printf("TK_PUB\n");}break;
         case TK_FN: {printf("TK_FN\n");}break;
         case TK_ENUM: {printf("TK_ENUM\n");}break;
         case TK_STRUCT: {printf("TK_STRUCT\n");}break;
@@ -232,6 +237,7 @@ void printToken(Token token)
         case TK_COMMA: {printf("TK_COMMA\n");}break;
         case TK_COLON: {printf("TK_COLON\n");}break;
         case TK_DOT: {printf("TK_DOT\n");}break;
+        case TK_AT: {printf("TK_AT\n");}break;
         case TK_SEMICOLON: {printf("TK_SEMICOLON\n");}break;
         case TK_IDENTIFIER: {printf("TK_IDENTIFIER: %s\n", token.identifier);}break;
         case TK_LITERAL_CHAR: {

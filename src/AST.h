@@ -57,6 +57,7 @@ typedef enum ASTNodeKind {
     AST_EXPR_DEREF,
     AST_EXPR_PARENTHESIS,
     AST_EXPR_VARIABLE,
+    AST_EXPR_BUILTIN,
     AST_EXPR_TYPE_LITERAL,
     AST_EXPR_LITERAL_BOOL,
     AST_EXPR_LITERAL_CHAR,
@@ -202,6 +203,7 @@ struct ASTNode {
 
     // assign or decl
     ASTAssignModifier modifier;
+    bool is_pub;
     ASTDataType *data_type;
     char identifier[MAX_IDENTIFIER_LENGTH];
 
@@ -545,6 +547,7 @@ const char* astNodeKindToString(ASTNodeKind kind)
         case AST_EXPR_DEREF: return "AST_EXPR_DEREF";
         case AST_EXPR_PARENTHESIS: return "AST_EXPR_PARENTHESIS";
         case AST_EXPR_VARIABLE: return "AST_EXPR_VARIABLE";
+        case AST_EXPR_BUILTIN: return "AST_EXPR_BUILTIN";
         case AST_EXPR_TYPE_LITERAL: return "AST_EXPR_TYPE_LITERAL";
         case AST_EXPR_LITERAL_BOOL: return "AST_EXPR_LITERAL_BOOL";
         case AST_EXPR_LITERAL_CHAR: return "AST_EXPR_LITERAL_CHAR";
@@ -741,7 +744,8 @@ void printASTNode(ASTNode node)
     switch(node.kind)
     {
         case AST_ASSIGN: {
-            printf("AST_ASSIGN: modifier(%s) lhs(",
+            printf("AST_ASSIGN: %smodifier(%s) lhs(",
+                node.is_pub ? "pub " : "",
                 modifierToString(node.modifier));
             printASTNode(*(node.lhs));
             printf(") type(");
@@ -1077,6 +1081,23 @@ void printASTNode(ASTNode node)
         } break;
         case AST_EXPR_VARIABLE: {
             printf("AST_EXPR_VARIABLE(%s)", node.identifier);
+        } break;
+        case AST_EXPR_BUILTIN: {
+            printf("AST_EXPR_BUILTIN(@%s", node.identifier);
+            if(node.lhs != NULL)
+            {
+                printf("(");
+                ASTNode *argument = node.lhs;
+                while(argument)
+                {
+                    printASTNode(*argument);
+                    if(argument->next)
+                        printf(", ");
+                    argument = argument->next;
+                }
+                printf(")");
+            }
+            printf(")");
         } break;
         case AST_EXPR_TYPE_LITERAL: {
             printf("AST_EXPR_TYPE_LITERAL(");
