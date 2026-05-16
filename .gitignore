@@ -1,6 +1,7 @@
 
 mote.exe
 mote
+.vscode/
 *.swp
 *.obj
 *.exe

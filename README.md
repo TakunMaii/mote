@@ -51,8 +51,6 @@ gcc src\main.c -o mote.exe
 - `gcc` 用来构建 `mote.exe`
 - `clang` 需要在 `PATH` 中，只有 `--emit-exe` 时才会用到
 
-仓库里也保留了一个现成的 `mote_stage4.exe`，但更推荐你直接重新构建 `mote.exe`，避免和源码状态不一致。
-
 ## 编译器用法
 
 当前 CLI 形式如下：
