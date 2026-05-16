@@ -15,7 +15,7 @@ gcc src\main.c -o mote.exe
 ```text
 mote [--pkg name=path]... <input>
 mote [--pkg name=path]... --emit-llvm <input> [output.ll]
-mote [--pkg name=path]... --emit-exe <input> [output.exe]
+mote [--pkg name=path]... [--link-arg value]... --emit-exe <input> [output.exe]
 ```
 
 ## Options
@@ -26,6 +26,8 @@ mote [--pkg name=path]... --emit-exe <input> [output.exe]
   - Emits LLVM IR
 - `--emit-exe`
   - Emits LLVM IR, invokes `clang`, and produces an executable
+- `--link-arg value`
+  - Forwards one extra linker argument during `--emit-exe`
 - `--help` / `-h`
   - Prints command help
 
@@ -39,6 +41,7 @@ mote [--pkg name=path]... --emit-exe <input> [output.exe]
   - Prints AST and MIR for debugging
 - With `--emit-llvm`, the compiler writes a `.ll` file.
 - With `--emit-exe`, the compiler writes LLVM IR, calls `clang`, and removes the temporary `.ll` file on success.
+- If `clang` link fails during `--emit-exe`, the compiler keeps the intermediate `.ll` file for debugging.
 
 ## Output Naming
 
@@ -78,6 +81,12 @@ Build an executable with a custom output path:
 .\mote.exe --emit-exe test\basic\simple.mote bin\simple.exe
 ```
 
+Build an executable with extra linker arguments:
+
+```powershell
+.\mote.exe --link-arg opengl32.lib --link-arg user32.lib --emit-exe app.mote
+```
+
 Compile with the built-in C FFI package:
 
 ```powershell
@@ -93,7 +102,7 @@ Compile a package-based multi-file program:
 Compile the `notgate` test package:
 
 ```powershell
-.\mote_stage4.exe --pkg raylib=lib\raylib --pkg c=lib\c --pkg notgate=test\game\notgate --link-arg test\game\notgate\build\raylib.lib --link-arg opengl32.lib --link-arg gdi32.lib --link-arg winmm.lib --link-arg user32.lib --link-arg shell32.lib --emit-exe test\game\notgate_main.mote test\artifacts\notgate.exe
+.\mote.exe --pkg raylib=lib\raylib --pkg c=lib\c --pkg notgate=test\game\notgate --link-arg test\game\notgate\build\raylib.lib --link-arg opengl32.lib --link-arg gdi32.lib --link-arg winmm.lib --link-arg user32.lib --link-arg shell32.lib --emit-exe test\game\notgate_main.mote test\artifacts\notgate.exe
 ```
 
 ## Import Resolution
@@ -101,6 +110,16 @@ Compile the `notgate` test package:
 - Relative imports like `@import("./foo")` are resolved from the importing file's directory.
 - Package imports like `@import("c/io")` require `--pkg c=...`.
 - Package roots may point to either a module file tree or a directory containing `root.mote`.
+
+## Current String Interop
+
+- A plain string literal currently has type `Array(char, N)`.
+- It does not auto-coerce to `*char`.
+- For C-style NUL-terminated strings, use an explicit cast:
+
+```mote
+c.printf(@as(*char, "hello %d\n"), 42);
+```
 
 ## Toolchain Requirement
 

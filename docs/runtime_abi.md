@@ -6,8 +6,9 @@ This document defines the backend-facing runtime ABI that `MIR` assumes.
 
 - `bool`
   - Logical domain: `0` or `1`
-  - Storage size: 1 byte
-  - Call/return ABI: zero-extended integer with only the low bit semantically relevant
+  - In LLVM SSA, boolean computations use `i1`
+  - In memory and native extern ABI positions, it occupies 1 byte
+  - Call/return ABI uses a zero-extended integer with only the low bit semantically relevant
 - `char`
   - Storage size: 1 byte
   - Semantics: raw code unit, not a Unicode scalar guarantee
@@ -25,6 +26,7 @@ This document defines the backend-facing runtime ABI that `MIR` assumes.
 - Runtime representation: inline fixed-size aggregate
 - Layout: contiguous element storage, no header, no length field, no implicit terminator
 - `Array(T, 0)` occupies zero element slots
+- A string literal expression has type `Array(char, N)` where `N` is the source byte length, not including any trailing `\0`
 
 ## Struct
 
@@ -50,10 +52,35 @@ This document defines the backend-facing runtime ABI that `MIR` assumes.
 
 ## Calling Convention
 
-- User-visible arguments are passed in source order
-- A capturing function body receives a hidden first argument:
-  - `__env: *ClosureEnv`
-- Non-capturing functions have no hidden environment argument
+- User-visible arguments are passed in source order after the hidden environment parameter
+- Every internal callable entry point receives a hidden first argument:
+  - `__env: *ClosureEnv` logically
+- Non-capturing functions are still called through the same ABI shape, with a null environment pointer
 - `&T` / `&mut T` parameters are lowered as pointers in MIR
 - Arrays, structs, enums, bools, chars, and numeric scalars are passed and returned by value at MIR level
 - Backend-specific target ABI expansion can happen after MIR, but must preserve the logical layout defined here
+
+## String Literal To `*char`
+
+- `@as(*char, "...")` is a special supported explicit conversion for C interop
+- The backend materializes a global NUL-terminated byte buffer and returns a pointer to its first element
+- This does not change the default type of a string literal expression, which remains `Array(char, N)`
+
+## Native Extern ABI
+
+These rules describe the current LLVM backend behavior for `@extern(...)` calls and wrappers.
+
+- Scalars and pointers are passed directly
+- `enum` lowers as `i32`
+- Small aggregate parameters (`array` / `struct`) with total size `1`, `2`, `4`, or `8` bytes are integer-coerced and passed as `i8`, `i16`, `i32`, or `i64`
+- Larger aggregate parameters are passed indirectly by pointer
+- Small aggregate returns with total size `1`, `2`, `4`, or `8` bytes are integer-coerced on the native ABI boundary and reconstructed on the Mote side
+- Larger aggregate returns use an `sret` out-pointer on the native ABI boundary
+
+## Native Extern Variadic Promotion
+
+For variadic `@extern` functions such as `printf`:
+
+- `bool`, `char`, `i8`, `i16`, `u8`, `u16`, and `enum` are promoted to `i32`
+- `f32` is promoted to `f64`
+- Other argument types are passed with their existing ABI form
