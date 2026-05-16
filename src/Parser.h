@@ -969,6 +969,7 @@ ASTNode* parseSimpleAssignNoSemicolon(Token **token)
     node->data_type = newInferDataType();
     if(node->lhs->kind == AST_EXPR_VARIABLE && (*token)->kind == TK_COLON)
     {
+        node->modifier.explicit_type = true;
         (*token) = (*token)->next;
         node->data_type = parseDataType(token);
     }

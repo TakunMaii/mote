@@ -178,6 +178,7 @@ struct ASTStructLiteralField {
 
 typedef struct {
     bool mutable;
+    bool explicit_type;
 } ASTAssignModifier;
 
 struct ASTNode {

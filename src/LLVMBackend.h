@@ -1,0 +1,983 @@
+#ifndef LLVM_BACKEND_H
+#define LLVM_BACKEND_H
+
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include "MIR.h"
+
+typedef struct LLVMFunctionEmitContext {
+    FILE *stream;
+    MirFunction *function;
+    int *aliases;
+    int temp_counter;
+} LLVMFunctionEmitContext;
+
+static const char* llvmHostTargetTriple(void)
+{
+#if defined(_WIN64)
+    return "x86_64-pc-windows-msvc";
+#elif defined(_WIN32)
+    return "i686-pc-windows-msvc";
+#elif defined(__APPLE__) && defined(__x86_64__)
+    return "x86_64-apple-darwin";
+#elif defined(__APPLE__) && defined(__aarch64__)
+    return "arm64-apple-darwin";
+#elif defined(__linux__) && defined(__x86_64__)
+    return "x86_64-pc-linux-gnu";
+#elif defined(__linux__) && defined(__aarch64__)
+    return "aarch64-pc-linux-gnu";
+#else
+    return NULL;
+#endif
+}
+
+static void llvmBackendError(const char *message, const char *filename, int line, int column)
+{
+    if(filename != NULL)
+        printf("LLVM backend error: %s at file %s, line %d, column %d\n", message, filename, line, column);
+    else
+        printf("LLVM backend error: %s\n", message);
+    exit(1);
+}
+
+static bool llvmIsIntegerLikePrimary(ASTPrimaryDataType primary)
+{
+    return isIntegerPrimary(primary) || isBoolPrimary(primary);
+}
+
+static int llvmIntegerBitWidth(ASTPrimaryDataType primary)
+{
+    if(primary == AST_PRIMARY_DATA_TYPE_BOOL)
+        return 1;
+    return getIntegerPrimaryWidth(primary);
+}
+
+static bool llvmIsFloatDataType(ASTDataType *data_type)
+{
+    return data_type != NULL &&
+           data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           isFloatPrimary(data_type->primary);
+}
+
+static bool llvmIsIntegerDataType(ASTDataType *data_type)
+{
+    return data_type != NULL &&
+           data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           llvmIsIntegerLikePrimary(data_type->primary);
+}
+
+static bool llvmIsSignedIntegerDataType(ASTDataType *data_type)
+{
+    if(data_type == NULL || data_type->kind != AST_DATA_TYPE_KIND_PRIMARY)
+        return false;
+    if(data_type->primary == AST_PRIMARY_DATA_TYPE_BOOL || data_type->primary == AST_PRIMARY_DATA_TYPE_CHAR)
+        return false;
+    return isSignedIntegerPrimary(data_type->primary);
+}
+
+static ASTDataType* llvmPointeeType(ASTDataType *data_type)
+{
+    if(data_type == NULL ||
+       (data_type->kind != AST_DATA_TYPE_KIND_POINTER && data_type->kind != AST_DATA_TYPE_KIND_REFERENCE))
+        return NULL;
+    return data_type->child;
+}
+
+static void llvmEmitType(FILE *stream, ASTDataType *data_type);
+
+static void llvmEmitStructRuntimeType(FILE *stream, ASTDataType *data_type)
+{
+    fprintf(stream, "{ ");
+    bool need_comma = false;
+    ASTStructMember *member = data_type->members;
+    while(member)
+    {
+        if(member->value == NULL)
+        {
+            if(need_comma)
+                fprintf(stream, ", ");
+            llvmEmitType(stream, member->data_type);
+            need_comma = true;
+        }
+        member = member->next;
+    }
+    fprintf(stream, " }");
+}
+
+static void llvmEmitType(FILE *stream, ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        llvmBackendError("missing runtime type", NULL, 0, 0);
+
+    switch(data_type->kind)
+    {
+        case AST_DATA_TYPE_KIND_PRIMARY:
+            switch(data_type->primary)
+            {
+                case AST_PRIMARY_DATA_TYPE_VOID: fprintf(stream, "void"); return;
+                case AST_PRIMARY_DATA_TYPE_BOOL: fprintf(stream, "i1"); return;
+                case AST_PRIMARY_DATA_TYPE_CHAR: fprintf(stream, "i8"); return;
+                case AST_PRIMARY_DATA_TYPE_I8:
+                case AST_PRIMARY_DATA_TYPE_U8: fprintf(stream, "i8"); return;
+                case AST_PRIMARY_DATA_TYPE_I16:
+                case AST_PRIMARY_DATA_TYPE_U16: fprintf(stream, "i16"); return;
+                case AST_PRIMARY_DATA_TYPE_I32:
+                case AST_PRIMARY_DATA_TYPE_U32: fprintf(stream, "i32"); return;
+                case AST_PRIMARY_DATA_TYPE_I64:
+                case AST_PRIMARY_DATA_TYPE_U64: fprintf(stream, "i64"); return;
+                case AST_PRIMARY_DATA_TYPE_F16: fprintf(stream, "half"); return;
+                case AST_PRIMARY_DATA_TYPE_F32: fprintf(stream, "float"); return;
+                case AST_PRIMARY_DATA_TYPE_F64: fprintf(stream, "double"); return;
+                case AST_PRIMARY_DATA_TYPE_F8:
+                    llvmBackendError("f8 is not supported by the textual LLVM backend yet", NULL, 0, 0);
+                    return;
+                case AST_PRIMARY_DATA_TYPE_TYPE:
+                    llvmBackendError("Type values are compile-time only and cannot be lowered to LLVM IR", NULL, 0, 0);
+                    return;
+            }
+            break;
+        case AST_DATA_TYPE_KIND_POINTER:
+        case AST_DATA_TYPE_KIND_REFERENCE:
+            fprintf(stream, "ptr");
+            return;
+        case AST_DATA_TYPE_KIND_FUNCTION:
+            fprintf(stream, "{ ptr, ptr }");
+            return;
+        case AST_DATA_TYPE_KIND_ARRAY:
+            fprintf(stream, "[%lld x ", data_type->array_length);
+            llvmEmitType(stream, data_type->child);
+            fprintf(stream, "]");
+            return;
+        case AST_DATA_TYPE_KIND_ENUM:
+            fprintf(stream, "i32");
+            return;
+        case AST_DATA_TYPE_KIND_STRUCT:
+            llvmEmitStructRuntimeType(stream, data_type);
+            return;
+        default:
+            break;
+    }
+
+    llvmBackendError("unsupported runtime type shape", NULL, 0, 0);
+}
+
+static int llvmResolveAlias(LLVMFunctionEmitContext *context, int value_id)
+{
+    int current = value_id;
+    while(context->aliases[current] != current)
+        current = context->aliases[current];
+    return current;
+}
+
+static ASTDataType* llvmResolvedValueType(LLVMFunctionEmitContext *context, int value_id)
+{
+    int resolved = llvmResolveAlias(context, value_id);
+    return context->function->values[resolved].data_type;
+}
+
+static void llvmEmitValueRef(FILE *stream, LLVMFunctionEmitContext *context, int value_id)
+{
+    fprintf(stream, "%%v%d", llvmResolveAlias(context, value_id));
+}
+
+static void llvmMakeTempName(LLVMFunctionEmitContext *context, char *buffer, size_t buffer_size)
+{
+    snprintf(buffer, buffer_size, "%%t%d", context->temp_counter++);
+}
+
+static void llvmEmitInstructionPrefix(FILE *stream, int value_id)
+{
+    fprintf(stream, "    %%v%d = ", value_id);
+}
+
+static void llvmEmitTempAssignPrefix(FILE *stream, const char *name)
+{
+    fprintf(stream, "    %s = ", name);
+}
+
+static void llvmEmitDoubleLiteral(FILE *stream, long double value)
+{
+    if(isnan((double)value))
+    {
+        fprintf(stream, "0x7FF8000000000000");
+        return;
+    }
+
+    if(isinf((double)value))
+    {
+        if(signbit((double)value))
+            fprintf(stream, "0xFFF0000000000000");
+        else
+            fprintf(stream, "0x7FF0000000000000");
+        return;
+    }
+
+    fprintf(stream, "%.17e", (double)value);
+}
+
+static void llvmEmitFloatLiteral(FILE *stream, ASTDataType *data_type, long double value)
+{
+    if(data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       data_type->primary == AST_PRIMARY_DATA_TYPE_F32)
+    {
+        fprintf(stream, "%.9e", (double)(float)value);
+        return;
+    }
+
+    if(data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       data_type->primary == AST_PRIMARY_DATA_TYPE_F16)
+    {
+        fprintf(stream, "%.6e", (double)value);
+        return;
+    }
+
+    llvmEmitDoubleLiteral(stream, value);
+}
+
+static void llvmEmitFloatConstantInst(FILE *stream, int result_value_id, ASTDataType *data_type, long double value)
+{
+    if(data_type != NULL &&
+       data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       (data_type->primary == AST_PRIMARY_DATA_TYPE_F16 ||
+        data_type->primary == AST_PRIMARY_DATA_TYPE_F32))
+    {
+        llvmEmitInstructionPrefix(stream, result_value_id);
+        fprintf(stream, "fptrunc double ");
+        llvmEmitDoubleLiteral(stream, value);
+        fprintf(stream, " to ");
+        llvmEmitType(stream, data_type);
+        fprintf(stream, "\n");
+        return;
+    }
+
+    llvmEmitInstructionPrefix(stream, result_value_id);
+    fprintf(stream, "fadd ");
+    llvmEmitType(stream, data_type);
+    fprintf(stream, " 0.0, ");
+    llvmEmitDoubleLiteral(stream, value);
+    fprintf(stream, "\n");
+}
+
+static void llvmEmitConstZero(FILE *stream, ASTDataType *data_type)
+{
+    if(llvmIsFloatDataType(data_type))
+        llvmEmitFloatLiteral(stream, data_type, 0.0L);
+    else if(data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_POINTER)
+        fprintf(stream, "null");
+    else
+        fprintf(stream, "0");
+}
+
+static void llvmEmitConstAllOnes(FILE *stream, ASTDataType *data_type)
+{
+    if(!llvmIsIntegerDataType(data_type))
+        llvmBackendError("bitwise not requires an integer-like type", NULL, 0, 0);
+
+    int width = llvmIntegerBitWidth(data_type->primary);
+    if(width == 1)
+        fprintf(stream, "true");
+    else
+        fprintf(stream, "-1");
+}
+
+static bool llvmIsAggregateType(ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        return false;
+
+    return data_type->kind == AST_DATA_TYPE_KIND_ARRAY ||
+           data_type->kind == AST_DATA_TYPE_KIND_STRUCT ||
+           data_type->kind == AST_DATA_TYPE_KIND_FUNCTION;
+}
+
+static void llvmEmitInsertValueSequence(FILE *stream, LLVMFunctionEmitContext *context, int result_value_id,
+                                        ASTDataType *aggregate_type, MirOperandList values)
+{
+    char current_name[32];
+    bool has_current = false;
+
+    for(int i = 0; i < values.count; i++)
+    {
+        char next_name[32];
+        if(i + 1 == values.count)
+            llvmEmitInstructionPrefix(stream, result_value_id);
+        else
+        {
+            llvmMakeTempName(context, next_name, sizeof(next_name));
+            llvmEmitTempAssignPrefix(stream, next_name);
+        }
+
+        fprintf(stream, "insertvalue ");
+        llvmEmitType(stream, aggregate_type);
+        if(!has_current)
+            fprintf(stream, " undef, ");
+        else
+            fprintf(stream, " %s, ", current_name);
+
+        ASTDataType *element_type = context->function->values[llvmResolveAlias(context, values.items[i])].data_type;
+        llvmEmitType(stream, element_type);
+        fprintf(stream, " ");
+        llvmEmitValueRef(stream, context, values.items[i]);
+        fprintf(stream, ", %d\n", i);
+
+        if(i + 1 != values.count)
+            strcpy(current_name, next_name);
+        has_current = true;
+    }
+
+    if(values.count == 0)
+    {
+        llvmEmitInstructionPrefix(stream, result_value_id);
+        fprintf(stream, "insertvalue ");
+        llvmEmitType(stream, aggregate_type);
+        fprintf(stream, " undef, i8 0, 0\n");
+        llvmBackendError("zero-field insertvalue fallback was reached unexpectedly", NULL, 0, 0);
+    }
+}
+
+static bool llvmProgramNeedsMalloc(MirProgram *program)
+{
+    for(int i = 0; i < program->function_count; i++)
+    {
+        MirFunction *function = &(program->functions[i]);
+        for(int block_index = 0; block_index < function->block_count; block_index++)
+        {
+            MirBlock *block = &(function->blocks[block_index]);
+            for(int inst_index = 0; inst_index < block->inst_count; inst_index++)
+            {
+                MirInst *inst = &(block->insts[inst_index]);
+                if(inst->kind == MIR_INST_MAKE_CLOSURE && inst->data.make_closure.captures.count > 0)
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+static void llvmEmitEnvAllocation(FILE *stream, LLVMFunctionEmitContext *context, MirInst *inst, const char *env_name)
+{
+    ASTDataType *env_type = inst->data.make_closure.environment_type;
+    char size_ptr_name[32];
+    char size_name[32];
+    llvmMakeTempName(context, size_ptr_name, sizeof(size_ptr_name));
+    llvmMakeTempName(context, size_name, sizeof(size_name));
+
+    llvmEmitTempAssignPrefix(stream, size_ptr_name);
+    fprintf(stream, "getelementptr ");
+    llvmEmitType(stream, env_type);
+    fprintf(stream, ", ptr null, i32 1\n");
+
+    llvmEmitTempAssignPrefix(stream, size_name);
+    fprintf(stream, "ptrtoint ptr %s to i64\n", size_ptr_name);
+
+    llvmEmitTempAssignPrefix(stream, env_name);
+    fprintf(stream, "call ptr @malloc(i64 %s)\n", size_name);
+
+    ASTStructMember *member = env_type->members;
+    int capture_index = 0;
+    while(member)
+    {
+        if(member->value == NULL)
+        {
+            char field_ptr_name[32];
+            llvmMakeTempName(context, field_ptr_name, sizeof(field_ptr_name));
+
+            llvmEmitTempAssignPrefix(stream, field_ptr_name);
+            fprintf(stream, "getelementptr ");
+            llvmEmitType(stream, env_type);
+            fprintf(stream, ", ptr %s, i32 0, i32 %d\n", env_name, capture_index);
+
+            fprintf(stream, "    store ");
+            llvmEmitType(stream, member->data_type);
+            fprintf(stream, " ");
+            llvmEmitValueRef(stream, context, inst->data.make_closure.captures.items[capture_index]);
+            fprintf(stream, ", ptr %s\n", field_ptr_name);
+
+            capture_index++;
+        }
+        member = member->next;
+    }
+}
+
+static void llvmEmitClosureAggregate(FILE *stream, LLVMFunctionEmitContext *context, int result_value_id,
+                                     const char *function_name, const char *env_name)
+{
+    char first_name[32];
+    llvmMakeTempName(context, first_name, sizeof(first_name));
+    llvmEmitTempAssignPrefix(stream, first_name);
+    fprintf(stream, "insertvalue { ptr, ptr } undef, ptr @%s, 0\n", function_name);
+
+    llvmEmitInstructionPrefix(stream, result_value_id);
+    fprintf(stream, "insertvalue { ptr, ptr } %s, ptr %s, 1\n", first_name, env_name != NULL ? env_name : "null");
+}
+
+static void llvmEmitArrayLiteral(FILE *stream, LLVMFunctionEmitContext *context, MirInst *inst)
+{
+    if(inst->data.array_literal.elements.count == 0)
+    {
+        llvmEmitInstructionPrefix(stream, inst->result);
+        fprintf(stream, "freeze ");
+        llvmEmitType(stream, inst->result_type);
+        fprintf(stream, " zeroinitializer\n");
+        return;
+    }
+
+    char current_name[32];
+    bool has_current = false;
+    for(int i = 0; i < inst->data.array_literal.elements.count; i++)
+    {
+        char next_name[32];
+        if(i + 1 == inst->data.array_literal.elements.count)
+            llvmEmitInstructionPrefix(stream, inst->result);
+        else
+        {
+            llvmMakeTempName(context, next_name, sizeof(next_name));
+            llvmEmitTempAssignPrefix(stream, next_name);
+        }
+
+        fprintf(stream, "insertvalue ");
+        llvmEmitType(stream, inst->result_type);
+        if(!has_current)
+            fprintf(stream, " zeroinitializer, ");
+        else
+            fprintf(stream, " %s, ", current_name);
+        llvmEmitType(stream, inst->result_type->child);
+        fprintf(stream, " ");
+        llvmEmitValueRef(stream, context, inst->data.array_literal.elements.items[i]);
+        fprintf(stream, ", %d\n", i);
+        if(i + 1 != inst->data.array_literal.elements.count)
+            strcpy(current_name, next_name);
+        has_current = true;
+    }
+}
+
+static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context, MirInst *inst)
+{
+    int field_count = inst->data.struct_literal.fields.count;
+    if(field_count == 0)
+    {
+        llvmEmitInstructionPrefix(stream, inst->result);
+        fprintf(stream, "freeze ");
+        llvmEmitType(stream, inst->result_type);
+        fprintf(stream, " zeroinitializer\n");
+        return;
+    }
+
+    char current_name[32];
+    bool has_current = false;
+    for(int i = 0; i < field_count; i++)
+    {
+        MirFieldValue *field = &(inst->data.struct_literal.fields.items[i]);
+        ASTStructMember *member = findStructMember(inst->result_type, field->identifier);
+        if(member == NULL)
+            llvmBackendError("unknown struct literal field in LLVM backend", inst->filename, inst->line_number, inst->column_number);
+
+        char next_name[32];
+        if(i + 1 == field_count)
+            llvmEmitInstructionPrefix(stream, inst->result);
+        else
+        {
+            llvmMakeTempName(context, next_name, sizeof(next_name));
+            llvmEmitTempAssignPrefix(stream, next_name);
+        }
+
+        fprintf(stream, "insertvalue ");
+        llvmEmitType(stream, inst->result_type);
+        if(!has_current)
+            fprintf(stream, " zeroinitializer, ");
+        else
+            fprintf(stream, " %s, ", current_name);
+        llvmEmitType(stream, member->data_type);
+        fprintf(stream, " ");
+        llvmEmitValueRef(stream, context, field->value);
+        fprintf(stream, ", %d\n", findStructDataFieldIndex(inst->result_type, field->identifier));
+        if(i + 1 != field_count)
+            strcpy(current_name, next_name);
+        has_current = true;
+    }
+}
+
+static void llvmEmitFunctionSignature(FILE *stream, MirFunction *function)
+{
+    llvmEmitType(stream, function->return_data_type);
+    fprintf(stream, " @%s(ptr ", function->name);
+    if(function->closure_env_type != NULL)
+        fprintf(stream, "%%v%d", function->closure_env_input);
+    else
+        fprintf(stream, "%%env");
+
+    for(int i = 0; i < function->parameter_count; i++)
+    {
+        fprintf(stream, ", ");
+        llvmEmitType(stream, function->parameters[i].runtime_data_type);
+        fprintf(stream, " %%v%d", function->parameters[i].input_value);
+    }
+
+    fprintf(stream, ")");
+}
+
+static void llvmEmitBinaryInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst *inst, const char *float_op,
+                               const char *signed_op, const char *unsigned_op)
+{
+    ASTDataType *operand_type = llvmResolvedValueType(context, inst->data.binary.lhs);
+    llvmEmitInstructionPrefix(stream, inst->result);
+
+    if(llvmIsFloatDataType(operand_type))
+        fprintf(stream, "%s ", float_op);
+    else if(llvmIsSignedIntegerDataType(operand_type))
+        fprintf(stream, "%s ", signed_op);
+    else
+        fprintf(stream, "%s ", unsigned_op);
+
+    llvmEmitType(stream, operand_type);
+    fprintf(stream, " ");
+    llvmEmitValueRef(stream, context, inst->data.binary.lhs);
+    fprintf(stream, ", ");
+    llvmEmitValueRef(stream, context, inst->data.binary.rhs);
+    fprintf(stream, "\n");
+}
+
+static void llvmEmitCompareInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst *inst, const char *float_op,
+                                const char *signed_op, const char *unsigned_op)
+{
+    ASTDataType *operand_type = llvmResolvedValueType(context, inst->data.binary.lhs);
+    llvmEmitInstructionPrefix(stream, inst->result);
+
+    if(llvmIsFloatDataType(operand_type))
+        fprintf(stream, "fcmp %s ", float_op);
+    else if(llvmIsSignedIntegerDataType(operand_type))
+        fprintf(stream, "icmp %s ", signed_op);
+    else
+        fprintf(stream, "icmp %s ", unsigned_op);
+
+    llvmEmitType(stream, operand_type);
+    fprintf(stream, " ");
+    llvmEmitValueRef(stream, context, inst->data.binary.lhs);
+    fprintf(stream, ", ");
+    llvmEmitValueRef(stream, context, inst->data.binary.rhs);
+    fprintf(stream, "\n");
+}
+
+static void llvmEmitConvertInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst *inst)
+{
+    ASTDataType *source_type = llvmResolvedValueType(context, inst->data.convert.operand);
+    ASTDataType *target_type = inst->data.convert.target_type;
+
+    if(source_type->kind == AST_DATA_TYPE_KIND_POINTER || source_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+    {
+        context->aliases[inst->result] = llvmResolveAlias(context, inst->data.convert.operand);
+        return;
+    }
+
+    if(source_type->kind == AST_DATA_TYPE_KIND_PRIMARY && target_type->kind == AST_DATA_TYPE_KIND_PRIMARY)
+    {
+        if(source_type->primary == target_type->primary)
+        {
+            context->aliases[inst->result] = llvmResolveAlias(context, inst->data.convert.operand);
+            return;
+        }
+
+        llvmEmitInstructionPrefix(stream, inst->result);
+
+        if(llvmIsIntegerDataType(source_type) && llvmIsIntegerDataType(target_type))
+        {
+            int src_bits = llvmIntegerBitWidth(source_type->primary);
+            int dst_bits = llvmIntegerBitWidth(target_type->primary);
+            if(src_bits < dst_bits)
+                fprintf(stream, "%s ", llvmIsSignedIntegerDataType(source_type) ? "sext" : "zext");
+            else
+                fprintf(stream, "trunc ");
+            llvmEmitType(stream, source_type);
+            fprintf(stream, " ");
+            llvmEmitValueRef(stream, context, inst->data.convert.operand);
+            fprintf(stream, " to ");
+            llvmEmitType(stream, target_type);
+            fprintf(stream, "\n");
+            return;
+        }
+
+        if(llvmIsFloatDataType(source_type) && llvmIsFloatDataType(target_type))
+        {
+            int src_bits = getFloatPrimaryWidth(source_type->primary);
+            int dst_bits = getFloatPrimaryWidth(target_type->primary);
+            fprintf(stream, "%s ", src_bits < dst_bits ? "fpext" : "fptrunc");
+            llvmEmitType(stream, source_type);
+            fprintf(stream, " ");
+            llvmEmitValueRef(stream, context, inst->data.convert.operand);
+            fprintf(stream, " to ");
+            llvmEmitType(stream, target_type);
+            fprintf(stream, "\n");
+            return;
+        }
+
+        if(llvmIsIntegerDataType(source_type) && llvmIsFloatDataType(target_type))
+        {
+            fprintf(stream, "%s ", llvmIsSignedIntegerDataType(source_type) ? "sitofp" : "uitofp");
+            llvmEmitType(stream, source_type);
+            fprintf(stream, " ");
+            llvmEmitValueRef(stream, context, inst->data.convert.operand);
+            fprintf(stream, " to ");
+            llvmEmitType(stream, target_type);
+            fprintf(stream, "\n");
+            return;
+        }
+
+        if(llvmIsFloatDataType(source_type) && llvmIsIntegerDataType(target_type))
+        {
+            fprintf(stream, "%s ", llvmIsSignedIntegerDataType(target_type) ? "fptosi" : "fptoui");
+            llvmEmitType(stream, source_type);
+            fprintf(stream, " ");
+            llvmEmitValueRef(stream, context, inst->data.convert.operand);
+            fprintf(stream, " to ");
+            llvmEmitType(stream, target_type);
+            fprintf(stream, "\n");
+            return;
+        }
+    }
+
+    llvmBackendError("unsupported conversion in textual LLVM backend", inst->filename, inst->line_number, inst->column_number);
+}
+
+static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst *inst)
+{
+    switch(inst->kind)
+    {
+        case MIR_INST_CONST_BOOL:
+            llvmEmitInstructionPrefix(stream, inst->result);
+            fprintf(stream, "or i1 false, %s\n", inst->data.const_bool.value ? "true" : "false");
+            return;
+        case MIR_INST_CONST_CHAR:
+        case MIR_INST_CONST_INT:
+            if(llvmIsFloatDataType(inst->result_type))
+            {
+                llvmEmitFloatConstantInst(stream, inst->result, inst->result_type,
+                                          inst->kind == MIR_INST_CONST_CHAR
+                                              ? (long double)(unsigned char)inst->data.const_char.value
+                                              : (long double)inst->data.const_int.value);
+                return;
+            }
+
+            llvmEmitInstructionPrefix(stream, inst->result);
+            fprintf(stream, "add ");
+            llvmEmitType(stream, inst->result_type);
+            fprintf(stream, " 0, %lld\n", inst->kind == MIR_INST_CONST_CHAR
+                    ? (long long int)(unsigned char)inst->data.const_char.value
+                    : inst->data.const_int.value);
+            return;
+        case MIR_INST_CONST_FLOAT:
+            llvmEmitFloatConstantInst(stream, inst->result, inst->result_type, inst->data.const_float.value);
+            return;
+        case MIR_INST_CONST_STRING: {
+            int length = (int)inst->result_type->array_length;
+            if(length == 0)
+            {
+                llvmEmitInstructionPrefix(stream, inst->result);
+                fprintf(stream, "freeze ");
+                llvmEmitType(stream, inst->result_type);
+                fprintf(stream, " zeroinitializer\n");
+                return;
+            }
+
+            char current_name[32];
+            bool has_current = false;
+            for(int i = 0; i < length; i++)
+            {
+                char next_name[32];
+                if(i + 1 == length)
+                    llvmEmitInstructionPrefix(stream, inst->result);
+                else
+                {
+                    llvmMakeTempName(context, next_name, sizeof(next_name));
+                    llvmEmitTempAssignPrefix(stream, next_name);
+                }
+
+                fprintf(stream, "insertvalue ");
+                llvmEmitType(stream, inst->result_type);
+                if(!has_current)
+                    fprintf(stream, " zeroinitializer, ");
+                else
+                    fprintf(stream, " %s, ", current_name);
+                fprintf(stream, "i8 %d, %d\n", (unsigned char)inst->data.const_string.value[i], i);
+                if(i + 1 != length)
+                    strcpy(current_name, next_name);
+                has_current = true;
+            }
+            return;
+        }
+        case MIR_INST_CONVERT:
+            llvmEmitConvertInst(stream, context, inst);
+            return;
+        case MIR_INST_NEG:
+            llvmEmitInstructionPrefix(stream, inst->result);
+            if(llvmIsFloatDataType(inst->result_type))
+                fprintf(stream, "fneg ");
+            else
+                fprintf(stream, "sub ");
+            llvmEmitType(stream, inst->result_type);
+            fprintf(stream, " ");
+            if(llvmIsFloatDataType(inst->result_type))
+                llvmEmitValueRef(stream, context, inst->data.unary.operand);
+            else
+            {
+                fprintf(stream, "0, ");
+                llvmEmitValueRef(stream, context, inst->data.unary.operand);
+            }
+            fprintf(stream, "\n");
+            return;
+        case MIR_INST_NOT:
+            llvmEmitInstructionPrefix(stream, inst->result);
+            fprintf(stream, "xor i1 ");
+            llvmEmitValueRef(stream, context, inst->data.unary.operand);
+            fprintf(stream, ", true\n");
+            return;
+        case MIR_INST_BIT_NOT:
+            llvmEmitInstructionPrefix(stream, inst->result);
+            fprintf(stream, "xor ");
+            llvmEmitType(stream, inst->result_type);
+            fprintf(stream, " ");
+            llvmEmitValueRef(stream, context, inst->data.unary.operand);
+            fprintf(stream, ", ");
+            llvmEmitConstAllOnes(stream, inst->result_type);
+            fprintf(stream, "\n");
+            return;
+        case MIR_INST_ADD: llvmEmitBinaryInst(stream, context, inst, "fadd", "add", "add"); return;
+        case MIR_INST_SUB: llvmEmitBinaryInst(stream, context, inst, "fsub", "sub", "sub"); return;
+        case MIR_INST_MUL: llvmEmitBinaryInst(stream, context, inst, "fmul", "mul", "mul"); return;
+        case MIR_INST_DIV: llvmEmitBinaryInst(stream, context, inst, "fdiv", "sdiv", "udiv"); return;
+        case MIR_INST_MOD: llvmEmitBinaryInst(stream, context, inst, "frem", "srem", "urem"); return;
+        case MIR_INST_SHIFT_LEFT: llvmEmitBinaryInst(stream, context, inst, "shl", "shl", "shl"); return;
+        case MIR_INST_SHIFT_RIGHT: llvmEmitBinaryInst(stream, context, inst, "ashr", "ashr", "lshr"); return;
+        case MIR_INST_BIT_AND: llvmEmitBinaryInst(stream, context, inst, "and", "and", "and"); return;
+        case MIR_INST_BIT_OR: llvmEmitBinaryInst(stream, context, inst, "or", "or", "or"); return;
+        case MIR_INST_BIT_XOR: llvmEmitBinaryInst(stream, context, inst, "xor", "xor", "xor"); return;
+        case MIR_INST_EQ: llvmEmitCompareInst(stream, context, inst, "oeq", "eq", "eq"); return;
+        case MIR_INST_NE: llvmEmitCompareInst(stream, context, inst, "one", "ne", "ne"); return;
+        case MIR_INST_LT: llvmEmitCompareInst(stream, context, inst, "olt", "slt", "ult"); return;
+        case MIR_INST_LE: llvmEmitCompareInst(stream, context, inst, "ole", "sle", "ule"); return;
+        case MIR_INST_GT: llvmEmitCompareInst(stream, context, inst, "ogt", "sgt", "ugt"); return;
+        case MIR_INST_GE: llvmEmitCompareInst(stream, context, inst, "oge", "sge", "uge"); return;
+        case MIR_INST_ALLOCA:
+            llvmEmitInstructionPrefix(stream, inst->result);
+            fprintf(stream, "alloca ");
+            llvmEmitType(stream, inst->data.alloca_inst.alloca_type);
+            fprintf(stream, "\n");
+            return;
+        case MIR_INST_LOAD:
+            llvmEmitInstructionPrefix(stream, inst->result);
+            fprintf(stream, "load ");
+            llvmEmitType(stream, inst->result_type);
+            fprintf(stream, ", ptr ");
+            llvmEmitValueRef(stream, context, inst->data.load.address);
+            fprintf(stream, "\n");
+            return;
+        case MIR_INST_STORE:
+            fprintf(stream, "    store ");
+            llvmEmitType(stream, llvmResolvedValueType(context, inst->data.store.value));
+            fprintf(stream, " ");
+            llvmEmitValueRef(stream, context, inst->data.store.value);
+            fprintf(stream, ", ptr ");
+            llvmEmitValueRef(stream, context, inst->data.store.address);
+            fprintf(stream, "\n");
+            return;
+        case MIR_INST_GLOBAL_ADDR:
+            llvmEmitInstructionPrefix(stream, inst->result);
+            fprintf(stream, "getelementptr ");
+            llvmEmitType(stream, llvmPointeeType(inst->result_type));
+            fprintf(stream, ", ptr @%s, i32 0\n", inst->data.global_addr.global_name);
+            return;
+        case MIR_INST_FUNCTION_REF:
+            llvmEmitClosureAggregate(stream, context, inst->result, inst->data.function_ref.function_name, NULL);
+            return;
+        case MIR_INST_MAKE_CLOSURE: {
+            char env_name[32];
+            const char *env_ref = NULL;
+            if(inst->data.make_closure.captures.count > 0)
+            {
+                llvmMakeTempName(context, env_name, sizeof(env_name));
+                llvmEmitEnvAllocation(stream, context, inst, env_name);
+                env_ref = env_name;
+            }
+            llvmEmitClosureAggregate(stream, context, inst->result, inst->data.make_closure.function_name, env_ref);
+            return;
+        }
+        case MIR_INST_FIELD_PTR: {
+            ASTDataType *pointee_type = llvmPointeeType(llvmResolvedValueType(context, inst->data.field_ptr.base_address));
+            llvmEmitInstructionPrefix(stream, inst->result);
+            fprintf(stream, "getelementptr ");
+            llvmEmitType(stream, pointee_type);
+            fprintf(stream, ", ptr ");
+            llvmEmitValueRef(stream, context, inst->data.field_ptr.base_address);
+            fprintf(stream, ", i32 0, i32 %d\n", inst->data.field_ptr.field_index);
+            return;
+        }
+        case MIR_INST_INDEX_PTR: {
+            ASTDataType *pointee_type = llvmPointeeType(llvmResolvedValueType(context, inst->data.index_ptr.base_address));
+            llvmEmitInstructionPrefix(stream, inst->result);
+            fprintf(stream, "getelementptr ");
+            llvmEmitType(stream, pointee_type);
+            fprintf(stream, ", ptr ");
+            llvmEmitValueRef(stream, context, inst->data.index_ptr.base_address);
+            fprintf(stream, ", i32 0, ");
+            llvmEmitType(stream, llvmResolvedValueType(context, inst->data.index_ptr.index_value));
+            fprintf(stream, " ");
+            llvmEmitValueRef(stream, context, inst->data.index_ptr.index_value);
+            fprintf(stream, "\n");
+            return;
+        }
+        case MIR_INST_ARRAY_LITERAL:
+            llvmEmitArrayLiteral(stream, context, inst);
+            return;
+        case MIR_INST_STRUCT_LITERAL:
+            llvmEmitStructLiteral(stream, context, inst);
+            return;
+        case MIR_INST_ENUM_LITERAL:
+            llvmEmitInstructionPrefix(stream, inst->result);
+            fprintf(stream, "add i32 0, %d\n", inst->data.enum_literal.ordinal);
+            return;
+        case MIR_INST_CALL: {
+            char code_name[32];
+            char env_name[32];
+            llvmMakeTempName(context, code_name, sizeof(code_name));
+            llvmMakeTempName(context, env_name, sizeof(env_name));
+
+            llvmEmitTempAssignPrefix(stream, code_name);
+            fprintf(stream, "extractvalue { ptr, ptr } ");
+            llvmEmitValueRef(stream, context, inst->data.call.callee);
+            fprintf(stream, ", 0\n");
+
+            llvmEmitTempAssignPrefix(stream, env_name);
+            fprintf(stream, "extractvalue { ptr, ptr } ");
+            llvmEmitValueRef(stream, context, inst->data.call.callee);
+            fprintf(stream, ", 1\n");
+
+            if(inst->result >= 0)
+                llvmEmitInstructionPrefix(stream, inst->result);
+            else
+                fprintf(stream, "    ");
+
+            fprintf(stream, "call ");
+            llvmEmitType(stream, inst->result_type);
+            fprintf(stream, " %s(ptr %s", code_name, env_name);
+            for(int i = 0; i < inst->data.call.arguments.count; i++)
+            {
+                fprintf(stream, ", ");
+                llvmEmitType(stream, llvmResolvedValueType(context, inst->data.call.arguments.items[i]));
+                fprintf(stream, " ");
+                llvmEmitValueRef(stream, context, inst->data.call.arguments.items[i]);
+            }
+            fprintf(stream, ")\n");
+            return;
+        }
+    }
+
+    llvmBackendError("unsupported MIR instruction in textual LLVM backend", inst->filename, inst->line_number, inst->column_number);
+}
+
+static void llvmEmitTerminator(FILE *stream, LLVMFunctionEmitContext *context, MirTerminator *terminator)
+{
+    switch(terminator->kind)
+    {
+        case MIR_TERM_BR:
+            fprintf(stream, "    br label %%%s\n", context->function->blocks[terminator->data.br.target].name);
+            return;
+        case MIR_TERM_COND_BR:
+            fprintf(stream, "    br i1 ");
+            llvmEmitValueRef(stream, context, terminator->data.cond_br.condition);
+            fprintf(stream, ", label %%%s, label %%%s\n",
+                    context->function->blocks[terminator->data.cond_br.then_block].name,
+                    context->function->blocks[terminator->data.cond_br.else_block].name);
+            return;
+        case MIR_TERM_RET:
+            if(terminator->data.ret.has_value)
+            {
+                fprintf(stream, "    ret ");
+                llvmEmitType(stream, llvmResolvedValueType(context, terminator->data.ret.value));
+                fprintf(stream, " ");
+                llvmEmitValueRef(stream, context, terminator->data.ret.value);
+                fprintf(stream, "\n");
+            }
+            else
+                fprintf(stream, "    ret void\n");
+            return;
+        case MIR_TERM_NONE:
+            llvmBackendError("unterminated MIR block cannot be emitted to LLVM IR", NULL, 0, 0);
+            return;
+    }
+}
+
+static void llvmEmitFunctionDefinition(FILE *stream, MirFunction *function)
+{
+    LLVMFunctionEmitContext context = {0};
+    context.stream = stream;
+    context.function = function;
+    context.aliases = (int*) malloc(sizeof(int) * function->value_count);
+    for(int i = 0; i < function->value_count; i++)
+        context.aliases[i] = i;
+
+    fprintf(stream, "define ");
+    llvmEmitFunctionSignature(stream, function);
+    fprintf(stream, " {\n");
+
+    for(int block_index = 0; block_index < function->block_count; block_index++)
+    {
+        MirBlock *block = &(function->blocks[block_index]);
+        fprintf(stream, "%s:\n", block->name);
+        for(int inst_index = 0; inst_index < block->inst_count; inst_index++)
+            llvmEmitInst(stream, &context, &(block->insts[inst_index]));
+        llvmEmitTerminator(stream, &context, &(block->terminator));
+    }
+
+    fprintf(stream, "}\n\n");
+    free(context.aliases);
+}
+
+static void llvmEmitEntryPoint(FILE *stream)
+{
+    fprintf(stream, "define i32 @main() {\n");
+    fprintf(stream, "entry:\n");
+    fprintf(stream, "    call void @__mote_init(ptr null)\n");
+    fprintf(stream, "    ret i32 0\n");
+    fprintf(stream, "}\n\n");
+}
+
+static void emitLLVMProgramToFile(MirProgram *program, const char *module_name, const char *output_path)
+{
+    FILE *stream = fopen(output_path, "wb");
+    if(stream == NULL)
+    {
+        printf("Failed to open LLVM output file %s\n", output_path);
+        exit(1);
+    }
+
+    fprintf(stream, "; ModuleID = '%s'\n", module_name != NULL ? module_name : "mote");
+    fprintf(stream, "source_filename = \"%s\"\n\n", module_name != NULL ? module_name : "mote");
+    if(llvmHostTargetTriple() != NULL)
+        fprintf(stream, "target triple = \"%s\"\n\n", llvmHostTargetTriple());
+
+    if(llvmProgramNeedsMalloc(program))
+        fprintf(stream, "declare ptr @malloc(i64)\n\n");
+
+    for(int i = 0; i < program->global_count; i++)
+    {
+        MirGlobal *global = &(program->globals[i]);
+        fprintf(stream, "@%s = global ", global->name);
+        llvmEmitType(stream, global->data_type);
+        fprintf(stream, " zeroinitializer\n");
+    }
+
+    if(program->global_count > 0)
+        fprintf(stream, "\n");
+
+    for(int i = 0; i < program->function_count; i++)
+        llvmEmitFunctionDefinition(stream, &(program->functions[i]));
+
+    llvmEmitEntryPoint(stream);
+
+    fclose(stream);
+}
+
+#endif /* LLVM_BACKEND_H */

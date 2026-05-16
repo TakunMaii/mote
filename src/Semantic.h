@@ -9,7 +9,7 @@
 
 bool isExplicitDeclared(ASTNode *node)
 {
-    return node->modifier.mutable || !isInferDataType(node->data_type);
+    return node->modifier.mutable || node->modifier.explicit_type;
 }
 
 bool isReferenceDataType(ASTDataType *data_type)
@@ -1085,7 +1085,13 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
 
     if(node->kind == AST_STATEMENT_EXPR)
     {
-        if(node->lhs->kind == AST_EXPR_CALL)
+        if(node->lhs->kind == AST_EXPR_ARRAY_LITERAL && node->lhs->lhs == NULL)
+        {
+            printf("Type error: empty array literal requires an explicit array type at file %s, line %d, column %d\n",
+                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
+            exit(1);
+        }
+        else if(node->lhs->kind == AST_EXPR_CALL)
         {
             TypeSystemExprType callee_type = inferExprType(node->lhs->lhs, scope);
             if(callee_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || callee_type.data_type->kind != AST_DATA_TYPE_KIND_FUNCTION)

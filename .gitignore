@@ -2,3 +2,8 @@
 mote.exe
 mote
 *.swp
+*.obj
+*.exe
+*.ll
+mote_out.txt
+mote_err.txt
