@@ -22,7 +22,7 @@ c.printf(@as(*char, "hello, mote\n"));
 如果你要用内置 C FFI 包编译它：
 
 ```powershell
-.\mote.exe --pkg c=lib\c --emit-exe hello.mote hello.exe
+.\mote.exe -I lib hello.mote -o hello.exe
 ```
 
 ## 2. 注释
@@ -507,7 +507,7 @@ util = @import("app/util");
 sum: i32 = math.add(1, 2);
 ```
 
-包导入需要在命令行上传 `--pkg name=path`。
+包导入需要在命令行上传 `-I <dir>`，其中 `<dir>` 是包含对应模块目录的搜索根。
 
 ## 16. 内建语法：`@import`、`@extern`、`@zero`、`@as`
 

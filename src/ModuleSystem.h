@@ -33,6 +33,7 @@ typedef struct ModuleTopLevelBinding {
 typedef struct ModulePackage {
     char name[MAX_IDENTIFIER_LENGTH];
     char root_path[MODULE_MAX_PATH_LENGTH];
+    bool is_search_root;
 } ModulePackage;
 
 struct ModuleSourceFile {
@@ -245,6 +246,39 @@ static void moduleResolveModuleFilePath(const char *base_path, const char *impor
     moduleSystemError("cannot resolve import path", filename, line, column);
 }
 
+static bool moduleTryResolveModuleFilePath(const char *base_path, const char *import_suffix, char *buffer)
+{
+    char candidate[MODULE_MAX_PATH_LENGTH] = {0};
+    if(import_suffix == NULL || import_suffix[0] == '\0')
+        snprintf(candidate, sizeof(candidate), "%s", base_path);
+    else
+        moduleJoinPath(base_path, import_suffix, candidate);
+
+    if(moduleFileExists(candidate))
+    {
+        moduleCanonicalizePath(candidate, buffer);
+        return true;
+    }
+
+    char with_extension[MODULE_MAX_PATH_LENGTH] = {0};
+    snprintf(with_extension, sizeof(with_extension), "%s.mote", candidate);
+    if(moduleFileExists(with_extension))
+    {
+        moduleCanonicalizePath(with_extension, buffer);
+        return true;
+    }
+
+    char root_module[MODULE_MAX_PATH_LENGTH] = {0};
+    snprintf(root_module, sizeof(root_module), "%s/root.mote", candidate);
+    if(moduleFileExists(root_module))
+    {
+        moduleCanonicalizePath(root_module, buffer);
+        return true;
+    }
+
+    return false;
+}
+
 static void moduleResolveImportPath(ModuleCompileContext *context, const char *importer_path, ASTNode *import_expr,
                                     char *buffer)
 {
@@ -270,6 +304,18 @@ static void moduleResolveImportPath(ModuleCompileContext *context, const char *i
         return;
     }
 
+    for(int i = 0; i < context->package_count; i++)
+    {
+        ModulePackage *package = &(context->packages[i]);
+        if(package->is_search_root)
+        {
+            if(moduleTryResolveModuleFilePath(package->root_path, import_path, buffer))
+            {
+                return;
+            }
+        }
+    }
+
     char package_name[MAX_IDENTIFIER_LENGTH] = {0};
     const char *suffix = NULL;
     const char *separator = strpbrk(import_path, "/\\");
@@ -287,13 +333,16 @@ static void moduleResolveImportPath(ModuleCompileContext *context, const char *i
     }
 
     ModulePackage *package = moduleFindPackage(context, package_name);
-    if(package == NULL)
-        moduleSystemError("unknown package import; pass --pkg name=path to the compiler",
-                          import_expr->filename, import_expr->line_number, import_expr->column_number);
+    if(package != NULL && !package->is_search_root)
+    {
+        moduleResolveModuleFilePath(package->root_path, suffix,
+                                    import_expr->filename, import_expr->line_number, import_expr->column_number,
+                                    buffer);
+        return;
+    }
 
-    moduleResolveModuleFilePath(package->root_path, suffix,
-                                import_expr->filename, import_expr->line_number, import_expr->column_number,
-                                buffer);
+    moduleSystemError("cannot resolve import path; add -I <dir> for module search roots",
+                      import_expr->filename, import_expr->line_number, import_expr->column_number);
 }
 
 static ASTNode* moduleStatements(ASTNode *root)

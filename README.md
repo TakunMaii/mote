@@ -5,7 +5,7 @@ Mote 是一个用纯 C 实现的实验性编程语言与编译器项目。当前
 - 词法、语法、语义分析
 - 类型系统、模块系统、多文件编译
 - MIR 中间表示
-- LLVM IR 后端与 `--emit-exe`
+- LLVM IR 后端与默认可执行文件输出
 - 基础 C FFI
 - 一个较完整的 raylib 示例游戏 `notgate`
 
@@ -49,21 +49,19 @@ gcc src\main.c -o mote.exe
 说明：
 
 - `gcc` 用来构建 `mote.exe`
-- `clang` 需要在 `PATH` 中，只有 `--emit-exe` 时才会用到
+- `clang` 需要在 `PATH` 中，默认生成可执行文件时会用到
 
 ## 编译器用法
 
 当前 CLI 形式如下：
 
 ```text
-mote [--pkg name=path]... <input>
-mote [--pkg name=path]... --emit-llvm <input> [output.ll]
-mote [--pkg name=path]... [--link-arg value]... --emit-exe <input> [output.exe]
+mote [options] <input.mote>
 ```
 
 最常见的三种用法：
 
-只做前端分析并打印 AST / MIR：
+默认生成可执行文件：
 
 ```powershell
 .\mote.exe test\basic\simple.mote
@@ -72,21 +70,24 @@ mote [--pkg name=path]... [--link-arg value]... --emit-exe <input> [output.exe]
 输出 LLVM IR：
 
 ```powershell
-.\mote.exe --emit-llvm test\basic\simple.mote
+.\mote.exe -S test\basic\simple.mote
 ```
 
-直接生成可执行文件：
+打印 AST / MIR：
 
 ```powershell
-.\mote.exe --emit-exe test\basic\simple.mote
+.\mote.exe --dump-ast --dump-mir -S test\basic\simple.mote
 ```
 
 几个关键选项：
 
-- `--pkg name=path`：注册 `@import("name/...")` 的包根目录
-- `--emit-llvm`：输出 `.ll`
-- `--emit-exe`：调用 `clang` 生成可执行文件
-- `--link-arg value`：在 `--emit-exe` 时额外转发一个链接参数
+- `-o <file>`：指定输出路径
+- `-S`：输出 `.ll`，不链接
+- `-I <dir>`：添加模块搜索根，供 `@import("c")`、`@import("raylib")` 这类导入使用
+- `-L <dir>`：添加链接库搜索目录
+- `-l<name>`：链接库
+- `-Wl,<args>`：把参数直接转发给 linker
+- `--dump-ast` / `--dump-mir`：显式打印 AST / MIR
 
 更完整的 CLI 说明见：
 
@@ -97,7 +98,7 @@ mote [--pkg name=path]... [--link-arg value]... --emit-exe <input> [output.exe]
 ### 1. 先编一个最小例子
 
 ```powershell
-.\mote.exe --pkg c=lib\c --emit-exe test\ffi\string_as_ptr.mote test\artifacts\string_as_ptr.exe
+.\mote.exe test\ffi\string_as_ptr.mote -I lib -o test\artifacts\string_as_ptr.exe
 .\test\artifacts\string_as_ptr.exe
 ```
 
@@ -116,7 +117,7 @@ mote [--pkg name=path]... [--link-arg value]... --emit-exe <input> [output.exe]
 编译：
 
 ```powershell
-.\mote.exe --pkg raylib=lib\raylib --pkg c=lib\c --pkg notgate=test\game\notgate --link-arg test\game\notgate\build\raylib.lib --link-arg opengl32.lib --link-arg gdi32.lib --link-arg winmm.lib --link-arg user32.lib --link-arg shell32.lib --emit-exe test\game\notgate_main.mote test\artifacts\notgate.exe
+.\mote.exe test\game\notgate_main.mote -I lib -I test\game -L test\game\notgate\build -lraylib -lopengl32 -lgdi32 -lwinmm -luser32 -lshell32 -o test\artifacts\notgate.exe
 ```
 
 运行：
