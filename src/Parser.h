@@ -22,6 +22,7 @@ ASTDataType* parseTypeExpr(Token **token);
 ASTDataType* parseDataType(Token **token);
 ASTTypeArgument* parseTypeArgumentList(Token **token);
 ASTFunctionCapture* parseFunctionCaptures(Token **token);
+bool parseFunctionParameterList(Token **token, bool for_type_syntax, ASTFunctionParameter **out_head, bool *out_is_variadic);
 
 void parseQualifiedIdentifier(Token **token, char *buffer)
 {
@@ -82,22 +83,8 @@ ASTDataType* parsePrimaryDataType(Token **token)
         (*token) = (*token)->next;
 
         ASTFunctionParameter *parameters = NULL;
-        ASTFunctionParameter *tail = NULL;
-        while((*token)->kind != TK_RIGHT_BRACKET)
-        {
-            ASTFunctionParameter *parameter = newASTFunctionParameterFromToken(*token);
-            parameter->data_type = parseDataType(token);
-            if(parameters == NULL)
-                parameters = parameter;
-            else
-                tail->next = parameter;
-            tail = parameter;
-
-            if((*token)->kind == TK_COMMA)
-                (*token) = (*token)->next;
-            else
-                break;
-        }
+        bool is_variadic = false;
+        parseFunctionParameterList(token, true, &parameters, &is_variadic);
 
         expectToken(*token, TK_RIGHT_BRACKET);
         (*token) = (*token)->next;
@@ -106,7 +93,7 @@ ASTDataType* parsePrimaryDataType(Token **token)
         ASTDataType *return_data_type = parseDataType(token);
         expectToken(*token, TK_RIGHT_PARENTHESIS);
         (*token) = (*token)->next;
-        return newFunctionDataType(parameters, return_data_type);
+        return newFunctionDataType(parameters, is_variadic, return_data_type);
     }
     else if(strcmp(identifier, "Array") == 0)
     {
@@ -331,24 +318,39 @@ bool isStatementAssign(Token *token)
     return false;
 }
 
-ASTFunctionParameter* parseFunctionParameters(Token **token)
+bool parseFunctionParameterList(Token **token, bool for_type_syntax, ASTFunctionParameter **out_head, bool *out_is_variadic)
 {
     ASTFunctionParameter *head = NULL;
     ASTFunctionParameter *tail = NULL;
+    bool is_variadic = false;
 
-    expectToken(*token, TK_LEFT_PARENTHESIS);
-    (*token) = (*token)->next;
-
-    while((*token)->kind != TK_RIGHT_PARENTHESIS)
+    TokenKind end_token = for_type_syntax ? TK_RIGHT_BRACKET : TK_RIGHT_PARENTHESIS;
+    while((*token)->kind != end_token)
     {
-        Token *parameter_token = expectToken(*token, TK_IDENTIFIER);
-        ASTFunctionParameter *parameter = newASTFunctionParameterFromToken(parameter_token);
-        strcpy(parameter->identifier, parameter_token->identifier);
-        (*token) = (*token)->next;
+        if((*token)->kind == TK_ELLIPSIS)
+        {
+            is_variadic = true;
+            (*token) = (*token)->next;
+            break;
+        }
 
-        expectToken(*token, TK_COLON);
-        (*token) = (*token)->next;
-        parameter->data_type = parseDataType(token);
+        ASTFunctionParameter *parameter = NULL;
+        if(for_type_syntax)
+        {
+            parameter = newASTFunctionParameterFromToken(*token);
+            parameter->data_type = parseDataType(token);
+        }
+        else
+        {
+            Token *parameter_token = expectToken(*token, TK_IDENTIFIER);
+            parameter = newASTFunctionParameterFromToken(parameter_token);
+            strcpy(parameter->identifier, parameter_token->identifier);
+            (*token) = (*token)->next;
+
+            expectToken(*token, TK_COLON);
+            (*token) = (*token)->next;
+            parameter->data_type = parseDataType(token);
+        }
 
         if(head == NULL)
             head = parameter;
@@ -357,14 +359,36 @@ ASTFunctionParameter* parseFunctionParameters(Token **token)
         tail = parameter;
 
         if((*token)->kind == TK_COMMA)
+        {
             (*token) = (*token)->next;
+            if((*token)->kind == end_token)
+                break;
+            continue;
+        }
         else
             break;
     }
 
+    *out_head = head;
+    *out_is_variadic = is_variadic;
+    return is_variadic;
+}
+
+ASTFunctionParameter* parseFunctionParameters(Token **token, bool *out_is_variadic)
+{
+    ASTFunctionParameter *head = NULL;
+    bool is_variadic = false;
+
+    expectToken(*token, TK_LEFT_PARENTHESIS);
+    (*token) = (*token)->next;
+
+    parseFunctionParameterList(token, false, &head, &is_variadic);
+
     expectToken(*token, TK_RIGHT_PARENTHESIS);
     (*token) = (*token)->next;
 
+    if(out_is_variadic != NULL)
+        *out_is_variadic = is_variadic;
     return head;
 }
 
@@ -377,9 +401,9 @@ ASTNode* parseFunctionExpr(Token **token)
     if((*token)->kind == TK_PIPE)
         node->captures = parseFunctionCaptures(token);
 
-    node->parameters = parseFunctionParameters(token);
+    node->parameters = parseFunctionParameters(token, &(node->is_variadic));
     node->return_data_type = parseDataType(token);
-    node->data_type = newFunctionDataType(cloneFunctionParameters(node->parameters), cloneDataType(node->return_data_type));
+    node->data_type = newFunctionDataType(cloneFunctionParameters(node->parameters), node->is_variadic, cloneDataType(node->return_data_type));
     node->body = parseBlock(token);
     return node;
 }

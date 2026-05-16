@@ -45,11 +45,6 @@ pub fabsf = @extern("fabsf", Function([f32], f32));
 pub fminf = @extern("fminf", Function([f32, f32], f32));
 
 pub stderr_handle = @extern("mote_stderr_handle", Function([], *void));
-pub snprintf0 = @extern("mote_snprintf0", Function([*mut char, size_t, *char], i32));
-pub snprintf_i32 = @extern("mote_snprintf_i32", Function([*mut char, size_t, *char, i32], i32));
-pub snprintf_str = @extern("mote_snprintf_str", Function([*mut char, size_t, *char, *char], i32));
-pub snprintf_f64_i32 = @extern("mote_snprintf_f64_i32", Function([*mut char, size_t, *char, f64, i32], i32));
-pub printf_i32_str = @extern("mote_printf_i32_str", Function([*char, i32, *char], i32));
-pub fprintf0 = @extern("mote_fprintf0", Function([*void, *char], i32));
-pub fprintf_str = @extern("mote_fprintf_str", Function([*void, *char, *char], i32));
-pub fprintf_char_i32_i32_str = @extern("mote_fprintf_char_i32_i32_str", Function([*void, *char, i32, i32, i32, *char], i32));
+pub printf = @extern("printf", Function([*char, ...], i32));
+pub fprintf = @extern("fprintf", Function([*void, *char, ...], i32));
+pub snprintf = @extern("snprintf", Function([*mut char, size_t, *char, ...], i32));

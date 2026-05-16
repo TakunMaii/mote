@@ -41,6 +41,7 @@ typedef enum {
     TK_DOUBLE_PIPE,
     TK_DOUBLE_EQUAL,
     TK_EXCLAMATION_EQUAL,
+    TK_ELLIPSIS,
     TK_LESS,
     TK_LESS_EQUAL,
     TK_GREATER,
@@ -154,6 +155,7 @@ const char* tokenKindToString(TokenKind kind)
         case TK_DOUBLE_PIPE: return "TK_DOUBLE_PIPE";
         case TK_DOUBLE_EQUAL: return "TK_DOUBLE_EQUAL";
         case TK_EXCLAMATION_EQUAL: return "TK_EXCLAMATION_EQUAL";
+        case TK_ELLIPSIS: return "TK_ELLIPSIS";
         case TK_LESS: return "TK_LESS";
         case TK_LESS_EQUAL: return "TK_LESS_EQUAL";
         case TK_GREATER: return "TK_GREATER";
@@ -222,6 +224,7 @@ void printToken(Token token)
         case TK_DOUBLE_PIPE: {printf("TK_DOUBLE_PIPE\n");}break;
         case TK_DOUBLE_EQUAL: {printf("TK_DOUBLE_EQUAL\n");}break;
         case TK_EXCLAMATION_EQUAL: {printf("TK_EXCLAMATION_EQUAL\n");}break;
+        case TK_ELLIPSIS: {printf("TK_ELLIPSIS\n");}break;
         case TK_LESS: {printf("TK_LESS\n");}break;
         case TK_LESS_EQUAL: {printf("TK_LESS_EQUAL\n");}break;
         case TK_GREATER: {printf("TK_GREATER\n");}break;

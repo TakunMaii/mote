@@ -232,6 +232,9 @@ int getFloatPrimaryWidth(ASTPrimaryDataType primary)
 
 bool isSameFunctionSignature(ASTDataType *lhs, ASTDataType *rhs)
 {
+    if(lhs->is_variadic != rhs->is_variadic)
+        return false;
+
     ASTFunctionParameter *lhs_parameter = lhs->parameters;
     ASTFunctionParameter *rhs_parameter = rhs->parameters;
     while(lhs_parameter && rhs_parameter)
@@ -399,7 +402,8 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
                 parameter = parameter->next;
             }
 
-            return newFunctionDataType(head, resolveNamedDataType(data_type->return_data_type, scope, self_data_type));
+            return newFunctionDataType(head, data_type->is_variadic,
+                                       resolveNamedDataType(data_type->return_data_type, scope, self_data_type));
         }
         case AST_DATA_TYPE_KIND_APPLY: {
             if(data_type->callee != NULL && data_type->callee->kind == AST_DATA_TYPE_KIND_NAMED)
@@ -496,6 +500,7 @@ void bindCallArgumentsForInstantiation(ASTFunctionParameter *parameter, ASTNode 
             {
                 inst_variable->type_value = cloneDataType(outer_variable->type_value);
                 inst_variable->function_value = outer_variable->function_value;
+                inst_variable->extern_value = outer_variable->extern_value;
             }
         }
 
@@ -711,6 +716,70 @@ ASTDataType* inferExternBuiltinFunctionType(ASTNode *node, ScopeFrame *scope)
     return function_type;
 }
 
+bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_node, ASTDataType *target_type)
+{
+    if(target_type == NULL || isInferDataType(target_type))
+        return false;
+
+    if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
+    {
+        if(target_type->kind == AST_DATA_TYPE_KIND_POINTER)
+            return source_node != NULL && source_node->kind == AST_EXPR_LITERAL_INTEGER && source_node->literal_integer == 0;
+
+        if(target_type->kind != AST_DATA_TYPE_KIND_PRIMARY)
+            return false;
+
+        if(isIntegerPrimary(target_type->primary) || isFloatPrimary(target_type->primary))
+            return true;
+        return false;
+    }
+
+    if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
+        return target_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+               (isFloatPrimary(target_type->primary) || isIntegerPrimary(target_type->primary));
+
+    if(source_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
+        return false;
+
+    ASTDataType *source_data_type = source_type.data_type;
+    if(source_data_type == NULL)
+        return false;
+
+    if(isSameDataType(source_data_type, target_type))
+        return true;
+
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_PRIMARY && target_type->kind == AST_DATA_TYPE_KIND_PRIMARY)
+    {
+        ASTPrimaryDataType source_primary = source_data_type->primary;
+        ASTPrimaryDataType target_primary = target_type->primary;
+
+        if(isVoidPrimary(source_primary) || isVoidPrimary(target_primary) ||
+           isBoolPrimary(source_primary) || isBoolPrimary(target_primary) ||
+           isTypePrimary(source_primary) || isTypePrimary(target_primary))
+            return false;
+
+        if((isIntegerPrimary(source_primary) || isFloatPrimary(source_primary)) &&
+           (isIntegerPrimary(target_primary) || isFloatPrimary(target_primary)))
+            return true;
+
+        return false;
+    }
+
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_POINTER && target_type->kind == AST_DATA_TYPE_KIND_POINTER)
+        return true;
+
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && target_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+        return canExplicitConvertDataType(newValueExprType(source_data_type->child), source_node, target_type->child);
+
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_POINTER && target_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+        return canExplicitConvertDataType(newValueExprType(source_data_type->child), source_node, target_type->child);
+
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && target_type->kind == AST_DATA_TYPE_KIND_POINTER)
+        return canExplicitConvertDataType(newValueExprType(source_data_type->child), source_node, target_type->child);
+
+    return false;
+}
+
 ASTDataType* inferZeroBuiltinValueType(ASTNode *node, ScopeFrame *scope)
 {
     if(node->lhs == NULL || node->lhs->next != NULL)
@@ -737,6 +806,45 @@ ASTDataType* inferZeroBuiltinValueType(ASTNode *node, ScopeFrame *scope)
     }
 
     return value_type;
+}
+
+ASTDataType* inferAsBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    if(node->lhs == NULL || node->lhs->next == NULL || node->lhs->next->next != NULL)
+    {
+        printf("Type error: @as expects exactly two arguments at file %s, line %d, column %d\n",
+               node->filename, node->line_number, node->column_number);
+        exit(1);
+    }
+
+    ASTNode *target_type_expr = node->lhs;
+    ASTNode *value_expr = target_type_expr->next;
+
+    TypeSystemExprType target_type_value = inferExprType(target_type_expr, scope);
+    if(target_type_value.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
+    {
+        printf("Type error: @as expects a type as its first argument at file %s, line %d, column %d\n",
+               target_type_expr->filename, target_type_expr->line_number, target_type_expr->column_number);
+        exit(1);
+    }
+
+    ASTDataType *target_type = resolveNamedDataType(target_type_value.data_type, scope, NULL);
+    if(target_type == NULL)
+    {
+        printf("Type error: @as could not resolve its target type at file %s, line %d, column %d\n",
+               target_type_expr->filename, target_type_expr->line_number, target_type_expr->column_number);
+        exit(1);
+    }
+
+    TypeSystemExprType source_type = inferExprType(value_expr, scope);
+    if(!canExplicitConvertDataType(source_type, value_expr, target_type))
+    {
+        printf("Type error: invalid explicit conversion with @as at file %s, line %d, column %d\n",
+               value_expr->filename, value_expr->line_number, value_expr->column_number);
+        exit(1);
+    }
+
+    return target_type;
 }
 
 bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_node, ASTDataType *target_type)
@@ -1032,7 +1140,70 @@ int countFunctionParameters(ASTFunctionParameter *parameter)
     return count;
 }
 
-void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argument, ScopeFrame *scope)
+bool isVariadicPromotableScalar(ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        return false;
+
+    if(data_type->kind == AST_DATA_TYPE_KIND_PRIMARY)
+    {
+        switch(data_type->primary)
+        {
+            case AST_PRIMARY_DATA_TYPE_BOOL:
+            case AST_PRIMARY_DATA_TYPE_CHAR:
+            case AST_PRIMARY_DATA_TYPE_I8:
+            case AST_PRIMARY_DATA_TYPE_I16:
+            case AST_PRIMARY_DATA_TYPE_U8:
+            case AST_PRIMARY_DATA_TYPE_U16:
+            case AST_PRIMARY_DATA_TYPE_F32:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    return isEnumDataType(data_type);
+}
+
+ASTDataType* variadicPromotedDataType(ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        return NULL;
+
+    if(isEnumDataType(data_type))
+        return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I32);
+
+    if(data_type->kind != AST_DATA_TYPE_KIND_PRIMARY)
+        return cloneDataType(data_type);
+
+    switch(data_type->primary)
+    {
+        case AST_PRIMARY_DATA_TYPE_BOOL:
+        case AST_PRIMARY_DATA_TYPE_CHAR:
+        case AST_PRIMARY_DATA_TYPE_I8:
+        case AST_PRIMARY_DATA_TYPE_I16:
+        case AST_PRIMARY_DATA_TYPE_U8:
+        case AST_PRIMARY_DATA_TYPE_U16:
+            return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I32);
+        case AST_PRIMARY_DATA_TYPE_F32:
+            return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_F64);
+        default:
+            return cloneDataType(data_type);
+    }
+}
+
+ASTDataType* variadicPromotedExprType(TypeSystemExprType expr_type)
+{
+    if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
+        return defaultIntegerDataType();
+    if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
+        return defaultFloatDataType();
+    if(expr_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
+        return NULL;
+    return variadicPromotedDataType(expr_type.data_type);
+}
+
+void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argument, ScopeFrame *scope, bool is_variadic)
 {
     while(parameter && argument)
     {
@@ -1056,10 +1227,47 @@ void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argume
         argument = argument->next;
     }
 
-    if(parameter != NULL || argument != NULL)
+    if(parameter != NULL)
     {
         printf("Type error: function argument count mismatch\n");
         exit(1);
+    }
+
+    if(!is_variadic && argument != NULL)
+    {
+        printf("Type error: function argument count mismatch\n");
+        exit(1);
+    }
+
+    while(argument)
+    {
+        TypeSystemExprType argument_type = inferExprType(argument, scope);
+        if(argument_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER ||
+           argument_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
+        {
+            argument = argument->next;
+            continue;
+        }
+
+        if(argument_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
+        {
+            printf("Type error: variadic argument must be a runtime value at file %s, line %d, column %d\n",
+                   argument->filename, argument->line_number, argument->column_number);
+            exit(1);
+        }
+        if(argument_type.data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+        {
+            printf("Type error: variadic argument cannot be a reference type at file %s, line %d, column %d\n",
+                   argument->filename, argument->line_number, argument->column_number);
+            exit(1);
+        }
+        if(argument_type.data_type->kind == AST_DATA_TYPE_KIND_ARRAY)
+        {
+            printf("Type error: variadic argument cannot be an array value at file %s, line %d, column %d\n",
+                   argument->filename, argument->line_number, argument->column_number);
+            exit(1);
+        }
+        argument = argument->next;
     }
 }
 
@@ -1119,6 +1327,8 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 return newValueExprType(inferExternBuiltinFunctionType(node, scope));
             if(strcmp(node->identifier, "zero") == 0)
                 return newValueExprType(inferZeroBuiltinValueType(node, scope));
+            if(strcmp(node->identifier, "as") == 0)
+                return newValueExprType(inferAsBuiltinValueType(node, scope));
             printf("Type error: unknown builtin @%s at file %s, line %d, column %d\n",
                    node->identifier, node->filename, node->line_number, node->column_number);
             exit(1);
@@ -1357,7 +1567,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                         if(!through_type && parameter != NULL &&
                            canBindMethodReceiver(member_node->lhs, scope, parameter->data_type, struct_type))
                         {
-                            checkFunctionCallArguments(parameter->next, node->rhs, scope);
+                            checkFunctionCallArguments(parameter->next, node->rhs, scope, member->data_type->is_variadic);
                             return newValueExprType(member->data_type->return_data_type);
                         }
                     }
@@ -1372,7 +1582,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 exit(1);
             }
 
-            checkFunctionCallArguments(callee_type.data_type->parameters, node->rhs, scope);
+            checkFunctionCallArguments(callee_type.data_type->parameters, node->rhs, scope, callee_type.data_type->is_variadic);
 
             return newValueExprType(callee_type.data_type->return_data_type);
         }

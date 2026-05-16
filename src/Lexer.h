@@ -289,6 +289,12 @@ Token* tokenize(char *code, const char* filename)
             code += 2;
             column += 2;
         }
+        else if(expectStr("...", 3, code)) {
+            token->next = newToken(TK_ELLIPSIS, filename, line, column);
+            token = token->next;
+            code += 3;
+            column += 3;
+        }
         else if(expectStr("<=", 2, code)) {
             token->next = newToken(TK_LESS_EQUAL, filename, line, column);
             token = token->next;

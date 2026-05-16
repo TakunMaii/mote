@@ -50,6 +50,7 @@ typedef enum MirInstKind {
     MIR_INST_STRUCT_LITERAL,
     MIR_INST_ENUM_LITERAL,
     MIR_INST_CALL,
+    MIR_INST_EXTERN_CALL,
 } MirInstKind;
 
 typedef enum MirTerminatorKind {
@@ -159,6 +160,11 @@ typedef struct MirInst {
             MirValueId callee;
             MirOperandList arguments;
         } call;
+        struct {
+            char symbol_name[MIR_MAX_NAME_LENGTH];
+            ASTDataType *function_type;
+            MirOperandList arguments;
+        } extern_call;
     } data;
 } MirInst;
 
@@ -236,6 +242,7 @@ typedef struct MirExternFunction {
     char wrapper_name[MIR_MAX_NAME_LENGTH];
     char symbol_name[MIR_MAX_NAME_LENGTH];
     ASTDataType *function_type;
+    bool is_direct;
 } MirExternFunction;
 
 typedef struct MirProgram {
@@ -262,6 +269,7 @@ typedef struct MirRuntimeBinding {
     ASTDataType *declared_data_type;
     ASTDataType *type_value;
     ASTNode *function_value;
+    ASTNode *extern_value;
     MirValueId local_value;
     char global_name[MIR_MAX_NAME_LENGTH];
 } MirRuntimeBinding;
@@ -433,16 +441,18 @@ static const char* mirEnsureExternFunction(MirLowering *lowering, const char *sy
                        symbol_name, filename, line, column);
                 exit(1);
             }
-            return extern_function->wrapper_name;
+            return extern_function->is_direct ? extern_function->symbol_name : extern_function->wrapper_name;
         }
     }
 
     MirExternFunction *extern_function = mirAppendExternFunction(lowering->program);
-    snprintf(extern_function->wrapper_name, sizeof(extern_function->wrapper_name),
-             "__mote_extern_%d", lowering->unique_extern_counter++);
+    if(!function_type->is_variadic)
+        snprintf(extern_function->wrapper_name, sizeof(extern_function->wrapper_name),
+                 "__mote_extern_%d", lowering->unique_extern_counter++);
     strcpy(extern_function->symbol_name, symbol_name);
     extern_function->function_type = cloneDataType(function_type);
-    return extern_function->wrapper_name;
+    extern_function->is_direct = function_type->is_variadic;
+    return extern_function->is_direct ? extern_function->symbol_name : extern_function->wrapper_name;
 }
 
 static ASTDataType* mirGetValueType(MirFunctionState *state, MirValueId value)
@@ -894,6 +904,32 @@ static MirValueId mirEmitCall(MirFunctionState *state, MirValueId callee, MirOpe
     return result;
 }
 
+static MirValueId mirEmitExternCall(MirFunctionState *state, const char *symbol_name, ASTDataType *function_type,
+                                    MirOperandList arguments, ASTDataType *return_type,
+                                    const char *filename, int line, int column)
+{
+    MirValueId result = -1;
+    if(!mirIsValueTypeVoid(return_type))
+        result = mirEmitResultInst(state, MIR_INST_EXTERN_CALL, return_type, filename, line, column);
+    else
+    {
+        MirBlock *block = &(mirCurrentFunction(state)->blocks[state->current_block]);
+        MirInst *inst = mirAppendInst(block);
+        inst->kind = MIR_INST_EXTERN_CALL;
+        inst->result = -1;
+        inst->result_type = cloneDataType(return_type);
+        inst->filename = filename;
+        inst->line_number = line;
+        inst->column_number = column;
+    }
+
+    MirInst *inst = mirGetLastInst(state);
+    strcpy(inst->data.extern_call.symbol_name, symbol_name);
+    inst->data.extern_call.function_type = cloneDataType(function_type);
+    inst->data.extern_call.arguments = arguments;
+    return result;
+}
+
 static void mirEmitBr(MirFunctionState *state, MirBlockId target)
 {
     mirCurrentFunction(state)->blocks[state->current_block].terminator.kind = MIR_TERM_BR;
@@ -1029,6 +1065,9 @@ static void mirDeclareVariableInfo(MirLowerScope *scope, ASTNode *assign_node, A
         variable_info->type_value = cloneDataType(expr_type.data_type);
     if(assign_node->rhs != NULL && assign_node->rhs->kind == AST_EXPR_FUNCTION)
         variable_info->function_value = assign_node->rhs;
+    if(assign_node->rhs != NULL && assign_node->rhs->kind == AST_EXPR_BUILTIN &&
+       strcmp(assign_node->rhs->identifier, "extern") == 0)
+        variable_info->extern_value = assign_node->rhs;
 }
 
 static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirLowerScope *outer_scope,
@@ -1564,6 +1603,13 @@ static MirValueId lowerExternBuiltinExpr(MirFunctionState *state, MirLowerScope 
                                          ASTDataType *expected_type)
 {
     ASTDataType *function_type = mirResolvedExprValueType(node, &(scope->type_scope));
+    if(function_type->is_variadic)
+    {
+        printf("MIR lowering error: variadic extern values cannot be materialized as first-class closures at file %s, line %d, column %d\n",
+               node->filename, node->line_number, node->column_number);
+        exit(1);
+    }
+
     const char *wrapper_name = mirEnsureExternFunction(
         state->lowering,
         node->lhs->literal_string,
@@ -1585,6 +1631,76 @@ static MirValueId lowerZeroBuiltinExpr(MirFunctionState *state, MirLowerScope *s
     MirValueId zero_value = mirEmitZero(state, value_type,
                                         node->filename, node->line_number, node->column_number);
     return mirMaybeConvertValue(state, scope, node, zero_value, expected_type);
+}
+
+static MirValueId lowerAsBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
+                                     ASTDataType *expected_type)
+{
+    ASTNode *target_type_expr = node->lhs;
+    ASTNode *value_expr = target_type_expr != NULL ? target_type_expr->next : NULL;
+    ASTDataType *target_type = mirResolvedExprValueType(node, &(scope->type_scope));
+
+    MirValueId value = lowerExprAsValue(state, scope, value_expr, NULL);
+    value = mirEmitConvert(state, value, target_type,
+                           node->filename, node->line_number, node->column_number);
+    return mirMaybeConvertValue(state, scope, node, value, expected_type);
+}
+
+static ASTDataType* mirInferVariadicArgumentType(ASTNode *argument_node, MirLowerScope *scope)
+{
+    TypeSystemExprType argument_type = inferExprType(argument_node, &(scope->type_scope));
+    ASTDataType *promoted_type = variadicPromotedExprType(argument_type);
+    if(promoted_type == NULL)
+    {
+        printf("MIR lowering error: variadic argument must be a runtime value at file %s, line %d, column %d\n",
+               argument_node->filename, argument_node->line_number, argument_node->column_number);
+        exit(1);
+    }
+    return promoted_type;
+}
+
+static MirValueId lowerDirectExternCall(MirFunctionState *state, MirLowerScope *scope, ASTNode *call_node,
+                                        ASTNode *extern_node, ASTDataType *function_type,
+                                        ASTDataType *expected_type)
+{
+    const char *symbol_name = mirEnsureExternFunction(
+        state->lowering,
+        extern_node->lhs->literal_string,
+        function_type,
+        call_node->filename,
+        call_node->line_number,
+        call_node->column_number
+    );
+
+    MirOperandList arguments = newMirOperandList(countASTNodes(call_node->rhs));
+    ASTFunctionParameter *parameter = function_type->parameters;
+    ASTNode *argument_node = call_node->rhs;
+    int index = 0;
+    while(argument_node)
+    {
+        ASTDataType *parameter_type = NULL;
+        if(parameter != NULL)
+        {
+            parameter_type = parameter->data_type;
+            parameter = parameter->next;
+        }
+        else
+            parameter_type = mirInferVariadicArgumentType(argument_node, scope);
+
+        if(parameter_type != NULL && parameter_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+            arguments.items[index++] = lowerExprAsAddress(state, scope, argument_node);
+        else
+            arguments.items[index++] = lowerExprAsValue(state, scope, argument_node, parameter_type);
+
+        argument_node = argument_node->next;
+    }
+
+    ASTDataType *return_type = mirResolvedExprValueType(call_node, &(scope->type_scope));
+    MirValueId call_value = mirEmitExternCall(state, symbol_name, function_type, arguments, return_type,
+                                              call_node->filename, call_node->line_number, call_node->column_number);
+    if(mirIsValueTypeVoid(return_type))
+        return call_value;
+    return mirMaybeConvertValue(state, scope, call_node, call_value, expected_type);
 }
 
 static ASTDataType* inferComparisonOperandType(ASTNode *lhs, ASTNode *rhs, ScopeFrame *scope)
@@ -1620,6 +1736,17 @@ static MirValueId lowerCallExpr(MirFunctionState *state, MirLowerScope *scope, A
     MirMaybeValue comptime_call = tryLowerComptimeFunctionCall(state, scope, node);
     if(comptime_call.valid)
         return mirMaybeConvertValue(state, scope, node, comptime_call.value, expected_type);
+
+    if(node->lhs->kind == AST_EXPR_VARIABLE)
+    {
+        VariableInfo *callee_variable = findVariableInfo(&(scope->type_scope), node->lhs->identifier);
+        if(callee_variable != NULL && callee_variable->extern_value != NULL)
+        {
+            ASTDataType *function_type = mirResolvedExprValueType(node->lhs, &(scope->type_scope));
+            if(function_type != NULL && function_type->is_variadic)
+                return lowerDirectExternCall(state, scope, node, callee_variable->extern_value, function_type, expected_type);
+        }
+    }
 
     ASTNode *callee_expr = node->lhs;
     MirValueId callee = -1;
@@ -1701,6 +1828,13 @@ static MirValueId lowerCallExpr(MirFunctionState *state, MirLowerScope *scope, A
     callee = lowerExprAsValue(state, scope, callee_expr, NULL);
     TypeSystemExprType callee_type = inferExprType(callee_expr, &(scope->type_scope));
     ASTFunctionParameter *parameter = callee_type.data_type == NULL ? NULL : callee_type.data_type->parameters;
+
+    if(callee_expr->kind == AST_EXPR_VARIABLE &&
+       strcmp(callee_expr->identifier, "draw_game") == 0)
+    {
+        printf("DBG lowerCallExpr draw_game param0 kind=%d\n",
+               parameter != NULL && parameter->data_type != NULL ? parameter->data_type->kind : -1);
+    }
 
     arguments = newMirOperandList(countASTNodes(node->rhs));
     ASTNode *argument_node = node->rhs;
@@ -1798,6 +1932,8 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                 return lowerExternBuiltinExpr(state, scope, node, expected_type);
             if(strcmp(node->identifier, "zero") == 0)
                 return lowerZeroBuiltinExpr(state, scope, node, expected_type);
+            if(strcmp(node->identifier, "as") == 0)
+                return lowerAsBuiltinExpr(state, scope, node, expected_type);
             printf("MIR lowering error: unsupported builtin @%s at file %s, line %d, column %d\n",
                    node->identifier, node->filename, node->line_number, node->column_number);
             exit(1);
@@ -2054,8 +2190,13 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
             binding->mutable = node->modifier.mutable;
             binding->declared_data_type = cloneDataType(declared_type);
             binding->function_value = node->rhs->kind == AST_EXPR_FUNCTION ? node->rhs : NULL;
+            binding->extern_value = node->rhs->kind == AST_EXPR_BUILTIN &&
+                                    strcmp(node->rhs->identifier, "extern") == 0 ? node->rhs : NULL;
 
             if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
+               (node->rhs->kind == AST_EXPR_BUILTIN &&
+                strcmp(node->rhs->identifier, "extern") == 0 &&
+                declared_type->is_variadic) ||
                (node->rhs->kind == AST_EXPR_FUNCTION && functionHasTypeParameters(node->rhs->parameters)))
             {
                 binding->kind = MIR_RUNTIME_BINDING_COMPTIME_ONLY;

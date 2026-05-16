@@ -119,12 +119,20 @@ void declareFunctionCaptures(ASTFunctionCapture *capture, ScopeFrame *target_sco
         variable_info->data_type = cloneDataType(outer_variable->data_type);
         variable_info->type_value = cloneDataType(outer_variable->type_value);
         variable_info->function_value = outer_variable->function_value;
+        variable_info->extern_value = outer_variable->extern_value;
         capture = capture->next;
     }
 }
 
 void checkFunctionExprSemantics(ASTNode *node, ScopeFrame *scope)
 {
+    if(node->is_variadic)
+    {
+        printf("Semantic error: variadic mote function definitions are not supported yet at file %s, line %d, column %d\n",
+               node->filename, node->line_number, node->column_number);
+        exit(1);
+    }
+
     ScopeFrame *function_scope = newScopeFrame(scope);
     declareFunctionParameters(node->parameters, function_scope);
     declareFunctionCaptures(node->captures, function_scope, scope);
@@ -690,7 +698,7 @@ ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope,
 
     ASTDataType *resolved_return_type = resolveNamedDataType(node->return_data_type, signature_scope, self_data_type);
     deleteScopeFrame(signature_scope);
-    return newFunctionDataType(resolved_parameters, resolved_return_type);
+    return newFunctionDataType(resolved_parameters, node->is_variadic, resolved_return_type);
 }
 
 void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scope, ASTDataType *self_data_type)
@@ -983,6 +991,8 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             new_variable_info->type_value = cloneDataType(expr_type.data_type);
         if(node->rhs->kind == AST_EXPR_FUNCTION)
             new_variable_info->function_value = node->rhs;
+        if(node->rhs->kind == AST_EXPR_BUILTIN && strcmp(node->rhs->identifier, "extern") == 0)
+            new_variable_info->extern_value = node->rhs;
     }
     else
     {
@@ -1003,6 +1013,8 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
                 new_variable_info->type_value = cloneDataType(expr_type.data_type);
             if(node->rhs->kind == AST_EXPR_FUNCTION)
                 new_variable_info->function_value = node->rhs;
+            if(node->rhs->kind == AST_EXPR_BUILTIN && strcmp(node->rhs->identifier, "extern") == 0)
+                new_variable_info->extern_value = node->rhs;
 
             if(!canImplicitConvertDataType(expr_type, node->rhs, declared_type))
                 typeErrorAssign(node, node->rhs, expr_type, declared_type);

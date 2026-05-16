@@ -1,0 +1,16 @@
+rl = @import("raylib");
+
+title: Array(char, 11) = "raylib hold\0";
+mut frames: i32 = 0;
+
+rl.InitWindow(320, 240, &title[0]);
+rl.SetTargetFPS(60);
+
+while(!rl.WindowShouldClose() && frames < 600) {
+    rl.BeginDrawing();
+    rl.ClearBackground(rl.RAYWHITE);
+    rl.EndDrawing();
+    frames = frames + 1;
+}
+
+rl.CloseWindow();

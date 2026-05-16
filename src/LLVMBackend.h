@@ -16,6 +16,20 @@ typedef struct LLVMFunctionEmitContext {
     int temp_counter;
 } LLVMFunctionEmitContext;
 
+typedef enum LLVMExternABIKind {
+    LLVM_EXTERN_ABI_DIRECT,
+    LLVM_EXTERN_ABI_INTEGER_COERCE,
+    LLVM_EXTERN_ABI_INDIRECT_POINTER,
+    LLVM_EXTERN_ABI_SRET_POINTER,
+} LLVMExternABIKind;
+
+typedef struct LLVMExternABIInfo {
+    LLVMExternABIKind kind;
+    int integer_bits;
+    size_t size;
+    size_t align;
+} LLVMExternABIInfo;
+
 static bool llvmIsVoidDataType(ASTDataType *data_type)
 {
     return data_type != NULL &&
@@ -56,6 +70,13 @@ static bool llvmIsIntegerLikePrimary(ASTPrimaryDataType primary)
     return isIntegerPrimary(primary) || isBoolPrimary(primary);
 }
 
+static bool llvmIsBoolDataType(ASTDataType *data_type)
+{
+    return data_type != NULL &&
+           data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           data_type->primary == AST_PRIMARY_DATA_TYPE_BOOL;
+}
+
 static int llvmIntegerBitWidth(ASTPrimaryDataType primary)
 {
     if(primary == AST_PRIMARY_DATA_TYPE_BOOL)
@@ -94,9 +115,176 @@ static ASTDataType* llvmPointeeType(ASTDataType *data_type)
     return data_type->child;
 }
 
-static void llvmEmitType(FILE *stream, ASTDataType *data_type);
+static size_t llvmAlignTo(size_t value, size_t alignment)
+{
+    if(alignment == 0)
+        return value;
+    size_t remainder = value % alignment;
+    if(remainder == 0)
+        return value;
+    return value + (alignment - remainder);
+}
 
-static void llvmEmitStructRuntimeType(FILE *stream, ASTDataType *data_type)
+static size_t llvmExternABITypeAlignment(ASTDataType *data_type);
+
+static size_t llvmExternABIPrimaryTypeSize(ASTPrimaryDataType primary)
+{
+    switch(primary)
+    {
+        case AST_PRIMARY_DATA_TYPE_VOID: return 0;
+        case AST_PRIMARY_DATA_TYPE_BOOL: return 1;
+        case AST_PRIMARY_DATA_TYPE_CHAR:
+        case AST_PRIMARY_DATA_TYPE_I8:
+        case AST_PRIMARY_DATA_TYPE_U8: return 1;
+        case AST_PRIMARY_DATA_TYPE_I16:
+        case AST_PRIMARY_DATA_TYPE_U16:
+        case AST_PRIMARY_DATA_TYPE_F16: return 2;
+        case AST_PRIMARY_DATA_TYPE_I32:
+        case AST_PRIMARY_DATA_TYPE_U32:
+        case AST_PRIMARY_DATA_TYPE_F32: return 4;
+        case AST_PRIMARY_DATA_TYPE_I64:
+        case AST_PRIMARY_DATA_TYPE_U64:
+        case AST_PRIMARY_DATA_TYPE_F64: return 8;
+        case AST_PRIMARY_DATA_TYPE_F8: return 1;
+        case AST_PRIMARY_DATA_TYPE_TYPE: return sizeof(void*);
+    }
+
+    return 0;
+}
+
+static size_t llvmExternABIPrimaryTypeAlignment(ASTPrimaryDataType primary)
+{
+    size_t size = llvmExternABIPrimaryTypeSize(primary);
+    if(size == 0)
+        return 1;
+    if(size > sizeof(void*))
+        return sizeof(void*);
+    return size;
+}
+
+static bool llvmIsExternAggregateType(ASTDataType *data_type)
+{
+    return data_type != NULL &&
+           (data_type->kind == AST_DATA_TYPE_KIND_ARRAY ||
+            data_type->kind == AST_DATA_TYPE_KIND_STRUCT);
+}
+
+static size_t llvmExternABITypeSize(ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        return 0;
+
+    switch(data_type->kind)
+    {
+        case AST_DATA_TYPE_KIND_PRIMARY:
+            return llvmExternABIPrimaryTypeSize(data_type->primary);
+        case AST_DATA_TYPE_KIND_POINTER:
+        case AST_DATA_TYPE_KIND_REFERENCE:
+        case AST_DATA_TYPE_KIND_FUNCTION:
+            return sizeof(void*);
+        case AST_DATA_TYPE_KIND_ENUM:
+            return 4;
+        case AST_DATA_TYPE_KIND_ARRAY: {
+            size_t child_size = llvmExternABITypeSize(data_type->child);
+            return child_size * (size_t) data_type->array_length;
+        }
+        case AST_DATA_TYPE_KIND_STRUCT: {
+            size_t offset = 0;
+            size_t max_align = 1;
+            ASTStructMember *member = data_type->members;
+            while(member)
+            {
+                if(member->value == NULL)
+                {
+                    size_t member_align = llvmExternABITypeAlignment(member->data_type);
+                    size_t member_size = llvmExternABITypeSize(member->data_type);
+                    offset = llvmAlignTo(offset, member_align);
+                    offset += member_size;
+                    if(member_align > max_align)
+                        max_align = member_align;
+                }
+                member = member->next;
+            }
+            return llvmAlignTo(offset, max_align);
+        }
+        default:
+            return 0;
+    }
+}
+
+static size_t llvmExternABITypeAlignment(ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        return 1;
+
+    switch(data_type->kind)
+    {
+        case AST_DATA_TYPE_KIND_PRIMARY:
+            return llvmExternABIPrimaryTypeAlignment(data_type->primary);
+        case AST_DATA_TYPE_KIND_POINTER:
+        case AST_DATA_TYPE_KIND_REFERENCE:
+        case AST_DATA_TYPE_KIND_FUNCTION:
+            return sizeof(void*);
+        case AST_DATA_TYPE_KIND_ENUM:
+            return 4;
+        case AST_DATA_TYPE_KIND_ARRAY:
+            return llvmExternABITypeAlignment(data_type->child);
+        case AST_DATA_TYPE_KIND_STRUCT: {
+            size_t max_align = 1;
+            ASTStructMember *member = data_type->members;
+            while(member)
+            {
+                if(member->value == NULL)
+                {
+                    size_t member_align = llvmExternABITypeAlignment(member->data_type);
+                    if(member_align > max_align)
+                        max_align = member_align;
+                }
+                member = member->next;
+            }
+            return max_align;
+        }
+        default:
+            return 1;
+    }
+}
+
+static LLVMExternABIInfo llvmDescribeExternParameterABI(ASTDataType *data_type)
+{
+    LLVMExternABIInfo info = {0};
+    info.kind = LLVM_EXTERN_ABI_DIRECT;
+    info.align = llvmExternABITypeAlignment(data_type);
+    info.size = llvmExternABITypeSize(data_type);
+
+    if(llvmIsExternAggregateType(data_type))
+    {
+        if(info.size == 1 || info.size == 2 || info.size == 4 || info.size == 8)
+        {
+            info.kind = LLVM_EXTERN_ABI_INTEGER_COERCE;
+            info.integer_bits = (int) (info.size * 8);
+        }
+        else
+            info.kind = LLVM_EXTERN_ABI_INDIRECT_POINTER;
+    }
+
+    return info;
+}
+
+static LLVMExternABIInfo llvmDescribeExternReturnABI(ASTDataType *data_type)
+{
+    LLVMExternABIInfo info = llvmDescribeExternParameterABI(data_type);
+    if(llvmIsVoidDataType(data_type))
+        info.kind = LLVM_EXTERN_ABI_DIRECT;
+    else if(llvmIsExternAggregateType(data_type) &&
+            !(info.size == 1 || info.size == 2 || info.size == 4 || info.size == 8))
+        info.kind = LLVM_EXTERN_ABI_SRET_POINTER;
+    return info;
+}
+
+static void llvmEmitType(FILE *stream, ASTDataType *data_type);
+static void llvmEmitStorageType(FILE *stream, ASTDataType *data_type);
+
+static void llvmEmitStructRuntimeType(FILE *stream, ASTDataType *data_type, bool storage_mode)
 {
     fprintf(stream, "{ ");
     bool need_comma = false;
@@ -107,7 +295,10 @@ static void llvmEmitStructRuntimeType(FILE *stream, ASTDataType *data_type)
         {
             if(need_comma)
                 fprintf(stream, ", ");
-            llvmEmitType(stream, member->data_type);
+            if(storage_mode)
+                llvmEmitStorageType(stream, member->data_type);
+            else
+                llvmEmitType(stream, member->data_type);
             need_comma = true;
         }
         member = member->next;
@@ -156,20 +347,77 @@ static void llvmEmitType(FILE *stream, ASTDataType *data_type)
             return;
         case AST_DATA_TYPE_KIND_ARRAY:
             fprintf(stream, "[%lld x ", data_type->array_length);
-            llvmEmitType(stream, data_type->child);
+            llvmEmitStorageType(stream, data_type->child);
             fprintf(stream, "]");
             return;
         case AST_DATA_TYPE_KIND_ENUM:
             fprintf(stream, "i32");
             return;
         case AST_DATA_TYPE_KIND_STRUCT:
-            llvmEmitStructRuntimeType(stream, data_type);
+            llvmEmitStructRuntimeType(stream, data_type, true);
             return;
         default:
             break;
     }
 
     llvmBackendError("unsupported runtime type shape", NULL, 0, 0);
+}
+
+static void llvmEmitStorageType(FILE *stream, ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        llvmBackendError("missing storage type", NULL, 0, 0);
+
+    switch(data_type->kind)
+    {
+        case AST_DATA_TYPE_KIND_PRIMARY:
+            switch(data_type->primary)
+            {
+                case AST_PRIMARY_DATA_TYPE_VOID: fprintf(stream, "void"); return;
+                case AST_PRIMARY_DATA_TYPE_BOOL: fprintf(stream, "i8"); return;
+                case AST_PRIMARY_DATA_TYPE_CHAR: fprintf(stream, "i8"); return;
+                case AST_PRIMARY_DATA_TYPE_I8:
+                case AST_PRIMARY_DATA_TYPE_U8: fprintf(stream, "i8"); return;
+                case AST_PRIMARY_DATA_TYPE_I16:
+                case AST_PRIMARY_DATA_TYPE_U16: fprintf(stream, "i16"); return;
+                case AST_PRIMARY_DATA_TYPE_I32:
+                case AST_PRIMARY_DATA_TYPE_U32: fprintf(stream, "i32"); return;
+                case AST_PRIMARY_DATA_TYPE_I64:
+                case AST_PRIMARY_DATA_TYPE_U64: fprintf(stream, "i64"); return;
+                case AST_PRIMARY_DATA_TYPE_F16: fprintf(stream, "half"); return;
+                case AST_PRIMARY_DATA_TYPE_F32: fprintf(stream, "float"); return;
+                case AST_PRIMARY_DATA_TYPE_F64: fprintf(stream, "double"); return;
+                case AST_PRIMARY_DATA_TYPE_F8:
+                    llvmBackendError("f8 is not supported by the textual LLVM backend yet", NULL, 0, 0);
+                    return;
+                case AST_PRIMARY_DATA_TYPE_TYPE:
+                    llvmBackendError("Type values are compile-time only and cannot be lowered to LLVM IR", NULL, 0, 0);
+                    return;
+            }
+            break;
+        case AST_DATA_TYPE_KIND_POINTER:
+        case AST_DATA_TYPE_KIND_REFERENCE:
+            fprintf(stream, "ptr");
+            return;
+        case AST_DATA_TYPE_KIND_FUNCTION:
+            fprintf(stream, "{ ptr, ptr }");
+            return;
+        case AST_DATA_TYPE_KIND_ARRAY:
+            fprintf(stream, "[%lld x ", data_type->array_length);
+            llvmEmitStorageType(stream, data_type->child);
+            fprintf(stream, "]");
+            return;
+        case AST_DATA_TYPE_KIND_ENUM:
+            fprintf(stream, "i32");
+            return;
+        case AST_DATA_TYPE_KIND_STRUCT:
+            llvmEmitStructRuntimeType(stream, data_type, true);
+            return;
+        default:
+            break;
+    }
+
+    llvmBackendError("unsupported storage type shape", NULL, 0, 0);
 }
 
 static void llvmEmitRuntimeParameterType(FILE *stream, ASTDataType *source_type)
@@ -181,6 +429,77 @@ static void llvmEmitRuntimeParameterType(FILE *stream, ASTDataType *source_type)
     }
 
     llvmEmitType(stream, source_type);
+}
+
+static void llvmMakeTempName(LLVMFunctionEmitContext *context, char *buffer, size_t buffer_size);
+static void llvmEmitTempAssignPrefix(FILE *stream, const char *name);
+static void llvmEmitValueRef(FILE *stream, LLVMFunctionEmitContext *context, int value_id);
+static const char* llvmPrepareStoredValueRef(FILE *stream, LLVMFunctionEmitContext *context, int value_id,
+                                             char *buffer, size_t buffer_size);
+
+static void llvmEmitIntegerCoerceType(FILE *stream, int bits)
+{
+    fprintf(stream, "i%d", bits);
+}
+
+static void llvmEmitFunctionReturnABIType(FILE *stream, ASTDataType *data_type)
+{
+    if(llvmIsBoolDataType(data_type))
+        fprintf(stream, "zeroext ");
+    llvmEmitType(stream, data_type);
+}
+
+static void llvmEmitCallReturnABIType(FILE *stream, ASTDataType *data_type)
+{
+    llvmEmitFunctionReturnABIType(stream, data_type);
+}
+
+static void llvmEmitParameterABIType(FILE *stream, ASTDataType *source_type)
+{
+    llvmEmitRuntimeParameterType(stream, source_type);
+    if(llvmIsBoolDataType(source_type))
+        fprintf(stream, " zeroext");
+}
+
+static void llvmEmitCallArgumentABIType(FILE *stream, ASTDataType *data_type)
+{
+    llvmEmitType(stream, data_type);
+    if(llvmIsBoolDataType(data_type))
+        fprintf(stream, " zeroext");
+}
+
+static void llvmEmitNativeExternReturnType(FILE *stream, ASTDataType *data_type)
+{
+    LLVMExternABIInfo abi = llvmDescribeExternReturnABI(data_type);
+    if(abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
+    {
+        fprintf(stream, "void");
+        return;
+    }
+    if(abi.kind == LLVM_EXTERN_ABI_INTEGER_COERCE)
+    {
+        llvmEmitIntegerCoerceType(stream, abi.integer_bits);
+        return;
+    }
+
+    llvmEmitFunctionReturnABIType(stream, data_type);
+}
+
+static void llvmEmitNativeExternParameterType(FILE *stream, ASTDataType *data_type)
+{
+    LLVMExternABIInfo abi = llvmDescribeExternParameterABI(data_type);
+    if(abi.kind == LLVM_EXTERN_ABI_INTEGER_COERCE)
+    {
+        llvmEmitIntegerCoerceType(stream, abi.integer_bits);
+        return;
+    }
+    if(abi.kind == LLVM_EXTERN_ABI_INDIRECT_POINTER)
+    {
+        fprintf(stream, "ptr");
+        return;
+    }
+
+    llvmEmitParameterABIType(stream, data_type);
 }
 
 static int llvmResolveAlias(LLVMFunctionEmitContext *context, int value_id)
@@ -216,6 +535,24 @@ static MirInst* llvmFindValueProducer(LLVMFunctionEmitContext *context, int valu
 static void llvmEmitValueRef(FILE *stream, LLVMFunctionEmitContext *context, int value_id)
 {
     fprintf(stream, "%%v%d", llvmResolveAlias(context, value_id));
+}
+
+static const char* llvmPrepareStoredValueRef(FILE *stream, LLVMFunctionEmitContext *context, int value_id,
+                                             char *buffer, size_t buffer_size)
+{
+    ASTDataType *data_type = llvmResolvedValueType(context, value_id);
+    if(!llvmIsBoolDataType(data_type))
+    {
+        snprintf(buffer, buffer_size, "%%v%d", llvmResolveAlias(context, value_id));
+        return buffer;
+    }
+
+    llvmMakeTempName(context, buffer, buffer_size);
+    llvmEmitTempAssignPrefix(stream, buffer);
+    fprintf(stream, "zext i1 ");
+    llvmEmitValueRef(stream, context, value_id);
+    fprintf(stream, " to i8\n");
+    return buffer;
 }
 
 static void llvmMakeTempName(LLVMFunctionEmitContext *context, char *buffer, size_t buffer_size)
@@ -313,17 +650,29 @@ static void llvmEmitZeroValueInst(FILE *stream, LLVMFunctionEmitContext *context
 
     llvmEmitTempAssignPrefix(stream, slot_name);
     fprintf(stream, "alloca ");
-    llvmEmitType(stream, data_type);
+    llvmEmitStorageType(stream, data_type);
     fprintf(stream, "\n");
 
     fprintf(stream, "    store ");
-    llvmEmitType(stream, data_type);
+    llvmEmitStorageType(stream, data_type);
     fprintf(stream, " zeroinitializer, ptr %s\n", slot_name);
 
-    llvmEmitInstructionPrefix(stream, result_value_id);
-    fprintf(stream, "load ");
-    llvmEmitType(stream, data_type);
-    fprintf(stream, ", ptr %s\n", slot_name);
+    if(llvmIsBoolDataType(data_type))
+    {
+        char load_name[32];
+        llvmMakeTempName(context, load_name, sizeof(load_name));
+        llvmEmitTempAssignPrefix(stream, load_name);
+        fprintf(stream, "load i8, ptr %s\n", slot_name);
+        llvmEmitInstructionPrefix(stream, result_value_id);
+        fprintf(stream, "trunc i8 %s to i1\n", load_name);
+    }
+    else
+    {
+        llvmEmitInstructionPrefix(stream, result_value_id);
+        fprintf(stream, "load ");
+        llvmEmitType(stream, data_type);
+        fprintf(stream, ", ptr %s\n", slot_name);
+    }
 }
 
 static void llvmEmitConstAllOnes(FILE *stream, ASTDataType *data_type)
@@ -356,6 +705,10 @@ static void llvmEmitInsertValueSequence(FILE *stream, LLVMFunctionEmitContext *c
 
     for(int i = 0; i < values.count; i++)
     {
+        ASTDataType *element_type = context->function->values[llvmResolveAlias(context, values.items[i])].data_type;
+        char stored_value_name[32];
+        const char *stored_value_ref = llvmPrepareStoredValueRef(stream, context, values.items[i],
+                                                                 stored_value_name, sizeof(stored_value_name));
         char next_name[32];
         if(i + 1 == values.count)
             llvmEmitInstructionPrefix(stream, result_value_id);
@@ -366,16 +719,15 @@ static void llvmEmitInsertValueSequence(FILE *stream, LLVMFunctionEmitContext *c
         }
 
         fprintf(stream, "insertvalue ");
-        llvmEmitType(stream, aggregate_type);
+        llvmEmitStorageType(stream, aggregate_type);
         if(!has_current)
             fprintf(stream, " undef, ");
         else
             fprintf(stream, " %s, ", current_name);
 
-        ASTDataType *element_type = context->function->values[llvmResolveAlias(context, values.items[i])].data_type;
-        llvmEmitType(stream, element_type);
+        llvmEmitStorageType(stream, element_type);
         fprintf(stream, " ");
-        llvmEmitValueRef(stream, context, values.items[i]);
+        fprintf(stream, "%s", stored_value_ref);
         fprintf(stream, ", %d\n", i);
 
         if(i + 1 != values.count)
@@ -387,7 +739,7 @@ static void llvmEmitInsertValueSequence(FILE *stream, LLVMFunctionEmitContext *c
     {
         llvmEmitInstructionPrefix(stream, result_value_id);
         fprintf(stream, "insertvalue ");
-        llvmEmitType(stream, aggregate_type);
+        llvmEmitStorageType(stream, aggregate_type);
         fprintf(stream, " undef, i8 0, 0\n");
         llvmBackendError("zero-field insertvalue fallback was reached unexpectedly", NULL, 0, 0);
     }
@@ -445,10 +797,14 @@ static void llvmEmitEnvAllocation(FILE *stream, LLVMFunctionEmitContext *context
             llvmEmitType(stream, env_type);
             fprintf(stream, ", ptr %s, i32 0, i32 %d\n", env_name, capture_index);
 
+            char stored_capture_name[32];
+            const char *stored_capture_ref = llvmPrepareStoredValueRef(stream, context,
+                                                                       inst->data.make_closure.captures.items[capture_index],
+                                                                       stored_capture_name, sizeof(stored_capture_name));
             fprintf(stream, "    store ");
-            llvmEmitType(stream, member->data_type);
+            llvmEmitStorageType(stream, member->data_type);
             fprintf(stream, " ");
-            llvmEmitValueRef(stream, context, inst->data.make_closure.captures.items[capture_index]);
+            fprintf(stream, "%s", stored_capture_ref);
             fprintf(stream, ", ptr %s\n", field_ptr_name);
 
             capture_index++;
@@ -481,6 +837,10 @@ static void llvmEmitArrayLiteral(FILE *stream, LLVMFunctionEmitContext *context,
     bool has_current = false;
     for(int i = 0; i < inst->data.array_literal.elements.count; i++)
     {
+        char stored_element_name[32];
+        const char *stored_element_ref = llvmPrepareStoredValueRef(stream, context,
+                                                                   inst->data.array_literal.elements.items[i],
+                                                                   stored_element_name, sizeof(stored_element_name));
         char next_name[32];
         if(i + 1 == inst->data.array_literal.elements.count)
             llvmEmitInstructionPrefix(stream, inst->result);
@@ -491,14 +851,14 @@ static void llvmEmitArrayLiteral(FILE *stream, LLVMFunctionEmitContext *context,
         }
 
         fprintf(stream, "insertvalue ");
-        llvmEmitType(stream, inst->result_type);
+        llvmEmitStorageType(stream, inst->result_type);
         if(!has_current)
             fprintf(stream, " zeroinitializer, ");
         else
             fprintf(stream, " %s, ", current_name);
-        llvmEmitType(stream, inst->result_type->child);
+        llvmEmitStorageType(stream, inst->result_type->child);
         fprintf(stream, " ");
-        llvmEmitValueRef(stream, context, inst->data.array_literal.elements.items[i]);
+        fprintf(stream, "%s", stored_element_ref);
         fprintf(stream, ", %d\n", i);
         if(i + 1 != inst->data.array_literal.elements.count)
             strcpy(current_name, next_name);
@@ -533,15 +893,18 @@ static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context
             llvmEmitTempAssignPrefix(stream, next_name);
         }
 
+        char stored_field_name[32];
+        const char *stored_field_ref = llvmPrepareStoredValueRef(stream, context, field->value,
+                                                                 stored_field_name, sizeof(stored_field_name));
         fprintf(stream, "insertvalue ");
-        llvmEmitType(stream, inst->result_type);
+        llvmEmitStorageType(stream, inst->result_type);
         if(!has_current)
             fprintf(stream, " zeroinitializer, ");
         else
             fprintf(stream, " %s, ", current_name);
-        llvmEmitType(stream, member->data_type);
+        llvmEmitStorageType(stream, member->data_type);
         fprintf(stream, " ");
-        llvmEmitValueRef(stream, context, field->value);
+        fprintf(stream, "%s", stored_field_ref);
         fprintf(stream, ", %d\n", findStructDataFieldIndex(inst->result_type, field->identifier));
         if(i + 1 != field_count)
             strcpy(current_name, next_name);
@@ -551,7 +914,7 @@ static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context
 
 static void llvmEmitFunctionSignature(FILE *stream, MirFunction *function)
 {
-    llvmEmitType(stream, function->return_data_type);
+    llvmEmitFunctionReturnABIType(stream, function->return_data_type);
     fprintf(stream, " @%s(ptr ", function->name);
     if(function->closure_env_type != NULL)
         fprintf(stream, "%%v%d", function->closure_env_input);
@@ -561,7 +924,7 @@ static void llvmEmitFunctionSignature(FILE *stream, MirFunction *function)
     for(int i = 0; i < function->parameter_count; i++)
     {
         fprintf(stream, ", ");
-        llvmEmitType(stream, function->parameters[i].runtime_data_type);
+        llvmEmitParameterABIType(stream, function->parameters[i].runtime_data_type);
         fprintf(stream, " %%v%d", function->parameters[i].input_value);
     }
 
@@ -570,18 +933,33 @@ static void llvmEmitFunctionSignature(FILE *stream, MirFunction *function)
 
 static void llvmEmitNativeExternSignature(FILE *stream, const char *symbol_name, ASTDataType *function_type)
 {
-    llvmEmitType(stream, function_type->return_data_type);
+    LLVMExternABIInfo return_abi = llvmDescribeExternReturnABI(function_type->return_data_type);
+    llvmEmitNativeExternReturnType(stream, function_type->return_data_type);
     fprintf(stream, " @%s(", symbol_name);
 
     ASTFunctionParameter *parameter = function_type->parameters;
     bool need_comma = false;
+    if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
+    {
+        fprintf(stream, "ptr dead_on_unwind writable sret(");
+        llvmEmitType(stream, function_type->return_data_type);
+        fprintf(stream, ") align %zu", return_abi.align);
+        need_comma = true;
+    }
     while(parameter)
     {
         if(need_comma)
             fprintf(stream, ", ");
-        llvmEmitRuntimeParameterType(stream, parameter->data_type);
+        llvmEmitNativeExternParameterType(stream, parameter->data_type);
         need_comma = true;
         parameter = parameter->next;
+    }
+
+    if(function_type->is_variadic)
+    {
+        if(need_comma)
+            fprintf(stream, ", ");
+        fprintf(stream, "...");
     }
 
     fprintf(stream, ")");
@@ -589,7 +967,7 @@ static void llvmEmitNativeExternSignature(FILE *stream, const char *symbol_name,
 
 static void llvmEmitNativeExternCallTarget(FILE *stream, const char *symbol_name, ASTDataType *function_type)
 {
-    llvmEmitType(stream, function_type->return_data_type);
+    (void) function_type;
     fprintf(stream, " @%s", symbol_name);
 }
 
@@ -617,8 +995,13 @@ static void llvmEmitExternDeclarations(FILE *stream, MirProgram *program)
 static void llvmEmitExternWrapperDefinition(FILE *stream, MirExternFunction *extern_function)
 {
     ASTDataType *function_type = extern_function->function_type;
+    if(extern_function->is_direct)
+        return;
+
+    LLVMExternABIInfo return_abi = llvmDescribeExternReturnABI(function_type->return_data_type);
+
     fprintf(stream, "define ");
-    llvmEmitType(stream, function_type->return_data_type);
+    llvmEmitFunctionReturnABIType(stream, function_type->return_data_type);
     fprintf(stream, " @%s(ptr %%env", extern_function->wrapper_name);
 
     ASTFunctionParameter *parameter = function_type->parameters;
@@ -626,7 +1009,7 @@ static void llvmEmitExternWrapperDefinition(FILE *stream, MirExternFunction *ext
     while(parameter)
     {
         fprintf(stream, ", ");
-        llvmEmitRuntimeParameterType(stream, parameter->data_type);
+        llvmEmitParameterABIType(stream, parameter->data_type);
         fprintf(stream, " %%arg%d", parameter_index++);
         parameter = parameter->next;
     }
@@ -634,29 +1017,104 @@ static void llvmEmitExternWrapperDefinition(FILE *stream, MirExternFunction *ext
     fprintf(stream, ") {\n");
     fprintf(stream, "entry:\n");
 
-    if(llvmIsVoidDataType(function_type->return_data_type))
-        fprintf(stream, "    call ");
-    else
-        fprintf(stream, "    %%ret = call ");
-
-    llvmEmitNativeExternCallTarget(stream, extern_function->symbol_name, function_type);
-    fprintf(stream, "(");
+    if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
+    {
+        fprintf(stream, "    %%ret_slot = alloca ");
+        llvmEmitType(stream, function_type->return_data_type);
+        fprintf(stream, "\n");
+    }
 
     parameter = function_type->parameters;
     parameter_index = 0;
     while(parameter)
     {
-        if(parameter_index > 0)
+        LLVMExternABIInfo parameter_abi = llvmDescribeExternParameterABI(parameter->data_type);
+        if(parameter_abi.kind == LLVM_EXTERN_ABI_INTEGER_COERCE ||
+           parameter_abi.kind == LLVM_EXTERN_ABI_INDIRECT_POINTER)
+        {
+            fprintf(stream, "    %%arg%d.slot = alloca ", parameter_index);
+            llvmEmitType(stream, parameter->data_type);
+            fprintf(stream, "\n");
+            fprintf(stream, "    store ");
+            llvmEmitType(stream, parameter->data_type);
+            fprintf(stream, " %%arg%d, ptr %%arg%d.slot\n", parameter_index, parameter_index);
+            if(parameter_abi.kind == LLVM_EXTERN_ABI_INTEGER_COERCE)
+            {
+                fprintf(stream, "    %%arg%d.coerce = load ", parameter_index);
+                llvmEmitIntegerCoerceType(stream, parameter_abi.integer_bits);
+                fprintf(stream, ", ptr %%arg%d.slot\n", parameter_index);
+            }
+        }
+        parameter_index++;
+        parameter = parameter->next;
+    }
+
+    if(llvmIsVoidDataType(function_type->return_data_type) || return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
+        fprintf(stream, "    call ");
+    else
+        fprintf(stream, "    %%ret = call ");
+
+    llvmEmitNativeExternReturnType(stream, function_type->return_data_type);
+    llvmEmitNativeExternCallTarget(stream, extern_function->symbol_name, function_type);
+    fprintf(stream, "(");
+
+    bool need_comma = false;
+    if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
+    {
+        fprintf(stream, "ptr sret(");
+        llvmEmitType(stream, function_type->return_data_type);
+        fprintf(stream, ") align %zu %%ret_slot", return_abi.align);
+        need_comma = true;
+    }
+
+    parameter = function_type->parameters;
+    parameter_index = 0;
+    while(parameter)
+    {
+        if(need_comma)
             fprintf(stream, ", ");
-        llvmEmitRuntimeParameterType(stream, parameter->data_type);
-        fprintf(stream, " %%arg%d", parameter_index++);
+        LLVMExternABIInfo parameter_abi = llvmDescribeExternParameterABI(parameter->data_type);
+        llvmEmitNativeExternParameterType(stream, parameter->data_type);
+        fprintf(stream, " ");
+        if(parameter_abi.kind == LLVM_EXTERN_ABI_INTEGER_COERCE)
+            fprintf(stream, "%%arg%d.coerce", parameter_index);
+        else if(parameter_abi.kind == LLVM_EXTERN_ABI_INDIRECT_POINTER)
+            fprintf(stream, "%%arg%d.slot", parameter_index);
+        else
+            fprintf(stream, "%%arg%d", parameter_index);
+        need_comma = true;
+        parameter_index++;
         parameter = parameter->next;
     }
 
     fprintf(stream, ")\n");
 
-    if(llvmIsVoidDataType(function_type->return_data_type))
+    if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
+    {
+        fprintf(stream, "    %%ret = load ");
+        llvmEmitType(stream, function_type->return_data_type);
+        fprintf(stream, ", ptr %%ret_slot\n");
+        fprintf(stream, "    ret ");
+        llvmEmitType(stream, function_type->return_data_type);
+        fprintf(stream, " %%ret\n");
+    }
+    else if(llvmIsVoidDataType(function_type->return_data_type))
         fprintf(stream, "    ret void\n");
+    else if(return_abi.kind == LLVM_EXTERN_ABI_INTEGER_COERCE)
+    {
+        fprintf(stream, "    %%ret.slot = alloca ");
+        llvmEmitType(stream, function_type->return_data_type);
+        fprintf(stream, "\n");
+        fprintf(stream, "    store ");
+        llvmEmitIntegerCoerceType(stream, return_abi.integer_bits);
+        fprintf(stream, " %%ret, ptr %%ret.slot\n");
+        fprintf(stream, "    %%ret.value = load ");
+        llvmEmitType(stream, function_type->return_data_type);
+        fprintf(stream, ", ptr %%ret.slot\n");
+        fprintf(stream, "    ret ");
+        llvmEmitType(stream, function_type->return_data_type);
+        fprintf(stream, " %%ret.value\n");
+    }
     else
     {
         fprintf(stream, "    ret ");
@@ -734,12 +1192,16 @@ static void llvmEmitConvertInst(FILE *stream, LLVMFunctionEmitContext *context, 
             return;
         }
 
-        llvmEmitInstructionPrefix(stream, inst->result);
-
         if(llvmIsIntegerDataType(source_type) && llvmIsIntegerDataType(target_type))
         {
             int src_bits = llvmIntegerBitWidth(source_type->primary);
             int dst_bits = llvmIntegerBitWidth(target_type->primary);
+            if(src_bits == dst_bits)
+            {
+                context->aliases[inst->result] = llvmResolveAlias(context, inst->data.convert.operand);
+                return;
+            }
+            llvmEmitInstructionPrefix(stream, inst->result);
             if(src_bits < dst_bits)
                 fprintf(stream, "%s ", llvmIsSignedIntegerDataType(source_type) ? "sext" : "zext");
             else
@@ -757,6 +1219,7 @@ static void llvmEmitConvertInst(FILE *stream, LLVMFunctionEmitContext *context, 
         {
             int src_bits = getFloatPrimaryWidth(source_type->primary);
             int dst_bits = getFloatPrimaryWidth(target_type->primary);
+            llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "%s ", src_bits < dst_bits ? "fpext" : "fptrunc");
             llvmEmitType(stream, source_type);
             fprintf(stream, " ");
@@ -769,6 +1232,7 @@ static void llvmEmitConvertInst(FILE *stream, LLVMFunctionEmitContext *context, 
 
         if(llvmIsIntegerDataType(source_type) && llvmIsFloatDataType(target_type))
         {
+            llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "%s ", llvmIsSignedIntegerDataType(source_type) ? "sitofp" : "uitofp");
             llvmEmitType(stream, source_type);
             fprintf(stream, " ");
@@ -781,6 +1245,7 @@ static void llvmEmitConvertInst(FILE *stream, LLVMFunctionEmitContext *context, 
 
         if(llvmIsFloatDataType(source_type) && llvmIsIntegerDataType(target_type))
         {
+            llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "%s ", llvmIsSignedIntegerDataType(target_type) ? "fptosi" : "fptoui");
             llvmEmitType(stream, source_type);
             fprintf(stream, " ");
@@ -926,26 +1391,46 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
         case MIR_INST_ALLOCA:
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "alloca ");
-            llvmEmitType(stream, inst->data.alloca_inst.alloca_type);
+            llvmEmitStorageType(stream, inst->data.alloca_inst.alloca_type);
             fprintf(stream, "\n");
             return;
         case MIR_INST_LOAD:
-            llvmEmitInstructionPrefix(stream, inst->result);
-            fprintf(stream, "load ");
-            llvmEmitType(stream, inst->result_type);
-            fprintf(stream, ", ptr ");
-            llvmEmitValueRef(stream, context, inst->data.load.address);
-            fprintf(stream, "\n");
+            if(llvmIsBoolDataType(inst->result_type))
+            {
+                char load_name[32];
+                llvmMakeTempName(context, load_name, sizeof(load_name));
+                llvmEmitTempAssignPrefix(stream, load_name);
+                fprintf(stream, "load i8, ptr ");
+                llvmEmitValueRef(stream, context, inst->data.load.address);
+                fprintf(stream, "\n");
+                llvmEmitInstructionPrefix(stream, inst->result);
+                fprintf(stream, "trunc i8 %s to i1\n", load_name);
+            }
+            else
+            {
+                llvmEmitInstructionPrefix(stream, inst->result);
+                fprintf(stream, "load ");
+                llvmEmitType(stream, inst->result_type);
+                fprintf(stream, ", ptr ");
+                llvmEmitValueRef(stream, context, inst->data.load.address);
+                fprintf(stream, "\n");
+            }
             return;
         case MIR_INST_STORE:
-            fprintf(stream, "    store ");
-            llvmEmitType(stream, llvmResolvedValueType(context, inst->data.store.value));
-            fprintf(stream, " ");
             MirInst *stored_value_inst = llvmFindValueProducer(context, inst->data.store.value);
+            ASTDataType *stored_value_type = llvmResolvedValueType(context, inst->data.store.value);
+            char stored_value_name[32];
+            const char *stored_value_ref = NULL;
+            if(!(stored_value_inst != NULL && stored_value_inst->kind == MIR_INST_ZERO))
+                stored_value_ref = llvmPrepareStoredValueRef(stream, context, inst->data.store.value,
+                                                             stored_value_name, sizeof(stored_value_name));
+            fprintf(stream, "    store ");
+            llvmEmitStorageType(stream, stored_value_type);
+            fprintf(stream, " ");
             if(stored_value_inst != NULL && stored_value_inst->kind == MIR_INST_ZERO)
                 fprintf(stream, "zeroinitializer");
             else
-                llvmEmitValueRef(stream, context, inst->data.store.value);
+                fprintf(stream, "%s", stored_value_ref);
             fprintf(stream, ", ptr ");
             llvmEmitValueRef(stream, context, inst->data.store.address);
             fprintf(stream, "\n");
@@ -953,7 +1438,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
         case MIR_INST_GLOBAL_ADDR:
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "getelementptr ");
-            llvmEmitType(stream, llvmPointeeType(inst->result_type));
+            llvmEmitStorageType(stream, llvmPointeeType(inst->result_type));
             fprintf(stream, ", ptr @%s, i32 0\n", inst->data.global_addr.global_name);
             return;
         case MIR_INST_FUNCTION_REF:
@@ -975,7 +1460,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             ASTDataType *pointee_type = llvmPointeeType(llvmResolvedValueType(context, inst->data.field_ptr.base_address));
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "getelementptr ");
-            llvmEmitType(stream, pointee_type);
+            llvmEmitStorageType(stream, pointee_type);
             fprintf(stream, ", ptr ");
             llvmEmitValueRef(stream, context, inst->data.field_ptr.base_address);
             fprintf(stream, ", i32 0, i32 %d\n", inst->data.field_ptr.field_index);
@@ -985,7 +1470,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             ASTDataType *pointee_type = llvmPointeeType(llvmResolvedValueType(context, inst->data.index_ptr.base_address));
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "getelementptr ");
-            llvmEmitType(stream, pointee_type);
+            llvmEmitStorageType(stream, pointee_type);
             fprintf(stream, ", ptr ");
             llvmEmitValueRef(stream, context, inst->data.index_ptr.base_address);
             fprintf(stream, ", i32 0, ");
@@ -1027,16 +1512,110 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 fprintf(stream, "    ");
 
             fprintf(stream, "call ");
-            llvmEmitType(stream, inst->result_type);
+            llvmEmitCallReturnABIType(stream, inst->result_type);
             fprintf(stream, " %s(ptr %s", code_name, env_name);
             for(int i = 0; i < inst->data.call.arguments.count; i++)
             {
                 fprintf(stream, ", ");
-                llvmEmitType(stream, llvmResolvedValueType(context, inst->data.call.arguments.items[i]));
+                llvmEmitCallArgumentABIType(stream, llvmResolvedValueType(context, inst->data.call.arguments.items[i]));
                 fprintf(stream, " ");
                 llvmEmitValueRef(stream, context, inst->data.call.arguments.items[i]);
             }
             fprintf(stream, ")\n");
+            return;
+        }
+        case MIR_INST_EXTERN_CALL: {
+            LLVMExternABIInfo return_abi = llvmDescribeExternReturnABI(inst->result_type);
+            ASTDataType *function_type = inst->data.extern_call.function_type;
+            ASTFunctionParameter *parameter = function_type != NULL ? function_type->parameters : NULL;
+            int temp_base = inst->result >= 0 ? inst->result : 900000;
+
+            if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
+            {
+                fprintf(stream, "    %%v%d_ret_slot = alloca ", temp_base);
+                llvmEmitType(stream, inst->result_type);
+                fprintf(stream, "\n");
+            }
+
+            for(int i = 0; i < inst->data.extern_call.arguments.count && parameter != NULL; i++, parameter = parameter->next)
+            {
+                LLVMExternABIInfo parameter_abi = llvmDescribeExternParameterABI(parameter->data_type);
+                if(parameter_abi.kind == LLVM_EXTERN_ABI_INTEGER_COERCE ||
+                   parameter_abi.kind == LLVM_EXTERN_ABI_INDIRECT_POINTER)
+                {
+                    fprintf(stream, "    %%v%d_arg%d_slot = alloca ", temp_base, i);
+                    llvmEmitType(stream, parameter->data_type);
+                    fprintf(stream, "\n");
+                    fprintf(stream, "    store ");
+                    llvmEmitType(stream, parameter->data_type);
+                    fprintf(stream, " ");
+                    llvmEmitValueRef(stream, context, inst->data.extern_call.arguments.items[i]);
+                    fprintf(stream, ", ptr %%v%d_arg%d_slot\n", temp_base, i);
+                    if(parameter_abi.kind == LLVM_EXTERN_ABI_INTEGER_COERCE)
+                    {
+                        fprintf(stream, "    %%v%d_arg%d_coerce = load ", temp_base, i);
+                        llvmEmitIntegerCoerceType(stream, parameter_abi.integer_bits);
+                        fprintf(stream, ", ptr %%v%d_arg%d_slot\n", temp_base, i);
+                    }
+                }
+            }
+
+            if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
+                fprintf(stream, "    call ");
+            else if(inst->result >= 0)
+                llvmEmitInstructionPrefix(stream, inst->result);
+            else
+                fprintf(stream, "    ");
+
+            if(return_abi.kind != LLVM_EXTERN_ABI_SRET_POINTER)
+                fprintf(stream, "call ");
+            llvmEmitNativeExternReturnType(stream, inst->result_type);
+            fprintf(stream, " ");
+            llvmEmitNativeExternCallTarget(stream, inst->data.extern_call.symbol_name, function_type);
+            fprintf(stream, "(");
+
+            bool need_comma = false;
+            if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
+            {
+                fprintf(stream, "ptr sret(");
+                llvmEmitType(stream, inst->result_type);
+                fprintf(stream, ") align %zu %%v%d_ret_slot", return_abi.align, temp_base);
+                need_comma = true;
+            }
+
+            parameter = function_type != NULL ? function_type->parameters : NULL;
+            for(int i = 0; i < inst->data.extern_call.arguments.count; i++)
+            {
+                ASTDataType *arg_type = llvmResolvedValueType(context, inst->data.extern_call.arguments.items[i]);
+                LLVMExternABIInfo parameter_abi = parameter != NULL
+                    ? llvmDescribeExternParameterABI(parameter->data_type)
+                    : llvmDescribeExternParameterABI(arg_type);
+                if(need_comma)
+                    fprintf(stream, ", ");
+                if(parameter != NULL)
+                    llvmEmitNativeExternParameterType(stream, parameter->data_type);
+                else
+                    llvmEmitCallArgumentABIType(stream, arg_type);
+                fprintf(stream, " ");
+                if(parameter_abi.kind == LLVM_EXTERN_ABI_INTEGER_COERCE)
+                    fprintf(stream, "%%v%d_arg%d_coerce", temp_base, i);
+                else if(parameter_abi.kind == LLVM_EXTERN_ABI_INDIRECT_POINTER)
+                    fprintf(stream, "%%v%d_arg%d_slot", temp_base, i);
+                else
+                    llvmEmitValueRef(stream, context, inst->data.extern_call.arguments.items[i]);
+                need_comma = true;
+                if(parameter != NULL)
+                    parameter = parameter->next;
+            }
+            fprintf(stream, ")\n");
+
+            if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER && inst->result >= 0)
+            {
+                llvmEmitInstructionPrefix(stream, inst->result);
+                fprintf(stream, "load ");
+                llvmEmitType(stream, inst->result_type);
+                fprintf(stream, ", ptr %%v%d_ret_slot\n", temp_base);
+            }
             return;
         }
     }

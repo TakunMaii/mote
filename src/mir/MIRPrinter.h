@@ -59,6 +59,7 @@ static const char* mirInstKindToString(MirInstKind kind)
         case MIR_INST_STRUCT_LITERAL: return "struct_literal";
         case MIR_INST_ENUM_LITERAL: return "enum_literal";
         case MIR_INST_CALL: return "call";
+        case MIR_INST_EXTERN_CALL: return "extern_call";
         default: return "unknown";
     }
 }
@@ -185,6 +186,11 @@ static void printMirInst(FILE *stream, MirInst *inst)
             printMirValue(stream, inst->data.call.callee);
             fprintf(stream, "(");
             printMirOperandList(stream, inst->data.call.arguments);
+            fprintf(stream, ")");
+            break;
+        case MIR_INST_EXTERN_CALL:
+            fprintf(stream, "@%s(", inst->data.extern_call.symbol_name);
+            printMirOperandList(stream, inst->data.extern_call.arguments);
             fprintf(stream, ")");
             break;
         default:

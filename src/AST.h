@@ -125,6 +125,7 @@ typedef struct ASTDataType {
     ASTTypeArgument *arguments;
     long long int array_length;
     ASTFunctionParameter *parameters;
+    bool is_variadic;
     struct ASTDataType *return_data_type;
     ASTStructMember *members;
     ASTEnumVariant *variants;
@@ -209,6 +210,7 @@ struct ASTNode {
 
     // function literal
     ASTFunctionParameter *parameters;
+    bool is_variadic;
     ASTFunctionCapture *captures;
     ASTDataType *return_data_type;
     ASTNode *body;
@@ -302,12 +304,13 @@ ASTDataType* newWrappedDataType(ASTDataTypeKind kind, bool mutable, ASTDataType 
     return data_type;
 }
 
-ASTDataType* newFunctionDataType(ASTFunctionParameter *parameters, ASTDataType *return_data_type)
+ASTDataType* newFunctionDataType(ASTFunctionParameter *parameters, bool is_variadic, ASTDataType *return_data_type)
 {
     ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
     memset(data_type, 0, sizeof(ASTDataType));
     data_type->kind = AST_DATA_TYPE_KIND_FUNCTION;
     data_type->parameters = parameters;
+    data_type->is_variadic = is_variadic;
     data_type->return_data_type = return_data_type;
     return data_type;
 }
@@ -687,6 +690,12 @@ void printASTDataType(ASTDataType *data_type)
         case AST_DATA_TYPE_KIND_FUNCTION: {
             printf("Function([");
             printFunctionParameters(data_type->parameters);
+            if(data_type->is_variadic)
+            {
+                if(data_type->parameters != NULL)
+                    printf(", ");
+                printf("...");
+            }
             printf("], ");
             printASTDataType(data_type->return_data_type);
             printf(")");
@@ -845,6 +854,12 @@ void printASTNode(ASTNode node)
                 printf("| ");
             }
             printFunctionParameters(node.parameters);
+            if(node.is_variadic)
+            {
+                if(node.parameters != NULL)
+                    printf(", ");
+                printf("...");
+            }
             printf(") ");
             printASTDataType(node.return_data_type);
             printf(" ");

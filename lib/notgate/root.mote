@@ -54,10 +54,28 @@ pub COLOR_NOT_ON: rl.Color = rl.Color {.r = 230, .g = 41, .b = 55, .a = 255};
 pub COLOR_PORTAL_OFF: rl.Color = rl.Color {.r = 76, .g = 109, .b = 184, .a = 255};
 pub COLOR_PORTAL_ON: rl.Color = rl.Color {.r = 72, .g = 199, .b = 142, .a = 255};
 pub COLOR_HERO: rl.Color = rl.Color {.r = 245, .g = 245, .b = 245, .a = 255};
+pub COLOR_AMBIENT: rl.Color = rl.Color {.r = 114, .g = 199, .b = 216, .a = 112};
+
+pub AMBIENT_FLOATING_SQUARE_COUNT = 16;
+pub SFX_ACTIVE_VOLUME: f32 = 0.8;
+pub SFX_INACTIVE_VOLUME: f32 = 0.8;
+pub SFX_MOVE_VOLUME: f32 = 0.8;
+pub SFX_TRANSPORT_VOLUME: f32 = 0.8;
+pub BGM_VOLUME: f32 = 0.8;
 
 pub Vec2i = struct {
     x: i32,
     y: i32,
+};
+
+pub FloatingSquare = struct {
+    anchor: rl.Vector2,
+    amp_x: f32,
+    amp_y: f32,
+    speed_x: f32,
+    speed_y: f32,
+    phase_x: f32,
+    phase_y: f32,
 };
 
 pub Viewport = struct {
@@ -106,6 +124,46 @@ pub ActivationScratch = struct {
     component_hit_count: Array(i32, 345),
 };
 
+pub GameResources = struct {
+    wall_texture: rl.Texture2D,
+    box_texture: rl.Texture2D,
+    hero_texture: rl.Texture2D,
+    signal_source_texture: rl.Texture2D,
+    fixed_signal_source_texture: rl.Texture2D,
+    portal_inactive_texture: rl.Texture2D,
+    portal_active_texture: rl.Texture2D,
+    repeater_inactive_texture: rl.Texture2D,
+    repeater_active_texture: rl.Texture2D,
+    fixed_repeater_inactive_texture: rl.Texture2D,
+    fixed_repeater_active_texture: rl.Texture2D,
+    not_signal_inactive_texture: rl.Texture2D,
+    not_signal_active_texture: rl.Texture2D,
+    fixed_not_signal_inactive_texture: rl.Texture2D,
+    fixed_not_signal_active_texture: rl.Texture2D,
+
+    sfx_active: rl.Sound,
+    sfx_inactive: rl.Sound,
+    sfx_move: rl.Sound,
+    sfx_transport: rl.Sound,
+    sounds_loaded: bool,
+
+    bgm: rl.Music,
+    bgm_loaded: bool,
+
+    scene_target: rl.RenderTexture2D,
+    render_target_loaded: bool,
+
+    postprocess_shader: rl.Shader,
+    use_postprocess: bool,
+    post_vignette_loc: i32,
+    post_bloom_threshold_loc: i32,
+    post_bloom_strength_loc: i32,
+
+    ambient_squares: Array(FloatingSquare, 16),
+    ambient_ready: bool,
+    ambient_time: f32,
+};
+
 pub State = struct {
     map_width: i32,
     map_height: i32,
@@ -132,6 +190,7 @@ pub State = struct {
 };
 
 mut runtime_state: State = @zero(State);
+mut game_resources: GameResources = @zero(GameResources);
 
 pub abs_i32 = fn(x: i32) i32 {
     if(x < 0) {
@@ -145,6 +204,12 @@ pub min_i32 = fn(a: i32, b: i32) i32 {
         return a;
     }
     return b;
+};
+
+pub randf = fn(min_v: f32, max_v: f32) f32 {
+    mut t: f32 = rl.GetRandomValue(0, 10000);
+    t = t / 10000;
+    return min_v + (max_v - min_v) * t;
 };
 
 pub map_index = fn(state: &State, x: i32, y: i32) i32 {
@@ -227,15 +292,320 @@ pub init_empty_state = fn(state: &mut State) void {
 pub level_path = fn(level: i32) CharBuf64 {
     mut out: CharBuf64 = @zero(CharBuf64);
     fmt: Array(char, 30) = ['N', 'o', 't', 'g', 'a', 't', 'e', '/', 'a', 's', 's', 'e', 't', 's', '/', 'm', 'a', 'p', 's', '/', 'm', 'a', 'p', '%', 'd', '.', 't', 'x', 't', '\0'];
-    c.snprintf_i32(&out.data[0], 64, &fmt[0], level);
+    c.snprintf(&out.data[0], 64, &fmt[0], level);
     return out;
 };
 
+pub level_path_local = fn(level: i32) CharBuf64 {
+    mut out: CharBuf64 = @zero(CharBuf64);
+    fmt: Array(char, 23) = ['a', 's', 's', 'e', 't', 's', '/', 'm', 'a', 'p', 's', '/', 'm', 'a', 'p', '%', 'd', '.', 't', 'x', 't', '\0', '\0'];
+    c.snprintf(&out.data[0], 64, &fmt[0], level);
+    return out;
+};
+
+pub level_path_parent = fn(level: i32) CharBuf64 {
+    mut out: CharBuf64 = @zero(CharBuf64);
+    fmt: Array(char, 33) = ['.', '.', '/', 'N', 'o', 't', 'g', 'a', 't', 'e', '/', 'a', 's', 's', 'e', 't', 's', '/', 'm', 'a', 'p', 's', '/', 'm', 'a', 'p', '%', 'd', '.', 't', 'x', 't', '\0'];
+    c.snprintf(&out.data[0], 64, &fmt[0], level);
+    return out;
+};
+
+pub asset_path = fn(path: *char) CharBuf128 {
+    mut out: CharBuf128 = @zero(CharBuf128);
+    fmt: Array(char, 11) = ['N', 'o', 't', 'g', 'a', 't', 'e', '/', '%', 's', '\0'];
+    c.snprintf(&out.data[0], 128, &fmt[0], path);
+    if(rl.FileExists(&out.data[0])) {
+        return out;
+    }
+
+    c.memset(&out.data[0], 0, 128);
+    fmt_local: Array(char, 3) = ['%', 's', '\0'];
+    c.snprintf(&out.data[0], 128, &fmt_local[0], path);
+    if(rl.FileExists(&out.data[0])) {
+        return out;
+    }
+
+    c.memset(&out.data[0], 0, 128);
+    fmt_parent: Array(char, 14) = ['.', '.', '/', 'N', 'o', 't', 'g', 'a', 't', 'e', '/', '%', 's', '\0'];
+    c.snprintf(&out.data[0], 128, &fmt_parent[0], path);
+    return out;
+};
+
+pub load_texture_asset = fn(path: *char) rl.Texture2D {
+    mut full_path: CharBuf128 = asset_path(path);
+    return rl.LoadTexture(&full_path.data[0]);
+};
+
+pub load_sound_asset = fn(path: *char) rl.Sound {
+    mut full_path: CharBuf128 = asset_path(path);
+    return rl.LoadSound(&full_path.data[0]);
+};
+
+pub load_music_asset = fn(path: *char) rl.Music {
+    mut full_path: CharBuf128 = asset_path(path);
+    return rl.LoadMusicStream(&full_path.data[0]);
+};
+
+pub load_shader_fragment_asset = fn(path: *char) rl.Shader {
+    mut full_path: CharBuf128 = asset_path(path);
+    null_path: *char = 0;
+    return rl.LoadShader(null_path, &full_path.data[0]);
+};
+
+pub init_ambient_squares = fn() void {
+    if(game_resources.ambient_ready) {
+        return;
+    }
+
+    mut i: i32 = 0;
+    while(i < AMBIENT_FLOATING_SQUARE_COUNT) {
+        game_resources.ambient_squares[i] = FloatingSquare {
+            .anchor = rl.Vector2 {
+                .x = randf(24.0, @as(f32, WINDOW_WIDTH) - 24.0),
+                .y = randf(24.0, @as(f32, WINDOW_HEIGHT) - 24.0),
+            },
+            .amp_x = randf(6.0, 24.0),
+            .amp_y = randf(6.0, 24.0),
+            .speed_x = randf(0.25, 0.65),
+            .speed_y = randf(0.20, 0.55),
+            .phase_x = randf(0.0, 6.28318),
+            .phase_y = randf(0.0, 6.28318),
+        };
+        i = i + 1;
+    }
+    game_resources.ambient_ready = true;
+    game_resources.ambient_time = 0.0;
+};
+
+pub init_audio_resources = fn() void {
+    if(!rl.IsAudioDeviceReady()) {
+        rl.InitAudioDevice();
+    }
+
+    if(!game_resources.sounds_loaded && rl.IsAudioDeviceReady()) {
+        active_path: Array(char, 25) = ['a', 's', 's', 'e', 't', 's', '/', 's', 'o', 'u', 'n', 'd', 's', '/', 'a', 'c', 't', 'i', 'v', 'e', '.', 'w', 'a', 'v', '\0'];
+        inactive_path: Array(char, 27) = ['a', 's', 's', 'e', 't', 's', '/', 's', 'o', 'u', 'n', 'd', 's', '/', 'i', 'n', 'a', 'c', 't', 'i', 'v', 'e', '.', 'w', 'a', 'v', '\0'];
+        move_path: Array(char, 23) = ['a', 's', 's', 'e', 't', 's', '/', 's', 'o', 'u', 'n', 'd', 's', '/', 'm', 'o', 'v', 'e', '.', 'w', 'a', 'v', '\0'];
+        transport_path: Array(char, 28) = ['a', 's', 's', 'e', 't', 's', '/', 's', 'o', 'u', 'n', 'd', 's', '/', 't', 'r', 'a', 'n', 's', 'p', 'o', 'r', 't', '.', 'w', 'a', 'v', '\0'];
+
+        game_resources.sfx_active = load_sound_asset(&active_path[0]);
+        game_resources.sfx_inactive = load_sound_asset(&inactive_path[0]);
+        game_resources.sfx_move = load_sound_asset(&move_path[0]);
+        game_resources.sfx_transport = load_sound_asset(&transport_path[0]);
+        rl.SetSoundVolume(game_resources.sfx_active, SFX_ACTIVE_VOLUME);
+        rl.SetSoundVolume(game_resources.sfx_inactive, SFX_INACTIVE_VOLUME);
+        rl.SetSoundVolume(game_resources.sfx_move, SFX_MOVE_VOLUME);
+        rl.SetSoundVolume(game_resources.sfx_transport, SFX_TRANSPORT_VOLUME);
+        game_resources.sounds_loaded = true;
+    }
+
+    if(!game_resources.bgm_loaded && rl.IsAudioDeviceReady()) {
+        bgm_path: Array(char, 22) = ['a', 's', 's', 'e', 't', 's', '/', 's', 'o', 'u', 'n', 'd', 's', '/', 'b', 'g', 'm', '.', 'w', 'a', 'v', '\0'];
+        mut full_path: CharBuf128 = asset_path(&bgm_path[0]);
+        if(rl.FileExists(&full_path.data[0])) {
+            game_resources.bgm = rl.LoadMusicStream(&full_path.data[0]);
+            rl.SetMusicVolume(game_resources.bgm, BGM_VOLUME);
+            rl.PlayMusicStream(game_resources.bgm);
+            game_resources.bgm_loaded = true;
+        }
+    }
+};
+
+pub init_render_resources = fn() void {
+    if(!game_resources.render_target_loaded) {
+        game_resources.scene_target = rl.LoadRenderTexture(WINDOW_WIDTH, WINDOW_HEIGHT);
+        rl.SetTextureFilter(game_resources.scene_target.texture, rl.TEXTURE_FILTER_BILINEAR);
+        game_resources.render_target_loaded = true;
+    }
+
+    if(!game_resources.use_postprocess && game_resources.postprocess_shader.id == @as(u32, 0)) {
+        shader_path: Array(char, 30) = ['a', 's', 's', 'e', 't', 's', '/', 's', 'h', 'a', 'd', 'e', 'r', 's', '/', 'p', 'o', 's', 't', 'p', 'r', 'o', 'c', 'e', 's', 's', '.', 'f', 's', '\0'];
+        game_resources.postprocess_shader = load_shader_fragment_asset(&shader_path[0]);
+        if(game_resources.postprocess_shader.id != @as(u32, 0)) {
+            game_resources.use_postprocess = true;
+            vignette_name: Array(char, 18) = ['u', 'V', 'i', 'g', 'n', 'e', 't', 't', 'e', 'S', 't', 'r', 'e', 'n', 'g', 't', 'h', '\0'];
+            bloom_threshold_name: Array(char, 16) = ['u', 'B', 'l', 'o', 'o', 'm', 'T', 'h', 'r', 'e', 's', 'h', 'o', 'l', 'd', '\0'];
+            bloom_strength_name: Array(char, 15) = ['u', 'B', 'l', 'o', 'o', 'm', 'S', 't', 'r', 'e', 'n', 'g', 't', 'h', '\0'];
+            game_resources.post_vignette_loc = rl.GetShaderLocation(game_resources.postprocess_shader, &vignette_name[0]);
+            game_resources.post_bloom_threshold_loc = rl.GetShaderLocation(game_resources.postprocess_shader, &bloom_threshold_name[0]);
+            game_resources.post_bloom_strength_loc = rl.GetShaderLocation(game_resources.postprocess_shader, &bloom_strength_name[0]);
+
+            vignette_strength: f32 = @as(f32, 0.35);
+            bloom_threshold: f32 = @as(f32, 0.75);
+            bloom_strength: f32 = @as(f32, 0.55);
+            if(game_resources.post_vignette_loc >= 0) {
+                rl.SetShaderValue(game_resources.postprocess_shader, game_resources.post_vignette_loc, &vignette_strength, rl.SHADER_UNIFORM_FLOAT);
+            }
+            if(game_resources.post_bloom_threshold_loc >= 0) {
+                rl.SetShaderValue(game_resources.postprocess_shader, game_resources.post_bloom_threshold_loc, &bloom_threshold, rl.SHADER_UNIFORM_FLOAT);
+            }
+            if(game_resources.post_bloom_strength_loc >= 0) {
+                rl.SetShaderValue(game_resources.postprocess_shader, game_resources.post_bloom_strength_loc, &bloom_strength, rl.SHADER_UNIFORM_FLOAT);
+            }
+        }
+    }
+};
+
+pub init_visual_resources = fn() void {
+    if(game_resources.wall_texture.id == @as(u32, 0)) {
+        wall_path: Array(char, 20) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'w', 'a', 'l', 'l', '.', 'p', 'n', 'g', '\0'];
+        game_resources.wall_texture = load_texture_asset(&wall_path[0]);
+    }
+    if(game_resources.box_texture.id == @as(u32, 0)) {
+        box_path: Array(char, 19) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'b', 'o', 'x', '.', 'p', 'n', 'g', '\0'];
+        game_resources.box_texture = load_texture_asset(&box_path[0]);
+    }
+    if(game_resources.hero_texture.id == @as(u32, 0)) {
+        hero_path: Array(char, 20) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'h', 'e', 'r', 'o', '.', 'p', 'n', 'g', '\0'];
+        game_resources.hero_texture = load_texture_asset(&hero_path[0]);
+    }
+    if(game_resources.signal_source_texture.id == @as(u32, 0)) {
+        signal_path: Array(char, 29) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 's', 'i', 'g', 'n', 'a', 'l', '_', 's', 'o', 'u', 'r', 'c', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.signal_source_texture = load_texture_asset(&signal_path[0]);
+    }
+    if(game_resources.fixed_signal_source_texture.id == @as(u32, 0)) {
+        fixed_signal_path: Array(char, 35) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'f', 'i', 'x', 'e', 'd', '_', 's', 'i', 'g', 'n', 'a', 'l', '_', 's', 'o', 'u', 'r', 'c', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.fixed_signal_source_texture = load_texture_asset(&fixed_signal_path[0]);
+    }
+    if(game_resources.portal_inactive_texture.id == @as(u32, 0)) {
+        portal_inactive_path: Array(char, 31) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'p', 'o', 'r', 't', 'a', 'l', '_', 'i', 'n', 'a', 'c', 't', 'i', 'v', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.portal_inactive_texture = load_texture_asset(&portal_inactive_path[0]);
+    }
+    if(game_resources.portal_active_texture.id == @as(u32, 0)) {
+        portal_active_path: Array(char, 29) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'p', 'o', 'r', 't', 'a', 'l', '_', 'a', 'c', 't', 'i', 'v', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.portal_active_texture = load_texture_asset(&portal_active_path[0]);
+    }
+    if(game_resources.repeater_inactive_texture.id == @as(u32, 0)) {
+        repeater_inactive_path: Array(char, 33) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'r', 'e', 'p', 'e', 'a', 't', 'e', 'r', '_', 'i', 'n', 'a', 'c', 't', 'i', 'v', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.repeater_inactive_texture = load_texture_asset(&repeater_inactive_path[0]);
+    }
+    if(game_resources.repeater_active_texture.id == @as(u32, 0)) {
+        repeater_active_path: Array(char, 31) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'r', 'e', 'p', 'e', 'a', 't', 'e', 'r', '_', 'a', 'c', 't', 'i', 'v', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.repeater_active_texture = load_texture_asset(&repeater_active_path[0]);
+    }
+    if(game_resources.fixed_repeater_inactive_texture.id == @as(u32, 0)) {
+        fixed_repeater_inactive_path: Array(char, 39) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'f', 'i', 'x', 'e', 'd', '_', 'r', 'e', 'p', 'e', 'a', 't', 'e', 'r', '_', 'i', 'n', 'a', 'c', 't', 'i', 'v', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.fixed_repeater_inactive_texture = load_texture_asset(&fixed_repeater_inactive_path[0]);
+    }
+    if(game_resources.fixed_repeater_active_texture.id == @as(u32, 0)) {
+        fixed_repeater_active_path: Array(char, 37) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'f', 'i', 'x', 'e', 'd', '_', 'r', 'e', 'p', 'e', 'a', 't', 'e', 'r', '_', 'a', 'c', 't', 'i', 'v', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.fixed_repeater_active_texture = load_texture_asset(&fixed_repeater_active_path[0]);
+    }
+    if(game_resources.not_signal_inactive_texture.id == @as(u32, 0)) {
+        not_inactive_path: Array(char, 35) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'n', 'o', 't', '_', 's', 'i', 'g', 'n', 'a', 'l', '_', 'i', 'n', 'a', 'c', 't', 'i', 'v', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.not_signal_inactive_texture = load_texture_asset(&not_inactive_path[0]);
+    }
+    if(game_resources.not_signal_active_texture.id == @as(u32, 0)) {
+        not_active_path: Array(char, 33) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'n', 'o', 't', '_', 's', 'i', 'g', 'n', 'a', 'l', '_', 'a', 'c', 't', 'i', 'v', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.not_signal_active_texture = load_texture_asset(&not_active_path[0]);
+    }
+    if(game_resources.fixed_not_signal_inactive_texture.id == @as(u32, 0)) {
+        fixed_not_inactive_path: Array(char, 41) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'f', 'i', 'x', 'e', 'd', '_', 'n', 'o', 't', '_', 's', 'i', 'g', 'n', 'a', 'l', '_', 'i', 'n', 'a', 'c', 't', 'i', 'v', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.fixed_not_signal_inactive_texture = load_texture_asset(&fixed_not_inactive_path[0]);
+    }
+    if(game_resources.fixed_not_signal_active_texture.id == @as(u32, 0)) {
+        fixed_not_active_path: Array(char, 39) = ['a', 's', 's', 'e', 't', 's', '/', 'a', 'r', 't', '/', 'f', 'i', 'x', 'e', 'd', '_', 'n', 'o', 't', '_', 's', 'i', 'g', 'n', 'a', 'l', '_', 'a', 'c', 't', 'i', 'v', 'e', '.', 'p', 'n', 'g', '\0'];
+        game_resources.fixed_not_signal_active_texture = load_texture_asset(&fixed_not_active_path[0]);
+    }
+};
+
+pub init_game_resources = fn() void {
+    init_audio_resources();
+    init_render_resources();
+    init_visual_resources();
+    init_ambient_squares();
+};
+
+pub unload_texture_if_loaded = fn(texture: rl.Texture2D) void {
+    if(texture.id != @as(u32, 0)) {
+        rl.UnloadTexture(texture);
+    }
+};
+
+pub shutdown_game_resources = fn() void {
+    if(game_resources.bgm_loaded) {
+        rl.StopMusicStream(game_resources.bgm);
+        rl.UnloadMusicStream(game_resources.bgm);
+        game_resources.bgm_loaded = false;
+    }
+
+    if(game_resources.sounds_loaded) {
+        rl.UnloadSound(game_resources.sfx_active);
+        rl.UnloadSound(game_resources.sfx_inactive);
+        rl.UnloadSound(game_resources.sfx_move);
+        rl.UnloadSound(game_resources.sfx_transport);
+        game_resources.sounds_loaded = false;
+    }
+
+    if(game_resources.use_postprocess) {
+        rl.UnloadShader(game_resources.postprocess_shader);
+        game_resources.use_postprocess = false;
+    }
+
+    if(game_resources.render_target_loaded) {
+        rl.UnloadRenderTexture(game_resources.scene_target);
+        game_resources.render_target_loaded = false;
+    }
+
+    unload_texture_if_loaded(game_resources.wall_texture);
+    unload_texture_if_loaded(game_resources.box_texture);
+    unload_texture_if_loaded(game_resources.hero_texture);
+    unload_texture_if_loaded(game_resources.signal_source_texture);
+    unload_texture_if_loaded(game_resources.fixed_signal_source_texture);
+    unload_texture_if_loaded(game_resources.portal_inactive_texture);
+    unload_texture_if_loaded(game_resources.portal_active_texture);
+    unload_texture_if_loaded(game_resources.repeater_inactive_texture);
+    unload_texture_if_loaded(game_resources.repeater_active_texture);
+    unload_texture_if_loaded(game_resources.fixed_repeater_inactive_texture);
+    unload_texture_if_loaded(game_resources.fixed_repeater_active_texture);
+    unload_texture_if_loaded(game_resources.not_signal_inactive_texture);
+    unload_texture_if_loaded(game_resources.not_signal_active_texture);
+    unload_texture_if_loaded(game_resources.fixed_not_signal_inactive_texture);
+    unload_texture_if_loaded(game_resources.fixed_not_signal_active_texture);
+
+    if(rl.IsAudioDeviceReady()) {
+        rl.CloseAudioDevice();
+    }
+};
+
+pub play_sound_if_loaded = fn(sound: rl.Sound) void {
+    if(game_resources.sounds_loaded) {
+        rl.PlaySound(sound);
+    }
+};
+
+pub open_level_file = fn(level: i32, mode: *char) *void {
+    null_file: *void = 0;
+
+    mut repo_path: CharBuf64 = level_path(level);
+    mut file: *void = c.fopen(&repo_path.data[0], mode);
+    if(file != null_file) {
+        ok_repo: Array(char, 12) = ['o', 'p', 'e', 'n', ' ', 'r', 'e', 'p', 'o', '\n', '\0', '\0'];
+        c.fputs(&ok_repo[0], c.stderr_handle());
+        return file;
+    }
+
+    mut local_path: CharBuf64 = level_path_local(level);
+    file = c.fopen(&local_path.data[0], mode);
+    if(file != null_file) {
+        ok_local: Array(char, 13) = ['o', 'p', 'e', 'n', ' ', 'l', 'o', 'c', 'a', 'l', '\n', '\0', '\0'];
+        c.fputs(&ok_local[0], c.stderr_handle());
+        return file;
+    }
+
+    mut parent_path: CharBuf64 = level_path_parent(level);
+    file = c.fopen(&parent_path.data[0], mode);
+    if(file != null_file) {
+        ok_parent: Array(char, 14) = ['o', 'p', 'e', 'n', ' ', 'p', 'a', 'r', 'e', 'n', 't', '\n', '\0', '\0'];
+        c.fputs(&ok_parent[0], c.stderr_handle());
+    }
+    return file;
+};
+
 pub level_exists = fn(level: i32) bool {
-    mut path: CharBuf64 = level_path(level);
     read_mode: Array(char, 3) = ['r', 'b', '\0'];
     null_file: *void = 0;
-    file: *void = c.fopen(&path.data[0], &read_mode[0]);
+    file: *void = open_level_file(level, &read_mode[0]);
     if(file == null_file) {
         return false;
     }
@@ -717,14 +1087,40 @@ pub recalculate_activation = fn(state: &mut State) void {
         }
         y = y + 1;
     }
+
+    mut has_activated: bool = false;
+    mut has_deactivated: bool = false;
+    idx = 0;
+    while(idx < cell_count) {
+        if(state.static_activated[idx] && !scratch.prev_static_activated[idx]) {
+            has_activated = true;
+        } else if(!state.static_activated[idx] && scratch.prev_static_activated[idx]) {
+            has_deactivated = true;
+        }
+
+        if(state.dynamic_activated[idx] && !scratch.prev_dynamic_activated[idx]) {
+            has_activated = true;
+        } else if(!state.dynamic_activated[idx] && scratch.prev_dynamic_activated[idx]) {
+            has_deactivated = true;
+        }
+        idx = idx + 1;
+    }
+
+    if(has_activated) {
+        play_sound_if_loaded(game_resources.sfx_active);
+    }
+    if(has_deactivated) {
+        play_sound_if_loaded(game_resources.sfx_inactive);
+    }
 };
 
 pub load_level = fn(state: &mut State, level: i32) bool {
-    mut path: CharBuf64 = level_path(level);
     read_mode: Array(char, 3) = ['r', 'b', '\0'];
     null_file: *void = 0;
-    file: *void = c.fopen(&path.data[0], &read_mode[0]);
+    file: *void = open_level_file(level, &read_mode[0]);
     if(file == null_file) {
+        fail_open: Array(char, 13) = ['l', 'o', 'a', 'd', '_', 'o', 'p', 'e', 'n', '0', '\n', '\0', '\0'];
+        c.fputs(&fail_open[0], c.stderr_handle());
         return false;
     }
 
@@ -742,6 +1138,11 @@ pub load_level = fn(state: &mut State, level: i32) bool {
     }
     c.fclose(file);
     raw.data[read_count] = '\0';
+
+    read_fmt: Array(char, 12) = ['r', 'c', 't', ':', '%', 'd', '\n', '\0', '\0', '\0', '\0', '\0'];
+    mut read_msg: CharBuf32 = @zero(CharBuf32);
+    c.snprintf(&read_msg.data[0], 32, &read_fmt[0], read_count);
+    c.fputs(&read_msg.data[0], c.stderr_handle());
 
     clear_map_arrays(state);
     reset_runtime_state(state);
@@ -776,6 +1177,11 @@ pub load_level = fn(state: &mut State, level: i32) bool {
         }
         height = height + 1;
     }
+
+    size_fmt: Array(char, 18) = ['w', ':', '%', 'd', ' ', 'h', ':', '%', 'd', '\n', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0'];
+    mut size_msg: CharBuf32 = @zero(CharBuf32);
+    c.snprintf(&size_msg.data[0], 32, &size_fmt[0], width, height);
+    c.fputs(&size_msg.data[0], c.stderr_handle());
 
     if(width <= 0 || height <= 0 || width > MAP_MAX_WIDTH || height > MAP_MAX_HEIGHT) {
         state.map_width = 0;
@@ -916,8 +1322,10 @@ pub try_move = fn(state: &mut State, dx: i32, dy: i32) bool {
         return false;
     }
 
+    play_sound_if_loaded(game_resources.sfx_move);
     recalculate_activation(state);
     if(state.static_tiles[target_idx] == STATIC_TILE_PORTAL && state.static_activated[target_idx]) {
+        play_sound_if_loaded(game_resources.sfx_transport);
         next_level(state);
     }
     return true;
@@ -1055,6 +1463,14 @@ pub update_game = fn(state: &mut State) void {
         }
     }
 
+    game_resources.ambient_time = game_resources.ambient_time + rl.GetFrameTime();
+    if(game_resources.bgm_loaded) {
+        rl.UpdateMusicStream(game_resources.bgm);
+        if(!rl.IsMusicStreamPlaying(game_resources.bgm)) {
+            rl.PlayMusicStream(game_resources.bgm);
+        }
+    }
+
     if(state.hint_timer > 0.0) {
         state.hint_timer = state.hint_timer - rl.GetFrameTime();
         if(state.hint_timer < 0.0) {
@@ -1063,49 +1479,77 @@ pub update_game = fn(state: &mut State) void {
     }
 };
 
+pub draw_texture_cell = fn(texture: rl.Texture2D, px: i32, py: i32, cell_size: i32) void {
+    src: rl.Rectangle = rl.Rectangle {
+        .x = 0.0,
+        .y = 0.0,
+        .width = @as(f32, texture.width),
+        .height = @as(f32, texture.height),
+    };
+    dst: rl.Rectangle = rl.Rectangle {
+        .x = @as(f32, px),
+        .y = @as(f32, py),
+        .width = @as(f32, cell_size),
+        .height = @as(f32, cell_size),
+    };
+    origin: rl.Vector2 = rl.Vector2 {.x = 0.0, .y = 0.0};
+    rl.DrawTexturePro(texture, src, dst, origin, 0.0, rl.WHITE);
+};
+
+pub draw_ambient_background = fn() void {
+    mut i: i32 = 0;
+    square_radius: f32 = @as(f32, 3.0);
+    square_size: f32 = square_radius * @as(f32, 2.0);
+    while(i < AMBIENT_FLOATING_SQUARE_COUNT) {
+        sq: FloatingSquare = game_resources.ambient_squares[i];
+        px: f32 = sq.anchor.x + c.sinf(game_resources.ambient_time * sq.speed_x + sq.phase_x) * sq.amp_x;
+        py: f32 = sq.anchor.y + c.cosf(game_resources.ambient_time * sq.speed_y + sq.phase_y) * sq.amp_y;
+        rl.DrawRectangleV(
+            rl.Vector2 {.x = px - square_radius, .y = py - square_radius},
+            rl.Vector2 {.x = square_size, .y = square_size},
+            COLOR_AMBIENT
+        );
+        i = i + 1;
+    }
+};
+
 pub draw_static_tile = fn(tile: i32, activated: bool, px: i32, py: i32, cell_size: i32) void {
     rl.DrawRectangle(px, py, cell_size, cell_size, COLOR_FLOOR);
 
     if(tile == STATIC_TILE_WALL) {
-        rl.DrawRectangle(px, py, cell_size, cell_size, COLOR_WALL);
+        draw_texture_cell(game_resources.wall_texture, px, py, cell_size);
         return;
     }
 
     if(tile == STATIC_TILE_PORTAL) {
-        inset: i32 = cell_size / 6;
-        mut color: rl.Color = COLOR_PORTAL_OFF;
         if(activated) {
-            color = COLOR_PORTAL_ON;
+            draw_texture_cell(game_resources.portal_active_texture, px, py, cell_size);
+        } else {
+            draw_texture_cell(game_resources.portal_inactive_texture, px, py, cell_size);
         }
-        rl.DrawRectangle(px + inset, py + inset, cell_size - inset * 2, cell_size - inset * 2, color);
         return;
     }
 
     if(tile == STATIC_TILE_FIXED_SIGNAL_SOURCE) {
-        inset: i32 = cell_size / 5;
-        rl.DrawRectangle(px + inset, py + inset, cell_size - inset * 2, cell_size - inset * 2, COLOR_SIGNAL);
+        draw_texture_cell(game_resources.fixed_signal_source_texture, px, py, cell_size);
         return;
     }
 
     if(tile == STATIC_TILE_FIXED_REPEATER) {
-        inset: i32 = cell_size / 5;
-        mut color: rl.Color = COLOR_REPEATER_OFF;
         if(activated) {
-            color = COLOR_REPEATER_ON;
+            draw_texture_cell(game_resources.fixed_repeater_active_texture, px, py, cell_size);
+        } else {
+            draw_texture_cell(game_resources.fixed_repeater_inactive_texture, px, py, cell_size);
         }
-        rl.DrawRectangle(px + inset, py + inset, cell_size - inset * 2, cell_size - inset * 2, color);
-        rl.DrawRectangle(px + cell_size / 3, py + cell_size / 3, cell_size / 3, cell_size / 3, COLOR_BG);
         return;
     }
 
     if(tile == STATIC_TILE_FIXED_NOT_SIGNAL) {
-        inset: i32 = cell_size / 5;
-        mut color: rl.Color = COLOR_NOT_OFF;
         if(activated) {
-            color = COLOR_NOT_ON;
+            draw_texture_cell(game_resources.fixed_not_signal_active_texture, px, py, cell_size);
+        } else {
+            draw_texture_cell(game_resources.fixed_not_signal_inactive_texture, px, py, cell_size);
         }
-        rl.DrawRectangle(px + inset, py + inset, cell_size - inset * 2, cell_size - inset * 2, color);
-        rl.DrawRectangle(px + cell_size / 3, py + cell_size / 3, cell_size / 3, cell_size / 3, COLOR_BG);
     }
 };
 
@@ -1114,23 +1558,33 @@ pub draw_dynamic_tile = fn(tile: i32, activated: bool, px: i32, py: i32, cell_si
         return;
     }
 
-    inset: i32 = cell_size / 4;
-    size: i32 = cell_size - inset * 2;
-    mut color: rl.Color = COLOR_BOX;
-    if(tile == DYNAMIC_TILE_SIGNAL_SOURCE) {
-        color = COLOR_SIGNAL;
-    } else if(tile == DYNAMIC_TILE_REPEATER) {
-        color = COLOR_REPEATER_OFF;
-        if(activated) {
-            color = COLOR_REPEATER_ON;
-        }
-    } else if(tile == DYNAMIC_TILE_NOT_SIGNAL) {
-        color = COLOR_NOT_OFF;
-        if(activated) {
-            color = COLOR_NOT_ON;
-        }
+    if(tile == DYNAMIC_TILE_BOX) {
+        draw_texture_cell(game_resources.box_texture, px, py, cell_size);
+        return;
     }
-    rl.DrawRectangle(px + inset, py + inset, size, size, color);
+
+    if(tile == DYNAMIC_TILE_SIGNAL_SOURCE) {
+        draw_texture_cell(game_resources.signal_source_texture, px, py, cell_size);
+        return;
+    }
+
+    if(tile == DYNAMIC_TILE_REPEATER) {
+        if(activated) {
+            draw_texture_cell(game_resources.repeater_active_texture, px, py, cell_size);
+        } else {
+            draw_texture_cell(game_resources.repeater_inactive_texture, px, py, cell_size);
+        }
+        return;
+    }
+
+    if(tile == DYNAMIC_TILE_NOT_SIGNAL) {
+        if(activated) {
+            draw_texture_cell(game_resources.not_signal_active_texture, px, py, cell_size);
+        } else {
+            draw_texture_cell(game_resources.not_signal_inactive_texture, px, py, cell_size);
+        }
+        return;
+    }
 };
 
 pub compute_viewport = fn(state: &State) Viewport {
@@ -1162,12 +1616,14 @@ pub draw_map_cells = fn(state: &State, view: &Viewport) void {
             idx: i32 = map_index(state, x, y);
             px: i32 = view.origin_x + x * view.cell_size;
             py: i32 = view.origin_y + y * view.cell_size;
-            draw_static_tile(state.static_tiles[idx], state.static_activated[idx], px, py, view.cell_size);
-            draw_dynamic_tile(state.dynamic_types[idx], state.dynamic_activated[idx], px, py, view.cell_size);
+            static_tile: i32 = state.static_tiles[idx];
+            static_active: bool = state.static_activated[idx];
+            cell_size: i32 = view.cell_size;
+            draw_static_tile(static_tile, static_active, px, py, cell_size);
+            draw_dynamic_tile(state.dynamic_types[idx], state.dynamic_activated[idx], px, py, cell_size);
 
             if(state.hero_x == x && state.hero_y == y) {
-                hero_inset: i32 = view.cell_size / 3;
-                rl.DrawRectangle(px + hero_inset, py + hero_inset, view.cell_size - hero_inset * 2, view.cell_size - hero_inset * 2, COLOR_HERO);
+                draw_texture_cell(game_resources.hero_texture, px, py, view.cell_size);
             }
             x = x + 1;
         }
@@ -1178,27 +1634,34 @@ pub draw_map_cells = fn(state: &State, view: &Viewport) void {
 pub draw_overlay = fn(state: &State) void {
     level_fmt: Array(char, 9) = ['L', 'e', 'v', 'e', 'l', ' ', '%', 'd', '\0'];
     mut level_text: CharBuf32 = @zero(CharBuf32);
-    c.snprintf_i32(&level_text.data[0], 32, &level_fmt[0], state.current_level);
+    c.snprintf(&level_text.data[0], 32, &level_fmt[0], state.current_level);
     rl.DrawText(&level_text.data[0], 24, 24, 28, rl.RAYWHITE);
 
     help_text: Array(char, 14) = ['W', 'A', 'S', 'D', ' ', 'Z', ' ', 'R', ' ', '/', '<', 'n', '>', '\0'];
     rl.DrawText(&help_text[0], 24, WINDOW_HEIGHT - 48, 20, rl.LIGHTGRAY);
 
     if(state.hint_timer > 0.0 && state.hint_len > 0) {
-        rl.DrawRectangle(20, 62, 260, 32, rl.Fade(rl.BLACK, 0.55));
+        rl.DrawRectangle(20, 62, 260, 32, rl.Fade(rl.BLACK, @as(f32, 0.55)));
         rl.DrawText(&state.hint_buffer[0], 28, 68, 20, rl.RAYWHITE);
     }
 
     if(state.command_visible) {
-        rl.DrawRectangle(20, 104, 320, 40, rl.Fade(rl.BLACK, 0.7));
+        rl.DrawRectangle(20, 104, 320, 40, rl.Fade(rl.BLACK, @as(f32, 0.7)));
         rl.DrawText(&state.command_buffer[0], 28, 114, 22, rl.RAYWHITE);
     }
 };
 
-pub draw_game = fn(state: &State) void {
+pub draw_scene = fn(state: &State) void {
     rl.ClearBackground(COLOR_BG);
+    draw_ambient_background();
+    if(state.map_width <= 0) {
+        if(state.hint_len > 0) {
+            rl.DrawText(&state.hint_buffer[0], 24, 24, 24, rl.RAYWHITE);
+        }
+        return;
+    }
 
-    if(state.map_width <= 0 || state.map_height <= 0) {
+    if(state.map_height <= 0) {
         if(state.hint_len > 0) {
             rl.DrawText(&state.hint_buffer[0], 24, 24, 24, rl.RAYWHITE);
         }
@@ -1214,19 +1677,47 @@ pub init_window = fn() void {
     mut title: Array(char, 8) = ['N', 'o', 't', 'g', 'a', 't', 'e', '\0'];
     rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, &title[0]);
     rl.SetTargetFPS(60);
+    init_game_resources();
 };
 
 pub initial_load = fn(state: &mut State) void {
+    initial_load_begin: Array(char, 28) = ['n', 'o', 't', 'g', 'a', 't', 'e', ':', ' ', 'i', 'n', 'i', 't', 'i', 'a', 'l', '_', 'l', 'o', 'a', 'd', ' ', 'b', 'e', 'g', 'i', 'n', '\0'];
+    c.fputs(&initial_load_begin[0], c.stderr_handle());
     mut load_failed: Array(char, 12) = ['l', 'o', 'a', 'd', ' ', 'f', 'a', 'i', 'l', 'e', 'd', '\0'];
     if(!load_level(state, 1)) {
         set_hint(state, &load_failed[0], 11, 60.0);
     }
+    init_fmt: Array(char, 13) = ['i', 'l', ':', '%', 'd', ',', '%', 'd', '\n', '\0', '\0', '\0', '\0'];
+    mut init_msg: CharBuf32 = @zero(CharBuf32);
+    c.snprintf(&init_msg.data[0], 32, &init_fmt[0], state.map_width, state.map_height);
+    c.fputs(&init_msg.data[0], c.stderr_handle());
+    initial_load_end: Array(char, 26) = ['n', 'o', 't', 'g', 'a', 't', 'e', ':', ' ', 'i', 'n', 'i', 't', 'i', 'a', 'l', '_', 'l', 'o', 'a', 'd', ' ', 'e', 'n', 'd', '\0'];
+    c.fputs(&initial_load_end[0], c.stderr_handle());
 };
 
 pub run_frame = fn(state: &mut State) void {
     update_game(state);
+
+    rl.BeginTextureMode(game_resources.scene_target);
+    draw_scene(state);
+    rl.EndTextureMode();
+
     rl.BeginDrawing();
-    draw_game(&state);
+    rl.ClearBackground(rl.BLACK);
+    source: rl.Rectangle = rl.Rectangle {
+        .x = 0.0,
+        .y = 0.0,
+        .width = @as(f32, game_resources.scene_target.texture.width),
+        .height = -@as(f32, game_resources.scene_target.texture.height),
+    };
+    origin: rl.Vector2 = rl.Vector2 {.x = 0.0, .y = 0.0};
+    if(game_resources.use_postprocess) {
+        rl.BeginShaderMode(game_resources.postprocess_shader);
+        rl.DrawTextureRec(game_resources.scene_target.texture, source, origin, rl.WHITE);
+        rl.EndShaderMode();
+    } else {
+        rl.DrawTextureRec(game_resources.scene_target.texture, source, origin, rl.WHITE);
+    }
     rl.EndDrawing();
 };
 
@@ -1238,5 +1729,6 @@ pub run = fn() void {
         run_frame(runtime_state);
     }
 
+    shutdown_game_resources();
     rl.CloseWindow();
 };
