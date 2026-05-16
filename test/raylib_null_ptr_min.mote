@@ -1,0 +1,6 @@
+rl = @import("raylib");
+
+fs_path: Array(char, 29) = "assets/shaders/postprocess.fs\0";
+
+shader: rl.Shader = rl.LoadShader(0, &fs_path[0]);
+shader_id: u32 = shader.id;

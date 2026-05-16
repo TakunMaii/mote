@@ -1,0 +1,4 @@
+WROTE LLVM IR ===============
+
+test\raylib_null_ptr_min.ll
+

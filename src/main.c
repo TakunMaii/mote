@@ -134,11 +134,11 @@ static int run_clang_link(const char *llvm_input_path, const char *exe_output_pa
     char command[4096];
 #if defined(_WIN32)
     snprintf(command, sizeof(command),
-             "clang \"%s\" -o \"%s\" -Xlinker /subsystem:console",
+             "clang \"%s\" \"src\\mote_runtime.c\" -o \"%s\" -Xlinker /subsystem:console",
              llvm_input_path, exe_output_path);
 #else
     snprintf(command, sizeof(command),
-             "clang \"%s\" -o \"%s\"",
+             "clang \"%s\" \"src/mote_runtime.c\" -o \"%s\"",
              llvm_input_path, exe_output_path);
 #endif
 
@@ -284,17 +284,21 @@ int main(int argn, char** argv)
     ASTNode *root = buildModuleProgramAST(input_path, packages, package_count);
     checkAssignSemantics(root);
     checkAssignTypes(root);
-    printf("PRINT AST NODES ===============\n\n");
-    ASTNode *ndptr = root;
-    while(ndptr)
+    if(!emit_llvm)
     {
-        printASTNode(*ndptr);
-        ndptr = ndptr->next;
+        printf("PRINT AST NODES ===============\n\n");
+        ASTNode *ndptr = root;
+        while(ndptr)
+        {
+            printASTNode(*ndptr);
+            ndptr = ndptr->next;
+        }
+        printf("END PRINT AST NODES ===============\n\n");
     }
-    printf("END PRINT AST NODES ===============\n\n");
 
     MirProgram *mir_program = lowerASTToMIR(root);
-    printMIRProgram(mir_program);
+    if(!emit_llvm)
+        printMIRProgram(mir_program);
 
     if(emit_llvm)
     {

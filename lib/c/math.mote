@@ -1,0 +1,5 @@
+pub sinf = @extern("sinf", Function([f32], f32));
+pub cosf = @extern("cosf", Function([f32], f32));
+pub sqrtf = @extern("sqrtf", Function([f32], f32));
+pub fabsf = @extern("fabsf", Function([f32], f32));
+pub fminf = @extern("fminf", Function([f32, f32], f32));

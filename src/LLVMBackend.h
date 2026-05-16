@@ -775,6 +775,16 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             return;
         case MIR_INST_CONST_CHAR:
         case MIR_INST_CONST_INT:
+            if(inst->result_type != NULL && inst->result_type->kind == AST_DATA_TYPE_KIND_POINTER)
+            {
+                llvmEmitInstructionPrefix(stream, inst->result);
+                fprintf(stream, "inttoptr i64 %lld to ptr\n",
+                        inst->kind == MIR_INST_CONST_CHAR
+                            ? (long long int)(unsigned char)inst->data.const_char.value
+                            : inst->data.const_int.value);
+                return;
+            }
+
             if(llvmIsFloatDataType(inst->result_type))
             {
                 llvmEmitFloatConstantInst(stream, inst->result, inst->result_type,

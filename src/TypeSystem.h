@@ -718,6 +718,9 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
 
     if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
     {
+        if(target_type->kind == AST_DATA_TYPE_KIND_POINTER)
+            return source_node != NULL && source_node->kind == AST_EXPR_LITERAL_INTEGER && source_node->literal_integer == 0;
+
         if(target_type->kind != AST_DATA_TYPE_KIND_PRIMARY)
             return false;
 

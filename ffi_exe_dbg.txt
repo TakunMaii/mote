@@ -1,0 +1,25 @@
+WROTE LLVM IR ===============
+
+test\ffi_main.ll
+
+warning: overriding the module target triple with x86_64-pc-windows-msvc19.50.35728 [-Woverride-module]
+1 warning generated.
+src\mote_runtime.c:11:43: warning: format string is not a string literal (potentially insecure) [-Wformat-security]
+   11 |     return snprintf(buffer, (size_t)size, format);
+      |                                           ^~~~~~
+src\mote_runtime.c:11:43: note: treat the string as an argument to avoid this
+   11 |     return snprintf(buffer, (size_t)size, format);
+      |                                           ^
+      |                                           "%s", 
+src\mote_runtime.c:36:35: warning: format string is not a string literal (potentially insecure) [-Wformat-security]
+   36 |     return fprintf((FILE*)stream, format);
+      |                                   ^~~~~~
+src\mote_runtime.c:36:35: note: treat the string as an argument to avoid this
+   36 |     return fprintf((FILE*)stream, format);
+      |                                   ^
+      |                                   "%s", 
+2 warnings generated.
+WROTE EXECUTABLE ===============
+
+test\ffi_main.exe
+
