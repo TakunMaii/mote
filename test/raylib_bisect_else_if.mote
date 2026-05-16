@@ -1,0 +1,27 @@
+rl = @import("raylib");
+
+title: Array(char, 14) = "bisect else if";
+mut color_index: i32 = 0;
+mut frames: i32 = 0;
+
+rl.InitWindow(320, 240, &title[0]);
+rl.SetTargetFPS(60);
+
+while(!rl.WindowShouldClose() && frames < 2) {
+    mut draw_color: rl.Color = rl.BLUE;
+    if(color_index == 1) {
+        draw_color = rl.GREEN;
+    } else if(color_index == 2) {
+        draw_color = rl.YELLOW;
+    } else if(color_index == 3) {
+        draw_color = rl.RED;
+    }
+
+    rl.BeginDrawing();
+    rl.ClearBackground(rl.RAYWHITE);
+    rl.DrawCircleV(rl.Vector2 {.x = 160.0, .y = 120.0}, 40.0, draw_color);
+    rl.EndDrawing();
+    frames = frames + 1;
+}
+
+rl.CloseWindow();

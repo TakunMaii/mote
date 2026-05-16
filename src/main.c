@@ -11,11 +11,34 @@
 #include "LLVMBackend.h"
 
 #define CLI_MAX_PACKAGES 128
+#define CLI_MAX_LINK_ARGS 128
 
 static void print_usage(const char *argv0)
 {
-    printf("Usage: %s [--pkg name=path]... [--emit-llvm <input> [output.ll]] | [--pkg name=path]... [--emit-exe <input> [output.exe]] | [--pkg name=path]... <input>\n",
-           argv0);
+    printf("Usage:\n");
+    printf("  %s [--pkg name=path]... <input>\n", argv0);
+    printf("  %s [--pkg name=path]... --emit-llvm <input> [output.ll]\n", argv0);
+    printf("  %s [--pkg name=path]... [--link-arg value]... --emit-exe <input> [output.exe]\n", argv0);
+    printf("\n");
+    printf("Options:\n");
+    printf("  --pkg name=path   Register a package root for @import(\"name/...\")\n");
+    printf("  --emit-llvm       Write LLVM IR to a .ll file\n");
+    printf("  --emit-exe        Write LLVM IR, invoke clang, and produce an executable\n");
+    printf("  --link-arg value  Forward one extra argument to clang during --emit-exe\n");
+    printf("  --help, -h        Show this help text\n");
+    printf("\n");
+    printf("Notes:\n");
+    printf("  - With no emit flag, the compiler parses, checks, lowers to MIR, and prints AST/MIR.\n");
+    printf("  - --emit-exe requires clang to be available in PATH.\n");
+    printf("  - If output is omitted, the compiler derives it from the input file name.\n");
+    printf("\n");
+    printf("Examples:\n");
+    printf("  %s test\\\\simple.mote\n", argv0);
+    printf("  %s --emit-llvm test\\\\simple.mote\n", argv0);
+    printf("  %s --emit-exe test\\\\simple.mote test\\\\simple.exe\n", argv0);
+    printf("  %s --link-arg -Lthird_party\\\\lib --link-arg -lfoo --emit-exe app.mote\n", argv0);
+    printf("  %s --pkg c=lib\\\\c --emit-exe test\\\\ffi_main.mote\n", argv0);
+    printf("  %s --pkg app=test\\\\pkg\\\\app --emit-exe test\\\\multi\\\\package_main.mote\n", argv0);
 }
 
 static void parse_package_argument(const char *arg, ModulePackage *package)
@@ -63,7 +86,50 @@ static void build_output_path(char *buffer, size_t buffer_size, const char *inpu
         snprintf(buffer, buffer_size, "%.*s%s", (int)(last_dot - input_path), input_path, extension);
 }
 
-static int run_clang_link(const char *llvm_input_path, const char *exe_output_path)
+static void append_shell_escaped(char *command, size_t command_size, const char *arg)
+{
+    size_t used = strlen(command);
+    if(used + 4 >= command_size)
+    {
+        printf("Link command is too long\n");
+        exit(1);
+    }
+
+    command[used++] = ' ';
+    command[used++] = '"';
+    command[used] = '\0';
+
+    for(const char *p = arg; *p != '\0'; p++)
+    {
+        if(*p == '"')
+        {
+            if(used + 2 >= command_size)
+            {
+                printf("Link command is too long\n");
+                exit(1);
+            }
+            command[used++] = '\\';
+        }
+
+        if(used + 1 >= command_size)
+        {
+            printf("Link command is too long\n");
+            exit(1);
+        }
+        command[used++] = *p;
+    }
+
+    if(used + 2 >= command_size)
+    {
+        printf("Link command is too long\n");
+        exit(1);
+    }
+    command[used++] = '"';
+    command[used] = '\0';
+}
+
+static int run_clang_link(const char *llvm_input_path, const char *exe_output_path,
+                          const char **link_args, int link_arg_count)
 {
     char command[4096];
 #if defined(_WIN32)
@@ -75,6 +141,15 @@ static int run_clang_link(const char *llvm_input_path, const char *exe_output_pa
              "clang \"%s\" -o \"%s\"",
              llvm_input_path, exe_output_path);
 #endif
+
+    for(int i = 0; i < link_arg_count; i++)
+    {
+#if defined(_WIN32)
+        append_shell_escaped(command, sizeof(command), "-Xlinker");
+#endif
+        append_shell_escaped(command, sizeof(command), link_args[i]);
+    }
+
     return system(command);
 }
 
@@ -88,13 +163,27 @@ int main(int argn, char** argv)
     const char *input_path = NULL;
     const char *llvm_output_path = NULL;
     const char *exe_output_path = NULL;
-    ModulePackage packages[CLI_MAX_PACKAGES] = {0};
+    ModulePackage *packages = (ModulePackage*) calloc(CLI_MAX_PACKAGES, sizeof(ModulePackage));
     int package_count = 0;
-    const char *positionals[2] = {0};
+    const char **link_args = (const char**) calloc(CLI_MAX_LINK_ARGS, sizeof(const char*));
+    int link_arg_count = 0;
+    const char **positionals = (const char**) calloc(2, sizeof(const char*));
     int positional_count = 0;
+
+    if(packages == NULL || link_args == NULL || positionals == NULL)
+    {
+        printf("Failed to allocate CLI argument buffers\n");
+        exit(1);
+    }
 
     for(int i = 1; i < argn; i++)
     {
+        if(strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
+        {
+            print_usage(argv[0]);
+            return 0;
+        }
+
         if(strcmp(argv[i], "--emit-llvm") == 0)
         {
             emit_llvm = true;
@@ -122,6 +211,22 @@ int main(int argn, char** argv)
                 exit(1);
             }
             parse_package_argument(argv[++i], &(packages[package_count++]));
+            continue;
+        }
+
+        if(strcmp(argv[i], "--link-arg") == 0)
+        {
+            if(i + 1 >= argn)
+            {
+                print_usage(argv[0]);
+                exit(1);
+            }
+            if(link_arg_count >= CLI_MAX_LINK_ARGS)
+            {
+                printf("Too many --link-arg arguments\n");
+                exit(1);
+            }
+            link_args[link_arg_count++] = argv[++i];
             continue;
         }
 
@@ -198,7 +303,7 @@ int main(int argn, char** argv)
 
         if(emit_exe)
         {
-            int clang_exit_code = run_clang_link(llvm_output_path, exe_output_path);
+            int clang_exit_code = run_clang_link(llvm_output_path, exe_output_path, link_args, link_arg_count);
             if(clang_exit_code != 0)
             {
                 printf("LLVM link failed; kept intermediate IR at %s\n", llvm_output_path);

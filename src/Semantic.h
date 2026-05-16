@@ -125,10 +125,9 @@ void declareFunctionCaptures(ASTFunctionCapture *capture, ScopeFrame *target_sco
 
 void checkFunctionExprSemantics(ASTNode *node, ScopeFrame *scope)
 {
-    ScopeFrame function_scope = {0};
-    initScopeFrame(&function_scope, scope);
-    declareFunctionParameters(node->parameters, &function_scope);
-    declareFunctionCaptures(node->captures, &function_scope, scope);
+    ScopeFrame *function_scope = newScopeFrame(scope);
+    declareFunctionParameters(node->parameters, function_scope);
+    declareFunctionCaptures(node->captures, function_scope, scope);
 
     FunctionContext function_context = {0};
     function_context.return_data_type = node->return_data_type;
@@ -136,7 +135,8 @@ void checkFunctionExprSemantics(ASTNode *node, ScopeFrame *scope)
     function_context.loop_depth = 0;
     function_context.inside_defer = false;
 
-    checkAssignSemanticsInBlock(node->body, &function_scope, &function_context);
+    checkAssignSemanticsInBlock(node->body, function_scope, &function_context);
+    deleteScopeFrame(function_scope);
 }
 
 void checkStructExprSemantics(ASTNode *node, ScopeFrame *scope)
@@ -423,15 +423,15 @@ void checkStatementSemantics(ASTNode *node, ScopeFrame *scope, FunctionContext *
 
     if(node->kind == AST_STATEMENT_FOR)
     {
-        ScopeFrame loop_scope = {0};
-        initScopeFrame(&loop_scope, scope);
+        ScopeFrame *loop_scope = newScopeFrame(scope);
 
-        checkStatementSemantics(node->lhs, &loop_scope, function_context);
-        checkExprDeclaredVariable(node->rhs, &loop_scope);
-        checkStatementSemantics(node->extra, &loop_scope, function_context);
+        checkStatementSemantics(node->lhs, loop_scope, function_context);
+        checkExprDeclaredVariable(node->rhs, loop_scope);
+        checkStatementSemantics(node->extra, loop_scope, function_context);
 
         FunctionContext loop_context = {0};
-        checkStatementSemantics(node->body, &loop_scope, deriveLoopContext(function_context, &loop_context));
+        checkStatementSemantics(node->body, loop_scope, deriveLoopContext(function_context, &loop_context));
+        deleteScopeFrame(loop_scope);
         return;
     }
 
@@ -457,15 +457,15 @@ void checkStatementSemantics(ASTNode *node, ScopeFrame *scope, FunctionContext *
 
 void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context)
 {
-    ScopeFrame current_scope = {0};
-    initScopeFrame(&current_scope, parent_scope);
+    ScopeFrame *current_scope = newScopeFrame(parent_scope);
 
     ASTNode *node = block->lhs;
     while(node)
     {
-        checkStatementSemantics(node, &current_scope, function_context);
+        checkStatementSemantics(node, current_scope, function_context);
         node = node->next;
     }
+    deleteScopeFrame(current_scope);
 }
 
 void checkAssignSemantics(ASTNode *root)
@@ -636,15 +636,14 @@ ASTFunctionParameter* resolveFunctionTypeParameters(ASTFunctionParameter *parame
 {
     ASTFunctionParameter *head = NULL;
     ASTFunctionParameter *tail = NULL;
-    ScopeFrame signature_scope = {0};
-    initScopeFrame(&signature_scope, outer_scope);
+    ScopeFrame *signature_scope = newScopeFrame(outer_scope);
 
     while(parameter)
     {
         ASTFunctionParameter *resolved_parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
         *resolved_parameter = *parameter;
         resolved_parameter->next = NULL;
-        resolved_parameter->data_type = resolveNamedDataType(parameter->data_type, &signature_scope, self_data_type);
+        resolved_parameter->data_type = resolveNamedDataType(parameter->data_type, signature_scope, self_data_type);
 
         if(head == NULL)
             head = resolved_parameter;
@@ -652,7 +651,7 @@ ASTFunctionParameter* resolveFunctionTypeParameters(ASTFunctionParameter *parame
             tail->next = resolved_parameter;
         tail = resolved_parameter;
 
-        VariableInfo *variable_info = declareVariableInfo(&signature_scope, resolved_parameter->identifier);
+        VariableInfo *variable_info = declareVariableInfo(signature_scope, resolved_parameter->identifier);
         variable_info->mutable = false;
         variable_info->data_type = cloneDataType(resolved_parameter->data_type);
         if(resolved_parameter->data_type != NULL &&
@@ -665,6 +664,7 @@ ASTFunctionParameter* resolveFunctionTypeParameters(ASTFunctionParameter *parame
         parameter = parameter->next;
     }
 
+    deleteScopeFrame(signature_scope);
     return head;
 }
 
@@ -672,12 +672,11 @@ ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope,
 {
     ASTFunctionParameter *resolved_parameters = resolveFunctionTypeParameters(node->parameters, outer_scope, self_data_type);
 
-    ScopeFrame signature_scope = {0};
-    initScopeFrame(&signature_scope, outer_scope);
+    ScopeFrame *signature_scope = newScopeFrame(outer_scope);
     ASTFunctionParameter *parameter = resolved_parameters;
     while(parameter)
     {
-        VariableInfo *variable_info = declareVariableInfo(&signature_scope, parameter->identifier);
+        VariableInfo *variable_info = declareVariableInfo(signature_scope, parameter->identifier);
         variable_info->mutable = false;
         variable_info->data_type = cloneDataType(parameter->data_type);
         if(parameter->data_type != NULL &&
@@ -689,7 +688,8 @@ ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope,
         parameter = parameter->next;
     }
 
-    ASTDataType *resolved_return_type = resolveNamedDataType(node->return_data_type, &signature_scope, self_data_type);
+    ASTDataType *resolved_return_type = resolveNamedDataType(node->return_data_type, signature_scope, self_data_type);
+    deleteScopeFrame(signature_scope);
     return newFunctionDataType(resolved_parameters, resolved_return_type);
 }
 
@@ -721,13 +721,12 @@ void checkFunctionExprTypes(ASTNode *node, ScopeFrame *scope, ASTDataType *self_
     node->data_type = resolveFunctionExprDataType(node, scope, self_data_type);
     node->return_data_type = cloneDataType(node->data_type->return_data_type);
 
-    ScopeFrame function_scope = {0};
-    initScopeFrame(&function_scope, scope);
-    declareResolvedFunctionParameters(node->data_type->parameters, &function_scope, self_data_type);
-    declareFunctionCaptures(node->captures, &function_scope, scope);
+    ScopeFrame *function_scope = newScopeFrame(scope);
+    declareResolvedFunctionParameters(node->data_type->parameters, function_scope, self_data_type);
+    declareFunctionCaptures(node->captures, function_scope, scope);
     if(self_data_type != NULL)
     {
-        VariableInfo *self_variable = declareVariableInfo(&function_scope, "Self");
+        VariableInfo *self_variable = declareVariableInfo(function_scope, "Self");
         self_variable->mutable = false;
         self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
         self_variable->type_value = cloneDataType(self_data_type);
@@ -739,7 +738,8 @@ void checkFunctionExprTypes(ASTNode *node, ScopeFrame *scope, ASTDataType *self_
     function_context.self_available_as_type_value = self_data_type != NULL;
     function_context.loop_depth = 0;
     function_context.inside_defer = false;
-    checkAssignTypesInBlock(node->body, &function_scope, &function_context);
+    checkAssignTypesInBlock(node->body, function_scope, &function_context);
+    deleteScopeFrame(function_scope);
 }
 
 bool isBoolConditionType(TypeSystemExprType expr_type)
@@ -1153,16 +1153,16 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
 
     if(node->kind == AST_STATEMENT_FOR)
     {
-        ScopeFrame loop_scope = {0};
-        initScopeFrame(&loop_scope, scope);
+        ScopeFrame *loop_scope = newScopeFrame(scope);
 
-        checkStatementTypes(node->lhs, &loop_scope, function_context);
+        checkStatementTypes(node->lhs, loop_scope, function_context);
         if(node->rhs)
-            checkConditionType(node->rhs, &loop_scope);
-        checkStatementTypes(node->extra, &loop_scope, function_context);
+            checkConditionType(node->rhs, loop_scope);
+        checkStatementTypes(node->extra, loop_scope, function_context);
 
         FunctionContext loop_context = {0};
-        checkStatementTypes(node->body, &loop_scope, deriveLoopContext(function_context, &loop_context));
+        checkStatementTypes(node->body, loop_scope, deriveLoopContext(function_context, &loop_context));
+        deleteScopeFrame(loop_scope);
         return;
     }
 
@@ -1185,15 +1185,15 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
 
 void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context)
 {
-    ScopeFrame current_scope = {0};
-    initScopeFrame(&current_scope, parent_scope);
+    ScopeFrame *current_scope = newScopeFrame(parent_scope);
 
     ASTNode *node = block->lhs;
     while(node)
     {
-        checkStatementTypes(node, &current_scope, function_context);
+        checkStatementTypes(node, current_scope, function_context);
         node = node->next;
     }
+    deleteScopeFrame(current_scope);
 }
 
 void checkAssignTypes(ASTNode *root)

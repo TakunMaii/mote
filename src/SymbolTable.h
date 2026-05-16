@@ -2,6 +2,7 @@
 #define SYMBOL_TABLE_H
 
 #include "AST.h"
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct VariableInfo {
@@ -38,6 +39,21 @@ void initScopeFrame(ScopeFrame *scope, ScopeFrame *parent)
 {
     memset(scope, 0, sizeof(ScopeFrame));
     scope->parent = parent;
+}
+
+ScopeFrame* newScopeFrame(ScopeFrame *parent)
+{
+    ScopeFrame *scope = (ScopeFrame*) malloc(sizeof(ScopeFrame));
+    if(scope == NULL)
+        exit(1);
+    initScopeFrame(scope, parent);
+    return scope;
+}
+
+void deleteScopeFrame(ScopeFrame *scope)
+{
+    if(scope != NULL)
+        free(scope);
 }
 
 int findVariableInfoInScope(ScopeFrame *scope, const char *identifier)

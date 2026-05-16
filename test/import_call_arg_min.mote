@@ -1,0 +1,7 @@
+m = @import("mock");
+
+mut y: i32 = 0;
+
+if(m.IsReady()) {
+    y = y + m.ONE;
+}

@@ -577,11 +577,12 @@ ASTDataType* instantiateTypeExprValue(ASTNode *expr, ScopeFrame *inst_scope)
         VariableInfo *callee = findVariableInfo(inst_scope, expr->lhs->identifier);
         if(callee != NULL && callee->function_value != NULL)
         {
-            ScopeFrame nested_scope = {0};
-            initScopeFrame(&nested_scope, inst_scope);
-            bindCapturedValuesForInstantiation(callee->function_value->captures, &nested_scope, inst_scope);
-            bindCallArgumentsForInstantiation(callee->function_value->parameters, expr->rhs, &nested_scope, inst_scope);
-            return instantiateTypeExprValue(findReturnedExpr(callee->function_value), &nested_scope);
+            ScopeFrame *nested_scope = newScopeFrame(inst_scope);
+            bindCapturedValuesForInstantiation(callee->function_value->captures, nested_scope, inst_scope);
+            bindCallArgumentsForInstantiation(callee->function_value->parameters, expr->rhs, nested_scope, inst_scope);
+            ASTDataType *result = instantiateTypeExprValue(findReturnedExpr(callee->function_value), nested_scope);
+            deleteScopeFrame(nested_scope);
+            return result;
         }
     }
 
@@ -613,20 +614,23 @@ ASTNode* buildTypeLiteralArgumentExprs(ASTTypeArgument *argument, ScopeFrame *sc
 
 TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTNode *call_arguments, ScopeFrame *outer_scope)
 {
-    ScopeFrame inst_scope = {0};
-    initScopeFrame(&inst_scope, outer_scope);
-    bindCapturedValuesForInstantiation(function_value->captures, &inst_scope, outer_scope);
-    bindCallArgumentsForInstantiation(function_value->parameters, call_arguments, &inst_scope, outer_scope);
+    ScopeFrame *inst_scope = newScopeFrame(outer_scope);
+    bindCapturedValuesForInstantiation(function_value->captures, inst_scope, outer_scope);
+    bindCallArgumentsForInstantiation(function_value->parameters, call_arguments, inst_scope, outer_scope);
 
-    ASTDataType *resolved_return_type = resolveNamedDataType(function_value->return_data_type, &inst_scope, NULL);
+    ASTDataType *resolved_return_type = resolveNamedDataType(function_value->return_data_type, inst_scope, NULL);
     if(resolved_return_type != NULL &&
        resolved_return_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
        resolved_return_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
     {
-        return newTypeExprType(instantiateTypeExprValue(findReturnedExpr(function_value), &inst_scope));
+        TypeSystemExprType result = newTypeExprType(instantiateTypeExprValue(findReturnedExpr(function_value), inst_scope));
+        deleteScopeFrame(inst_scope);
+        return result;
     }
 
-    return newValueExprType(resolved_return_type);
+    TypeSystemExprType result = newValueExprType(resolved_return_type);
+    deleteScopeFrame(inst_scope);
+    return result;
 }
 
 bool canLiteralIntegerFitPrimary(long long int literal_integer, ASTPrimaryDataType target_primary)
