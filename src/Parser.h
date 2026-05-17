@@ -318,6 +318,29 @@ ASTNode* parseBuiltinExpr(Token **token)
         return node;
     }
 
+    if(strcmp(node->identifier, "zero") == 0 ||
+       strcmp(node->identifier, "sizeof") == 0 ||
+       strcmp(node->identifier, "alignof") == 0)
+    {
+        ASTNode *argument = NULL;
+
+        expectToken(*token, TK_LEFT_PARENTHESIS);
+        (*token) = (*token)->next;
+
+        if(tokenStartsDataType(*token))
+        {
+            argument = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
+            argument->data_type = parseDataType(token);
+        }
+        else
+            argument = parseExpr(token);
+
+        expectToken(*token, TK_RIGHT_PARENTHESIS);
+        (*token) = (*token)->next;
+        node->lhs = argument;
+        return node;
+    }
+
     node->lhs = parseArgumentList(token);
     return node;
 }

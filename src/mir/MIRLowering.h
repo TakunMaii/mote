@@ -1705,6 +1705,17 @@ static MirValueId lowerExternBuiltinExpr(MirFunctionState *state, MirLowerScope 
     return mirMaybeConvertValue(state, scope, node, function_ref, expected_type);
 }
 
+static MirValueId lowerTypeLayoutBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
+                                             bool want_align)
+{
+    long long int value = inferTypeBuiltinLayoutValue(node, &(scope->type_scope),
+                                                      want_align ? "alignof" : "sizeof",
+                                                      want_align ? "expected `@alignof(Type)`" : "expected `@sizeof(Type)`",
+                                                      want_align);
+    return mirEmitConstInt(state, value, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64),
+                           node->filename, node->line_number, node->column_number);
+}
+
 static MirValueId lowerZeroBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
                                        ASTDataType *expected_type)
 {
@@ -2108,6 +2119,10 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
         case AST_EXPR_BUILTIN:
             if(strcmp(node->identifier, "extern") == 0)
                 return lowerExternBuiltinExpr(state, scope, node, expected_type);
+            if(strcmp(node->identifier, "sizeof") == 0)
+                return lowerTypeLayoutBuiltinExpr(state, scope, node, false);
+            if(strcmp(node->identifier, "alignof") == 0)
+                return lowerTypeLayoutBuiltinExpr(state, scope, node, true);
             if(strcmp(node->identifier, "zero") == 0)
                 return lowerZeroBuiltinExpr(state, scope, node, expected_type);
             if(strcmp(node->identifier, "as") == 0)

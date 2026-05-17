@@ -826,7 +826,7 @@ sum: i32 = math.add(1, 2);
 
 因此不建议把复杂隐式初始化逻辑堆在模块顶层。
 
-## 18. 内建：`@import`、`@extern`、`@zero`、`@as`
+## 18. 内建：`@import`、`@extern`、`@zero`、`@sizeof`、`@alignof`、`@as`
 
 ### 18.1 `@import`
 
@@ -864,7 +864,20 @@ v: Vec2 = @zero(Vec2);
 b: bool = @zero(bool);
 ```
 
-### 18.4 `@as`
+### 18.4 `@sizeof` 和 `@alignof`
+
+查询类型的布局信息：
+
+```mote
+size: i64 = @sizeof(i32);
+align: i64 = @alignof(?i32);
+```
+
+- `@sizeof(Type)` 返回该类型的字节大小
+- `@alignof(Type)` 返回该类型的对齐
+- 两者都在编译期求值，结果类型是 `i64`
+
+### 18.5 `@as`
 
 显式转换：
 

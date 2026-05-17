@@ -232,6 +232,152 @@ bool isOptionalDataType(ASTDataType *data_type)
     return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL;
 }
 
+static size_t moteAlignTo(size_t value, size_t align)
+{
+    if(align == 0)
+        return value;
+    size_t remainder = value % align;
+    if(remainder == 0)
+        return value;
+    return value + align - remainder;
+}
+
+static size_t moteTypeLayoutAlignment(ASTDataType *data_type);
+
+static size_t moteTypeLayoutSize(ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        return 0;
+
+    switch(data_type->kind)
+    {
+        case AST_DATA_TYPE_KIND_PRIMARY:
+            switch(data_type->primary)
+            {
+                case AST_PRIMARY_DATA_TYPE_VOID: return 0;
+                case AST_PRIMARY_DATA_TYPE_BOOL: return 1;
+                case AST_PRIMARY_DATA_TYPE_CHAR:
+                case AST_PRIMARY_DATA_TYPE_I8:
+                case AST_PRIMARY_DATA_TYPE_U8: return 1;
+                case AST_PRIMARY_DATA_TYPE_I16:
+                case AST_PRIMARY_DATA_TYPE_U16:
+                case AST_PRIMARY_DATA_TYPE_F16: return 2;
+                case AST_PRIMARY_DATA_TYPE_I32:
+                case AST_PRIMARY_DATA_TYPE_U32:
+                case AST_PRIMARY_DATA_TYPE_F32: return 4;
+                case AST_PRIMARY_DATA_TYPE_I64:
+                case AST_PRIMARY_DATA_TYPE_U64:
+                case AST_PRIMARY_DATA_TYPE_F64: return 8;
+                case AST_PRIMARY_DATA_TYPE_F8: return 1;
+                case AST_PRIMARY_DATA_TYPE_TYPE: return sizeof(void*);
+            }
+            return 0;
+        case AST_DATA_TYPE_KIND_POINTER:
+        case AST_DATA_TYPE_KIND_REFERENCE:
+        case AST_DATA_TYPE_KIND_FUNCTION:
+            return sizeof(void*);
+        case AST_DATA_TYPE_KIND_OPTIONAL: {
+            size_t flag_size = 1;
+            size_t child_align = moteTypeLayoutAlignment(data_type->child);
+            size_t child_size = moteTypeLayoutSize(data_type->child);
+            size_t offset = moteAlignTo(flag_size, child_align);
+            size_t max_align = 1 > child_align ? 1 : child_align;
+            return moteAlignTo(offset + child_size, max_align);
+        }
+        case AST_DATA_TYPE_KIND_ENUM:
+            return 4;
+        case AST_DATA_TYPE_KIND_ARRAY:
+            return moteTypeLayoutSize(data_type->child) * (size_t) data_type->array_length;
+        case AST_DATA_TYPE_KIND_STRUCT: {
+            size_t offset = 0;
+            size_t max_align = 1;
+            ASTStructMember *member = data_type->members;
+            while(member)
+            {
+                if(member->value == NULL)
+                {
+                    size_t member_align = moteTypeLayoutAlignment(member->data_type);
+                    size_t member_size = moteTypeLayoutSize(member->data_type);
+                    offset = moteAlignTo(offset, member_align);
+                    offset += member_size;
+                    if(member_align > max_align)
+                        max_align = member_align;
+                }
+                member = member->next;
+            }
+            return moteAlignTo(offset, max_align);
+        }
+        default:
+            return 0;
+    }
+}
+
+static size_t moteTypeLayoutAlignment(ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        return 1;
+
+    switch(data_type->kind)
+    {
+        case AST_DATA_TYPE_KIND_PRIMARY:
+            switch(data_type->primary)
+            {
+                case AST_PRIMARY_DATA_TYPE_VOID:
+                    return 1;
+                case AST_PRIMARY_DATA_TYPE_BOOL:
+                case AST_PRIMARY_DATA_TYPE_CHAR:
+                case AST_PRIMARY_DATA_TYPE_I8:
+                case AST_PRIMARY_DATA_TYPE_U8:
+                case AST_PRIMARY_DATA_TYPE_F8:
+                    return 1;
+                case AST_PRIMARY_DATA_TYPE_I16:
+                case AST_PRIMARY_DATA_TYPE_U16:
+                case AST_PRIMARY_DATA_TYPE_F16:
+                    return 2;
+                case AST_PRIMARY_DATA_TYPE_I32:
+                case AST_PRIMARY_DATA_TYPE_U32:
+                case AST_PRIMARY_DATA_TYPE_F32:
+                    return 4;
+                case AST_PRIMARY_DATA_TYPE_I64:
+                case AST_PRIMARY_DATA_TYPE_U64:
+                case AST_PRIMARY_DATA_TYPE_F64:
+                case AST_PRIMARY_DATA_TYPE_TYPE:
+                    return sizeof(void*) > 8 ? sizeof(void*) : 8;
+            }
+            return 1;
+        case AST_DATA_TYPE_KIND_POINTER:
+        case AST_DATA_TYPE_KIND_REFERENCE:
+        case AST_DATA_TYPE_KIND_FUNCTION:
+            return sizeof(void*);
+        case AST_DATA_TYPE_KIND_OPTIONAL: {
+            size_t flag_align = 1;
+            size_t child_align = moteTypeLayoutAlignment(data_type->child);
+            return flag_align > child_align ? flag_align : child_align;
+        }
+        case AST_DATA_TYPE_KIND_ENUM:
+            return 4;
+        case AST_DATA_TYPE_KIND_ARRAY:
+            return moteTypeLayoutAlignment(data_type->child);
+        case AST_DATA_TYPE_KIND_STRUCT: {
+            size_t max_align = 1;
+            ASTStructMember *member = data_type->members;
+            while(member)
+            {
+                if(member->value == NULL)
+                {
+                    size_t member_align = moteTypeLayoutAlignment(member->data_type);
+                    if(member_align > max_align)
+                        max_align = member_align;
+                }
+                member = member->next;
+            }
+            return max_align;
+        }
+        default:
+            return 1;
+    }
+}
+
 ASTStructMember* findStructMember(ASTDataType *struct_type, const char *identifier)
 {
     if(struct_type == NULL || struct_type->kind != AST_DATA_TYPE_KIND_STRUCT)
@@ -898,6 +1044,46 @@ ASTDataType* inferZeroBuiltinValueType(ASTNode *node, ScopeFrame *scope)
     return value_type;
 }
 
+long long int inferTypeBuiltinLayoutValue(ASTNode *node, ScopeFrame *scope, const char *builtin_name,
+                                          const char *usage_label, bool want_align)
+{
+    if(node->lhs == NULL || node->lhs->next != NULL)
+        typeSystemAbortFormatted("T1249", node,
+                                 usage_label,
+                                 "@%s expects exactly one argument",
+                                 builtin_name);
+
+    TypeSystemExprType type_expr = inferExprType(node->lhs, scope);
+    if(type_expr.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
+        typeSystemAbortFormatted("T1250", node->lhs,
+                                 usage_label,
+                                 "@%s expects a type argument",
+                                 builtin_name);
+
+    ASTDataType *value_type = resolveNamedDataType(type_expr.data_type, scope, NULL);
+    if(value_type == NULL)
+        typeSystemAbortFormatted("T1251", node->lhs,
+                                 usage_label,
+                                 "@%s could not resolve its type argument",
+                                 builtin_name);
+
+    if(want_align)
+        return (long long int) moteTypeLayoutAlignment(value_type);
+    return (long long int) moteTypeLayoutSize(value_type);
+}
+
+ASTDataType* inferSizeofBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    inferTypeBuiltinLayoutValue(node, scope, "sizeof", "expected `@sizeof(Type)`", false);
+    return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+}
+
+ASTDataType* inferAlignofBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    inferTypeBuiltinLayoutValue(node, scope, "alignof", "expected `@alignof(Type)`", true);
+    return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+}
+
 ASTDataType* inferAsBuiltinValueType(ASTNode *node, ScopeFrame *scope)
 {
     if(node->lhs == NULL || node->lhs->next == NULL || node->lhs->next->next != NULL)
@@ -1431,6 +1617,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 return newValueExprType(inferExternBuiltinFunctionType(node, scope));
             if(strcmp(node->identifier, "zero") == 0)
                 return newValueExprType(inferZeroBuiltinValueType(node, scope));
+            if(strcmp(node->identifier, "sizeof") == 0)
+                return newValueExprType(inferSizeofBuiltinValueType(node, scope));
+            if(strcmp(node->identifier, "alignof") == 0)
+                return newValueExprType(inferAlignofBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "as") == 0)
                 return newValueExprType(inferAsBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "unwrap") == 0)
