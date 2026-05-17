@@ -45,6 +45,13 @@ mote [options] <input.mote>
 - When executable linking succeeds, the temporary `.ll` file is removed.
 - If `clang` link fails, the compiler keeps the intermediate `.ll` file for debugging.
 
+## Entry Model
+
+- The compiler does not require a user-defined `main` function in Mote source.
+- It synthesizes the native entry point itself.
+- User top-level statements are lowered into an internal initialization function and executed at startup.
+- In a multi-file program, imported modules are collected before lowering, so the final top-level execution order is defined by the module system rather than by the host linker.
+
 ## Output Naming
 
 - `-S test\basic\simple.mote` defaults to `test\basic\simple.ll`
@@ -112,6 +119,25 @@ Compile the `notgate` test package:
 - Relative imports like `@import("./foo")` are resolved from the importing file's directory.
 - Search-root imports like `@import("c/io")` require `-I <dir>` where `<dir>` contains `c\root.mote` or `c\io.mote`.
 - Search roots may point to either a module file tree or a directory containing nested packages with `root.mote`.
+
+## Multi-file Execution Order
+
+The current module pipeline is not a separate-object compilation model. Conceptually it behaves like this:
+
+1. Start from the requested entry file.
+2. Recursively load every reachable `@import`.
+3. Rewrite exported/imported symbol references across modules.
+4. Build one synthetic top-level program block.
+5. Lower that unified block into the generated startup function.
+
+The effective top-level statement order is:
+
+- imported dependencies first
+- then the importing module
+- preserving source order inside each module
+- each module included only once
+
+This matters because top-level code is executable and may have side effects.
 
 ## Current String Interop
 

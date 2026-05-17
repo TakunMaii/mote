@@ -14,7 +14,7 @@ Mote 是一个用纯 C 实现的实验性编程语言与编译器项目。当前
 Mote 目前的语言设计大致围绕这些原则：
 
 - 表达式优先：`fn`、`struct`、`enum` 都是表达式，而不是特殊声明语法
-- 顶层直接执行：程序不强制要求 `main`，顶层语句会在启动时执行
+- 顶层直接执行：程序不强制要求用户定义 `main`，顶层语句会在启动时执行
 - 类型也是值：`Type` 是一等公民，泛型通过“接收 `Type`、返回 `Type` 或其它值”的普通函数表达
 - 显式而简单：数组、指针、引用、转换、FFI 都尽量走直接语法，不隐藏太多机制
 - 面向编译实现：前端语义、MIR 和 LLVM lowering 的关系尽量清晰，便于继续演进后端和 ABI
@@ -169,12 +169,23 @@ a.add(b);
 
 - [docs/language_tutorial_zh.md](docs/language_tutorial_zh.md)
 
+## 当前执行模型
+
+这部分值得单独强调，因为它会直接影响你如何组织模块和初始化代码。
+
+- 当前程序入口不是“查找用户定义的 `main` 函数”
+- 编译器会生成原生入口，再执行 Mote 顶层语句
+- 多文件程序会从入口文件出发，递归解析 `@import`
+- 顶层最终按“依赖优先、深度优先、模块内保持源码顺序”的方式拼接执行
+
+因此当前的模块系统不只是命名空间机制，也会影响程序启动时的副作用顺序。
+
 ## 文档索引
 
 - [docs/language_tutorial_zh.md](docs/language_tutorial_zh.md)
-  - 当前 Mote 语法教学与示例
+  - 当前 Mote 语法、语义、模块行为与实现限制的中文教程
 - [docs/compiler_usage.md](docs/compiler_usage.md)
-  - 编译器 CLI、输出行为、包导入与链接参数
+  - 编译器 CLI、输出行为、导入路径解析与链接参数
 - [docs/runtime_abi.md](docs/runtime_abi.md)
   - MIR / LLVM 后端当前采用的运行时 ABI 约定
 
