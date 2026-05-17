@@ -1,0 +1,3 @@
+main = fn() void {
+    x = @zero(1);
+};

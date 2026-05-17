@@ -1,8 +1,10 @@
 #ifndef AST_H
 #define AST_H
 
+#include "Diagnostic.h"
 #include <stdio.h>
 #include "Token.h"
+#include <stdarg.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -111,6 +113,8 @@ typedef struct ASTFunctionParameter {
     const char *filename;
     int line_number;
     int column_number;
+    int end_line_number;
+    int end_column_number;
     char identifier[MAX_IDENTIFIER_LENGTH];
     ASTDataType *data_type;
 } ASTFunctionParameter;
@@ -147,6 +151,8 @@ struct ASTFunctionCapture {
     const char *filename;
     int line_number;
     int column_number;
+    int end_line_number;
+    int end_column_number;
     ASTFunctionCaptureKind kind;
     char identifier[MAX_IDENTIFIER_LENGTH];
 };
@@ -156,6 +162,8 @@ struct ASTEnumVariant {
     const char *filename;
     int line_number;
     int column_number;
+    int end_line_number;
+    int end_column_number;
     char identifier[MAX_IDENTIFIER_LENGTH];
 };
 
@@ -164,6 +172,8 @@ struct ASTStructMember {
     const char *filename;
     int line_number;
     int column_number;
+    int end_line_number;
+    int end_column_number;
     char identifier[MAX_IDENTIFIER_LENGTH];
     ASTDataType *data_type;
     ASTNode *value;
@@ -174,6 +184,8 @@ struct ASTStructLiteralField {
     const char *filename;
     int line_number;
     int column_number;
+    int end_line_number;
+    int end_column_number;
     char identifier[MAX_IDENTIFIER_LENGTH];
     ASTNode *value;
 };
@@ -190,6 +202,8 @@ struct ASTNode {
     const char* filename;
     int line_number;
     int column_number;
+    int end_line_number;
+    int end_column_number;
 
     struct ASTNode *lhs;// parenthesis, binary expr use this as left hand side
     struct ASTNode *rhs;// assign or decl use this as expr
@@ -224,6 +238,8 @@ struct ASTNode {
 ASTNode* newASTNode(ASTNodeKind kind)
 {
     ASTNode *node = (ASTNode*) malloc(sizeof(ASTNode));
+    if(node == NULL)
+        diagnosticAbortInternal("AST allocation failed", NULL);
     memset(node, 0, sizeof(ASTNode));
     node->kind = kind;
     return node;
@@ -235,16 +251,22 @@ ASTNode* newASTNodeFromToken(ASTNodeKind kind, Token *token)
     node->filename = token->filename;
     node->line_number = token->line_number;
     node->column_number = token->column_number;
+    node->end_line_number = token->end_line_number;
+    node->end_column_number = token->end_column_number;
     return node;
 }
 
 ASTFunctionParameter* newASTFunctionParameterFromToken(Token *token)
 {
     ASTFunctionParameter *parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
+    if(parameter == NULL)
+        diagnosticAbortInternal("AST function parameter allocation failed", NULL);
     memset(parameter, 0, sizeof(ASTFunctionParameter));
     parameter->filename = token->filename;
     parameter->line_number = token->line_number;
     parameter->column_number = token->column_number;
+    parameter->end_line_number = token->end_line_number;
+    parameter->end_column_number = token->end_column_number;
     return parameter;
 }
 
@@ -277,6 +299,8 @@ ASTDataType* newNamedDataType(const char *identifier)
 ASTDataType* newAppliedDataType(ASTDataType *callee, ASTTypeArgument *arguments)
 {
     ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    if(data_type == NULL)
+        diagnosticAbortInternal("AST data type allocation failed", NULL);
     memset(data_type, 0, sizeof(ASTDataType));
     data_type->kind = AST_DATA_TYPE_KIND_APPLY;
     data_type->callee = callee;
@@ -364,16 +388,22 @@ ASTFunctionParameter* cloneFunctionParameters(ASTFunctionParameter *parameter)
 ASTStructMember* newASTStructMemberFromToken(Token *token)
 {
     ASTStructMember *member = (ASTStructMember*) malloc(sizeof(ASTStructMember));
+    if(member == NULL)
+        diagnosticAbortInternal("AST struct member allocation failed", NULL);
     memset(member, 0, sizeof(ASTStructMember));
     member->filename = token->filename;
     member->line_number = token->line_number;
     member->column_number = token->column_number;
+    member->end_line_number = token->end_line_number;
+    member->end_column_number = token->end_column_number;
     return member;
 }
 
 ASTTypeArgument* newASTTypeArgument(ASTDataType *data_type)
 {
     ASTTypeArgument *argument = (ASTTypeArgument*) malloc(sizeof(ASTTypeArgument));
+    if(argument == NULL)
+        diagnosticAbortInternal("AST type argument allocation failed", NULL);
     memset(argument, 0, sizeof(ASTTypeArgument));
     argument->data_type = data_type;
     return argument;
@@ -382,31 +412,88 @@ ASTTypeArgument* newASTTypeArgument(ASTDataType *data_type)
 ASTFunctionCapture* newASTFunctionCaptureFromToken(Token *token)
 {
     ASTFunctionCapture *capture = (ASTFunctionCapture*) malloc(sizeof(ASTFunctionCapture));
+    if(capture == NULL)
+        diagnosticAbortInternal("AST function capture allocation failed", NULL);
     memset(capture, 0, sizeof(ASTFunctionCapture));
     capture->filename = token->filename;
     capture->line_number = token->line_number;
     capture->column_number = token->column_number;
+    capture->end_line_number = token->end_line_number;
+    capture->end_column_number = token->end_column_number;
     return capture;
 }
 
 ASTStructLiteralField* newASTStructLiteralFieldFromToken(Token *token)
 {
     ASTStructLiteralField *field = (ASTStructLiteralField*) malloc(sizeof(ASTStructLiteralField));
+    if(field == NULL)
+        diagnosticAbortInternal("AST struct literal field allocation failed", NULL);
     memset(field, 0, sizeof(ASTStructLiteralField));
     field->filename = token->filename;
     field->line_number = token->line_number;
     field->column_number = token->column_number;
+    field->end_line_number = token->end_line_number;
+    field->end_column_number = token->end_column_number;
     return field;
 }
 
 ASTEnumVariant* newASTEnumVariantFromToken(Token *token)
 {
     ASTEnumVariant *variant = (ASTEnumVariant*) malloc(sizeof(ASTEnumVariant));
+    if(variant == NULL)
+        diagnosticAbortInternal("AST enum variant allocation failed", NULL);
     memset(variant, 0, sizeof(ASTEnumVariant));
     variant->filename = token->filename;
     variant->line_number = token->line_number;
     variant->column_number = token->column_number;
+    variant->end_line_number = token->end_line_number;
+    variant->end_column_number = token->end_column_number;
     return variant;
+}
+
+SourceSpan astNodeSourceSpan(ASTNode *node)
+{
+    if(node == NULL)
+        return makeSourceSpan(NULL, 0, 0, 0, 0);
+    return makeSourceSpan(node->filename,
+                          node->line_number, node->column_number,
+                          node->end_line_number, node->end_column_number);
+}
+
+SourceSpan astFunctionParameterSourceSpan(ASTFunctionParameter *parameter)
+{
+    if(parameter == NULL)
+        return makeSourceSpan(NULL, 0, 0, 0, 0);
+    return makeSourceSpan(parameter->filename,
+                          parameter->line_number, parameter->column_number,
+                          parameter->end_line_number, parameter->end_column_number);
+}
+
+SourceSpan astStructMemberSourceSpan(ASTStructMember *member)
+{
+    if(member == NULL)
+        return makeSourceSpan(NULL, 0, 0, 0, 0);
+    return makeSourceSpan(member->filename,
+                          member->line_number, member->column_number,
+                          member->end_line_number, member->end_column_number);
+}
+
+SourceSpan astStructLiteralFieldSourceSpan(ASTStructLiteralField *field)
+{
+    if(field == NULL)
+        return makeSourceSpan(NULL, 0, 0, 0, 0);
+    return makeSourceSpan(field->filename,
+                          field->line_number, field->column_number,
+                          field->end_line_number, field->end_column_number);
+}
+
+SourceSpan astEnumVariantSourceSpan(ASTEnumVariant *variant)
+{
+    if(variant == NULL)
+        return makeSourceSpan(NULL, 0, 0, 0, 0);
+    return makeSourceSpan(variant->filename,
+                          variant->line_number, variant->column_number,
+                          variant->end_line_number, variant->end_column_number);
 }
 
 ASTDataType* cloneDataType(ASTDataType *data_type)
@@ -558,8 +645,7 @@ const char* astNodeKindToString(ASTNodeKind kind)
         case AST_EXPR_LITERAL_INTEGER: return "AST_EXPR_LITERAL_INTEGER";
         case AST_EXPR_LITERAL_FLOAT: return "AST_EXPR_LITERAL_FLOAT";
         default:
-            printf("astNodeKindToString: unknown AST node kind\n");
-            exit(1);
+            diagnosticAbortInternal("astNodeKindToString", "unknown AST node kind");
     }
 }
 
@@ -584,8 +670,7 @@ const char* astPrimaryDataTypeToString(ASTPrimaryDataType primary)
         case AST_PRIMARY_DATA_TYPE_CHAR: return "char";
         case AST_PRIMARY_DATA_TYPE_BOOL: return "bool";
         default:
-            printf("astPrimaryDataTypeToString: unknown AST primary data type\n");
-            exit(1);
+            diagnosticAbortInternal("astPrimaryDataTypeToString", "unknown AST primary data type");
     }
 }
 
@@ -594,6 +679,7 @@ void printASTNode(ASTNode node);
 void printEnumVariants(ASTEnumVariant *variant);
 void printFunctionCaptures(ASTFunctionCapture *capture);
 void printTypeArguments(ASTTypeArgument *argument);
+void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer_size);
 
 void printFunctionParameters(ASTFunctionParameter *parameter)
 {
@@ -735,8 +821,158 @@ void printASTDataType(ASTDataType *data_type)
             }
         } break;
         default:
-            printf("printASTDataType: unknown AST data type kind\n");
-            exit(1);
+            diagnosticAbortInternal("printASTDataType", "unknown AST data type kind");
+    }
+}
+
+void appendStringFragment(char *buffer, size_t buffer_size, const char *fragment)
+{
+    size_t used = strlen(buffer);
+    if(used >= buffer_size - 1)
+        return;
+    snprintf(buffer + used, buffer_size - used, "%s", fragment);
+}
+
+void appendFormatFragment(char *buffer, size_t buffer_size, const char *format, ...)
+{
+    size_t used = strlen(buffer);
+    if(used >= buffer_size - 1)
+        return;
+
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer + used, buffer_size - used, format, args);
+    va_end(args);
+}
+
+void appendFunctionParametersString(ASTFunctionParameter *parameter, char *buffer, size_t buffer_size)
+{
+    while(parameter)
+    {
+        appendStringFragment(buffer, buffer_size, parameter->identifier);
+        appendStringFragment(buffer, buffer_size, ": ");
+        appendASTDataTypeString(parameter->data_type, buffer, buffer_size);
+        if(parameter->next)
+            appendStringFragment(buffer, buffer_size, ", ");
+        parameter = parameter->next;
+    }
+}
+
+void appendTypeArgumentsString(ASTTypeArgument *argument, char *buffer, size_t buffer_size)
+{
+    while(argument)
+    {
+        appendASTDataTypeString(argument->data_type, buffer, buffer_size);
+        if(argument->next)
+            appendStringFragment(buffer, buffer_size, ", ");
+        argument = argument->next;
+    }
+}
+
+void appendStructMembersString(ASTStructMember *member, char *buffer, size_t buffer_size)
+{
+    while(member)
+    {
+        appendStringFragment(buffer, buffer_size, member->identifier);
+        appendStringFragment(buffer, buffer_size, ": ");
+        if(member->value)
+            appendStringFragment(buffer, buffer_size, "<expr>");
+        else
+            appendASTDataTypeString(member->data_type, buffer, buffer_size);
+        if(member->next)
+            appendStringFragment(buffer, buffer_size, ", ");
+        member = member->next;
+    }
+}
+
+void appendEnumVariantsString(ASTEnumVariant *variant, char *buffer, size_t buffer_size)
+{
+    while(variant)
+    {
+        appendStringFragment(buffer, buffer_size, variant->identifier);
+        if(variant->next)
+            appendStringFragment(buffer, buffer_size, ", ");
+        variant = variant->next;
+    }
+}
+
+void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer_size)
+{
+    if(data_type == NULL)
+    {
+        appendStringFragment(buffer, buffer_size, "<null type>");
+        return;
+    }
+
+    switch(data_type->kind)
+    {
+        case AST_DATA_TYPE_KIND_INFER:
+            appendStringFragment(buffer, buffer_size, "infer");
+            break;
+        case AST_DATA_TYPE_KIND_PRIMARY:
+            appendStringFragment(buffer, buffer_size, astPrimaryDataTypeToString(data_type->primary));
+            break;
+        case AST_DATA_TYPE_KIND_POINTER:
+            appendStringFragment(buffer, buffer_size, "*");
+            if(data_type->mutable)
+                appendStringFragment(buffer, buffer_size, "mut ");
+            appendASTDataTypeString(data_type->child, buffer, buffer_size);
+            break;
+        case AST_DATA_TYPE_KIND_REFERENCE:
+            appendStringFragment(buffer, buffer_size, "&");
+            if(data_type->mutable)
+                appendStringFragment(buffer, buffer_size, "mut ");
+            appendASTDataTypeString(data_type->child, buffer, buffer_size);
+            break;
+        case AST_DATA_TYPE_KIND_FUNCTION:
+            appendStringFragment(buffer, buffer_size, "Function([");
+            appendFunctionParametersString(data_type->parameters, buffer, buffer_size);
+            if(data_type->is_variadic)
+            {
+                if(data_type->parameters != NULL)
+                    appendStringFragment(buffer, buffer_size, ", ");
+                appendStringFragment(buffer, buffer_size, "...");
+            }
+            appendStringFragment(buffer, buffer_size, "], ");
+            appendASTDataTypeString(data_type->return_data_type, buffer, buffer_size);
+            appendStringFragment(buffer, buffer_size, ")");
+            break;
+        case AST_DATA_TYPE_KIND_NAMED:
+            appendStringFragment(buffer, buffer_size, data_type->identifier);
+            break;
+        case AST_DATA_TYPE_KIND_ARRAY:
+            appendStringFragment(buffer, buffer_size, "Array(");
+            appendASTDataTypeString(data_type->child, buffer, buffer_size);
+            appendFormatFragment(buffer, buffer_size, ", %lld)", data_type->array_length);
+            break;
+        case AST_DATA_TYPE_KIND_APPLY:
+            appendASTDataTypeString(data_type->callee, buffer, buffer_size);
+            appendStringFragment(buffer, buffer_size, "(");
+            appendTypeArgumentsString(data_type->arguments, buffer, buffer_size);
+            appendStringFragment(buffer, buffer_size, ")");
+            break;
+        case AST_DATA_TYPE_KIND_ENUM:
+            if(data_type->identifier[0] != '\0')
+                appendStringFragment(buffer, buffer_size, data_type->identifier);
+            else
+            {
+                appendStringFragment(buffer, buffer_size, "enum {");
+                appendEnumVariantsString(data_type->variants, buffer, buffer_size);
+                appendStringFragment(buffer, buffer_size, "}");
+            }
+            break;
+        case AST_DATA_TYPE_KIND_STRUCT:
+            if(data_type->identifier[0] != '\0')
+                appendStringFragment(buffer, buffer_size, data_type->identifier);
+            else
+            {
+                appendStringFragment(buffer, buffer_size, "struct {");
+                appendStructMembersString(data_type->members, buffer, buffer_size);
+                appendStringFragment(buffer, buffer_size, "}");
+            }
+            break;
+        default:
+            diagnosticAbortInternal("appendASTDataTypeString", "unknown AST data type kind");
     }
 }
 
@@ -1145,8 +1381,7 @@ void printASTNode(ASTNode node)
             printf("AST_END_OF_CODE\n");
         } break;
         default:
-            printf("printASTNode: unknown AST node kind\n");
-            exit(1);
+            diagnosticAbortInternal("printASTNode", "unknown AST node kind");
     }
 }
 

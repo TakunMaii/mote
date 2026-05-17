@@ -1,6 +1,7 @@
 #ifndef TYPE_SYSTEM_H
 #define TYPE_SYSTEM_H
 
+#include "Diagnostic.h"
 #include "AST.h"
 #include "SymbolTable.h"
 #include <stdbool.h>
@@ -58,6 +59,56 @@ TypeSystemExprType newLiteralFloatExprType()
     TypeSystemExprType expr_type = {0};
     expr_type.kind = TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT;
     return expr_type;
+}
+
+void typeSystemAbortNode(const char *code, ASTNode *node, const char *message, const char *label)
+{
+    diagnosticAbortSimple(code, message, astNodeSourceSpan(node), label);
+}
+
+void typeSystemAbortFormatted(const char *code, ASTNode *node, const char *label, const char *format, ...)
+{
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code, astNodeSourceSpan(node), "");
+    va_list args;
+    va_start(args, format);
+    diagnosticVFormat(diagnostic.message, sizeof(diagnostic.message), format, args);
+    va_end(args);
+    if(label != NULL)
+        diagnosticSetPrimaryLabel(&diagnostic, "%s", label);
+    diagnosticAbort(diagnostic);
+}
+
+void typeSystemAbortNoSpan(const char *code, const char *message, const char *detail)
+{
+    diagnosticAbortSimple(code, message, makeSourceSpan(NULL, 0, 0, 0, 0), detail);
+}
+
+void typeSystemDescribeExprType(TypeSystemExprType expr_type, char *buffer, size_t buffer_size)
+{
+    if(buffer_size == 0)
+        return;
+
+    if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
+    {
+        diagnosticFormat(buffer, buffer_size, "literal integer");
+        return;
+    }
+    if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
+    {
+        diagnosticFormat(buffer, buffer_size, "literal float");
+        return;
+    }
+    if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+    {
+        diagnosticFormat(buffer, buffer_size, "type");
+        return;
+    }
+    if(expr_type.data_type == NULL)
+    {
+        diagnosticFormat(buffer, buffer_size, "<unknown>");
+        return;
+    }
+    appendASTDataTypeString(expr_type.data_type, buffer, buffer_size);
 }
 
 bool isInferDataType(ASTDataType *data_type)
@@ -211,8 +262,11 @@ int getIntegerPrimaryWidth(ASTPrimaryDataType primary)
         case AST_PRIMARY_DATA_TYPE_U64:
             return 64;
         default:
-            printf("getIntegerPrimaryWidth: unsupported type %s\n", astPrimaryDataTypeToString(primary));
-            exit(1);
+            diagnosticAbortFormatted("T1998",
+                                     makeSourceSpan(NULL, 0, 0, 0, 0),
+                                     NULL,
+                                     "getIntegerPrimaryWidth: unsupported type %s",
+                                     astPrimaryDataTypeToString(primary));
     }
 }
 
@@ -225,8 +279,11 @@ int getFloatPrimaryWidth(ASTPrimaryDataType primary)
         case AST_PRIMARY_DATA_TYPE_F32: return 32;
         case AST_PRIMARY_DATA_TYPE_F64: return 64;
         default:
-            printf("getFloatPrimaryWidth: unsupported type %s\n", astPrimaryDataTypeToString(primary));
-            exit(1);
+            diagnosticAbortFormatted("T1999",
+                                     makeSourceSpan(NULL, 0, 0, 0, 0),
+                                     NULL,
+                                     "getFloatPrimaryWidth: unsupported type %s",
+                                     astPrimaryDataTypeToString(primary));
     }
 }
 
@@ -357,10 +414,9 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
             if(strcmp(data_type->identifier, "Self") == 0)
             {
                 if(self_data_type == NULL)
-                {
-                    printf("Type error: Self is only allowed inside a struct method\n");
-                    exit(1);
-                }
+                    typeSystemAbortNoSpan("T1201",
+                                          "`Self` is only allowed inside a struct method",
+                                          NULL);
                 return cloneDataType(self_data_type);
             }
 
@@ -371,8 +427,11 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
                 if(variable_info != NULL && variable_info->type_value != NULL)
                     return cloneDataType(variable_info->type_value);
 
-                printf("Unknown data type %s\n", data_type->identifier);
-                exit(1);
+                diagnosticAbortFormatted("T1202",
+                                         makeSourceSpan(NULL, 0, 0, 0, 0),
+                                         NULL,
+                                         "unknown data type `%s`",
+                                         data_type->identifier);
             }
             return cloneDataType(type_info->data_type);
         }
@@ -417,10 +476,9 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
                         scope
                     );
                     if(applied_type.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
-                    {
-                        printf("Type error: type application requires a constructor returning Type\n");
-                        exit(1);
-                    }
+                        typeSystemAbortNoSpan("T1203",
+                                              "type application requires a constructor returning `Type`",
+                                              NULL);
                     return cloneDataType(applied_type.data_type);
                 }
             }
@@ -442,8 +500,9 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
             return newAppliedDataType(resolved_callee, resolved_arguments);
         }
         default:
-            printf("resolveNamedDataType: unsupported AST data type kind\n");
-            exit(1);
+            typeSystemAbortNoSpan("ICE0201",
+                                  "resolveNamedDataType hit unsupported AST data type kind",
+                                  NULL);
     }
 }
 
@@ -453,10 +512,13 @@ void bindCapturedValuesForInstantiation(ASTFunctionCapture *capture, ScopeFrame 
     {
         VariableInfo *outer_variable = findVariableInfo(outer_scope, capture->identifier);
         if(outer_variable == NULL)
-        {
-            printf("Unknown function capture %s\n", capture->identifier);
-            exit(1);
-        }
+            diagnosticAbortFormatted("T1204",
+                                     makeSourceSpan(capture->filename,
+                                                    capture->line_number, capture->column_number,
+                                                    capture->end_line_number, capture->end_column_number),
+                                     "unknown capture",
+                                     "unknown function capture `%s`",
+                                     capture->identifier);
 
         VariableInfo *inst_variable = declareVariableInfo(inst_scope, capture->identifier);
         inst_variable->mutable = false;
@@ -482,11 +544,9 @@ void bindCallArgumentsForInstantiation(ASTFunctionParameter *parameter, ASTNode 
         {
             TypeSystemExprType argument_type = inferExprType(argument, outer_scope);
             if(argument_type.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
-            {
-                printf("Type error: expected a Type argument at file %s, line %d, column %d\n",
-                       argument->filename, argument->line_number, argument->column_number);
-                exit(1);
-            }
+                typeSystemAbortNode("T1205", argument,
+                                    "expected a `Type` argument",
+                                    "this argument does not evaluate to a type");
             inst_variable->type_value = cloneDataType(argument_type.data_type);
         }
         else if(argument->kind == AST_EXPR_FUNCTION)
@@ -509,10 +569,9 @@ void bindCallArgumentsForInstantiation(ASTFunctionParameter *parameter, ASTNode 
     }
 
     if(parameter != NULL || argument != NULL)
-    {
-        printf("Type error: function call argument count mismatch during instantiation\n");
-        exit(1);
-    }
+        typeSystemAbortNoSpan("T1206",
+                              "function call argument count mismatch during instantiation",
+                              NULL);
 }
 
 ASTNode* findReturnedExpr(ASTNode *function_expr)
@@ -551,10 +610,9 @@ ASTDataType* instantiateStructTypeExpr(ASTNode *expr, ScopeFrame *inst_scope)
 ASTDataType* instantiateTypeExprValue(ASTNode *expr, ScopeFrame *inst_scope)
 {
     if(expr == NULL)
-    {
-        printf("Type error: expected a type-valued return expression\n");
-        exit(1);
-    }
+        typeSystemAbortNoSpan("T1207",
+                              "expected a type-valued return expression",
+                              NULL);
 
     if(expr->kind == AST_EXPR_STRUCT)
         return instantiateStructTypeExpr(expr, inst_scope);
@@ -591,9 +649,9 @@ ASTDataType* instantiateTypeExprValue(ASTNode *expr, ScopeFrame *inst_scope)
         }
     }
 
-    printf("Type error: unsupported type-valued expression at file %s, line %d, column %d\n",
-           expr->filename, expr->line_number, expr->column_number);
-    exit(1);
+    typeSystemAbortNode("T1208", expr,
+                        "unsupported type-valued expression",
+                        "this expression cannot be evaluated as a type");
 }
 
 ASTNode* buildTypeLiteralArgumentExprs(ASTTypeArgument *argument, ScopeFrame *scope, ASTDataType *self_data_type)
@@ -682,36 +740,28 @@ bool isVoidDataType(ASTDataType *data_type)
 ASTDataType* inferExternBuiltinFunctionType(ASTNode *node, ScopeFrame *scope)
 {
     if(node->lhs == NULL || node->lhs->next == NULL || node->lhs->next->next != NULL)
-    {
-        printf("Type error: @extern expects exactly two arguments at file %s, line %d, column %d\n",
-               node->filename, node->line_number, node->column_number);
-        exit(1);
-    }
+        typeSystemAbortNode("T1209", node,
+                            "@extern expects exactly two arguments",
+                            "expected `@extern(\"symbol\", Function(...))`");
 
     ASTNode *symbol_expr = node->lhs;
     ASTNode *type_expr = symbol_expr->next;
     if(symbol_expr->kind != AST_EXPR_LITERAL_STRING)
-    {
-        printf("Type error: @extern expects a string literal symbol name at file %s, line %d, column %d\n",
-               symbol_expr->filename, symbol_expr->line_number, symbol_expr->column_number);
-        exit(1);
-    }
+        typeSystemAbortNode("T1210", symbol_expr,
+                            "@extern expects a string literal symbol name",
+                            "first argument must be a string literal");
 
     TypeSystemExprType function_type_expr = inferExprType(type_expr, scope);
     if(function_type_expr.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
-    {
-        printf("Type error: @extern expects a function type as its second argument at file %s, line %d, column %d\n",
-               type_expr->filename, type_expr->line_number, type_expr->column_number);
-        exit(1);
-    }
+        typeSystemAbortNode("T1211", type_expr,
+                            "@extern expects a function type as its second argument",
+                            "second argument must evaluate to a function type");
 
     ASTDataType *function_type = resolveNamedDataType(function_type_expr.data_type, scope, NULL);
     if(function_type == NULL || function_type->kind != AST_DATA_TYPE_KIND_FUNCTION)
-    {
-        printf("Type error: @extern expects a Function(...) type at file %s, line %d, column %d\n",
-               type_expr->filename, type_expr->line_number, type_expr->column_number);
-        exit(1);
-    }
+        typeSystemAbortNode("T1212", type_expr,
+                            "@extern expects a `Function(...)` type",
+                            "second argument is not a function type");
 
     return function_type;
 }
@@ -795,27 +845,21 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
 ASTDataType* inferZeroBuiltinValueType(ASTNode *node, ScopeFrame *scope)
 {
     if(node->lhs == NULL || node->lhs->next != NULL)
-    {
-        printf("Type error: @zero expects exactly one argument at file %s, line %d, column %d\n",
-               node->filename, node->line_number, node->column_number);
-        exit(1);
-    }
+        typeSystemAbortNode("T1213", node,
+                            "@zero expects exactly one argument",
+                            "expected `@zero(Type)`");
 
     TypeSystemExprType type_expr = inferExprType(node->lhs, scope);
     if(type_expr.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
-    {
-        printf("Type error: @zero expects a type argument at file %s, line %d, column %d\n",
-               node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-        exit(1);
-    }
+        typeSystemAbortNode("T1214", node->lhs,
+                            "@zero expects a type argument",
+                            "argument must evaluate to a type");
 
     ASTDataType *value_type = resolveNamedDataType(type_expr.data_type, scope, NULL);
     if(value_type == NULL)
-    {
-        printf("Type error: @zero could not resolve its type argument at file %s, line %d, column %d\n",
-               node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-        exit(1);
-    }
+        typeSystemAbortNode("T1215", node->lhs,
+                            "@zero could not resolve its type argument",
+                            "the provided type could not be resolved");
 
     return value_type;
 }
@@ -823,38 +867,30 @@ ASTDataType* inferZeroBuiltinValueType(ASTNode *node, ScopeFrame *scope)
 ASTDataType* inferAsBuiltinValueType(ASTNode *node, ScopeFrame *scope)
 {
     if(node->lhs == NULL || node->lhs->next == NULL || node->lhs->next->next != NULL)
-    {
-        printf("Type error: @as expects exactly two arguments at file %s, line %d, column %d\n",
-               node->filename, node->line_number, node->column_number);
-        exit(1);
-    }
+        typeSystemAbortNode("T1216", node,
+                            "@as expects exactly two arguments",
+                            "expected `@as(TargetType, value)`");
 
     ASTNode *target_type_expr = node->lhs;
     ASTNode *value_expr = target_type_expr->next;
 
     TypeSystemExprType target_type_value = inferExprType(target_type_expr, scope);
     if(target_type_value.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
-    {
-        printf("Type error: @as expects a type as its first argument at file %s, line %d, column %d\n",
-               target_type_expr->filename, target_type_expr->line_number, target_type_expr->column_number);
-        exit(1);
-    }
+        typeSystemAbortNode("T1217", target_type_expr,
+                            "@as expects a type as its first argument",
+                            "first argument must evaluate to a type");
 
     ASTDataType *target_type = resolveNamedDataType(target_type_value.data_type, scope, NULL);
     if(target_type == NULL)
-    {
-        printf("Type error: @as could not resolve its target type at file %s, line %d, column %d\n",
-               target_type_expr->filename, target_type_expr->line_number, target_type_expr->column_number);
-        exit(1);
-    }
+        typeSystemAbortNode("T1218", target_type_expr,
+                            "@as could not resolve its target type",
+                            "the target type could not be resolved");
 
     TypeSystemExprType source_type = inferExprType(value_expr, scope);
     if(!canExplicitConvertDataType(source_type, value_expr, target_type))
-    {
-        printf("Type error: invalid explicit conversion with @as at file %s, line %d, column %d\n",
-               value_expr->filename, value_expr->line_number, value_expr->column_number);
-        exit(1);
-    }
+        typeSystemAbortNode("T1219", value_expr,
+                            "invalid explicit conversion with @as",
+                            "the source value cannot be explicitly converted to the target type");
 
     return target_type;
 }
@@ -949,61 +985,53 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
 void typeErrorBinaryOperator(ASTNode *node, const char *operator_name,
                              TypeSystemExprType lhs_type, TypeSystemExprType rhs_type)
 {
-    printf("Type error: operator %s cannot be applied to ", operator_name);
-    if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
-        printf("literal integer");
-    else if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
-        printf("literal float");
-    else if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
-        printf("type");
-    else
-        printASTDataType(lhs_type.data_type);
-    printf(" and ");
-    if(rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
-        printf("literal integer");
-    else if(rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
-        printf("literal float");
-    else if(rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
-        printf("type");
-    else
-        printASTDataType(rhs_type.data_type);
-    printf(" at file %s, line %d, column %d\n",
-           node->filename, node->line_number, node->column_number);
-    exit(1);
+    char lhs_buffer[256] = {0};
+    char rhs_buffer[256] = {0};
+    typeSystemDescribeExprType(lhs_type, lhs_buffer, sizeof(lhs_buffer));
+    typeSystemDescribeExprType(rhs_type, rhs_buffer, sizeof(rhs_buffer));
+
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                           "T1001",
+                                           astNodeSourceSpan(node),
+                                           "invalid binary operator operands");
+    diagnosticSetPrimaryLabel(&diagnostic,
+                              "operator %s cannot be applied to %s and %s",
+                              operator_name, lhs_buffer, rhs_buffer);
+    diagnosticAbort(diagnostic);
 }
 
 void typeErrorUnaryOperator(ASTNode *node, const char *operator_name, TypeSystemExprType operand_type)
 {
-    printf("Type error: operator %s cannot be applied to ", operator_name);
-    if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
-        printf("literal integer");
-    else if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
-        printf("literal float");
-    else if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
-        printf("type");
-    else
-        printASTDataType(operand_type.data_type);
-    printf(" at file %s, line %d, column %d\n",
-           node->filename, node->line_number, node->column_number);
-    exit(1);
+    char operand_buffer[256] = {0};
+    typeSystemDescribeExprType(operand_type, operand_buffer, sizeof(operand_buffer));
+
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                           "T1002",
+                                           astNodeSourceSpan(node),
+                                           "invalid unary operator operand");
+    diagnosticSetPrimaryLabel(&diagnostic,
+                              "operator %s cannot be applied to %s",
+                              operator_name, operand_buffer);
+    diagnosticAbort(diagnostic);
 }
 
 void typeErrorAssign(ASTNode *node, ASTNode *source_node, TypeSystemExprType source_type, ASTDataType *target_type)
 {
-    printf("Type error: cannot implicitly convert ");
-    if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
-        printf("literal integer");
-    else if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
-        printf("literal float");
-    else if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
-        printf("type");
-    else
-        printASTDataType(source_type.data_type);
-    printf(" to ");
-    printASTDataType(target_type);
-    printf(" for variable %s at file %s, line %d, column %d\n",
-           node->identifier, source_node->filename, source_node->line_number, source_node->column_number);
-    exit(1);
+    char source_buffer[256] = {0};
+    char target_buffer[256] = {0};
+    typeSystemDescribeExprType(source_type, source_buffer, sizeof(source_buffer));
+    typeSystemDescribeExprType(newValueExprType(target_type), target_buffer, sizeof(target_buffer));
+
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                           "T1003",
+                                           astNodeSourceSpan(source_node),
+                                           "cannot implicitly convert assigned value");
+    diagnosticSetPrimaryLabel(&diagnostic,
+                              "cannot implicitly convert %s to %s",
+                              source_buffer, target_buffer);
+    if(node->identifier[0] != '\0')
+        diagnosticAddNote(&diagnostic, "assignment target: `%s`", node->identifier);
+    diagnosticAbort(diagnostic);
 }
 
 ASTDataType* normalizeNumericDataType(TypeSystemExprType expr_type)
@@ -1014,8 +1042,10 @@ ASTDataType* normalizeNumericDataType(TypeSystemExprType expr_type)
         return defaultFloatDataType();
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
     {
-        printf("Type error: type cannot be used as a numeric expression\n");
-        exit(1);
+        diagnosticAbortSimple("T1004",
+                              "type cannot be used as a numeric expression",
+                              makeSourceSpan(NULL, 0, 0, 0, 0),
+                              NULL);
     }
     if(expr_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY && isCharPrimary(expr_type.data_type->primary))
         return defaultIntegerDataType();
@@ -1223,33 +1253,23 @@ void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argume
         if(parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
         {
             if(!canBindReferenceArgument(argument, scope, parameter->data_type))
-            {
-                printf("Type error: function reference argument type mismatch at file %s, line %d, column %d\n",
-                       argument->filename, argument->line_number, argument->column_number);
-                exit(1);
-            }
+                typeSystemAbortNode("T1220", argument,
+                                    "function reference argument type mismatch",
+                                    "argument cannot bind to the reference parameter");
         }
         else if(!canImplicitConvertDataType(argument_type, argument, parameter->data_type))
-        {
-            printf("Type error: function argument type mismatch at file %s, line %d, column %d\n",
-                   argument->filename, argument->line_number, argument->column_number);
-            exit(1);
-        }
+            typeSystemAbortNode("T1221", argument,
+                                "function argument type mismatch",
+                                "argument cannot be implicitly converted to the parameter type");
         parameter = parameter->next;
         argument = argument->next;
     }
 
     if(parameter != NULL)
-    {
-        printf("Type error: function argument count mismatch\n");
-        exit(1);
-    }
+        typeSystemAbortNoSpan("T1222", "function argument count mismatch", "too few arguments were provided");
 
     if(!is_variadic && argument != NULL)
-    {
-        printf("Type error: function argument count mismatch\n");
-        exit(1);
-    }
+        typeSystemAbortNoSpan("T1223", "function argument count mismatch", "too many arguments were provided");
 
     while(argument)
     {
@@ -1263,21 +1283,21 @@ void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argume
 
         if(argument_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
         {
-            printf("Type error: variadic argument must be a runtime value at file %s, line %d, column %d\n",
-                   argument->filename, argument->line_number, argument->column_number);
-            exit(1);
+            typeSystemAbortNode("T1224", argument,
+                                "variadic argument must be a runtime value",
+                                "type values cannot be passed to variadic parameters");
         }
         if(argument_type.data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
         {
-            printf("Type error: variadic argument cannot be a reference type at file %s, line %d, column %d\n",
-                   argument->filename, argument->line_number, argument->column_number);
-            exit(1);
+            typeSystemAbortNode("T1225", argument,
+                                "variadic argument cannot be a reference type",
+                                "pass the referenced value instead");
         }
         if(argument_type.data_type->kind == AST_DATA_TYPE_KIND_ARRAY)
         {
-            printf("Type error: variadic argument cannot be an array value at file %s, line %d, column %d\n",
-                   argument->filename, argument->line_number, argument->column_number);
-            exit(1);
+            typeSystemAbortNode("T1226", argument,
+                                "variadic argument cannot be an array value",
+                                "array values are not supported in variadic calls");
         }
         argument = argument->next;
     }
@@ -1341,9 +1361,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 return newValueExprType(inferZeroBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "as") == 0)
                 return newValueExprType(inferAsBuiltinValueType(node, scope));
-            printf("Type error: unknown builtin @%s at file %s, line %d, column %d\n",
-                   node->identifier, node->filename, node->line_number, node->column_number);
-            exit(1);
+            typeSystemAbortFormatted("T1227", node,
+                                     "unknown builtin",
+                                     "unknown builtin `@%s`",
+                                     node->identifier);
         case AST_EXPR_VARIABLE: {
             if(strcmp(node->identifier, "Self") == 0)
                 return newTypeExprType(newNamedDataType("Self"));
@@ -1368,9 +1389,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             if(type_info != NULL)
                 return newTypeExprType(type_info->data_type);
 
-            printf("Type inference: undeclared variable %s at file %s, line %d, column %d\n",
-                   node->identifier, node->filename, node->line_number, node->column_number);
-            exit(1);
+            typeSystemAbortFormatted("T1228", node,
+                                     "undeclared variable",
+                                     "type inference found undeclared variable `%s`",
+                                     node->identifier);
         }
         case AST_EXPR_FUNCTION:
             return newValueExprType(node->data_type);
@@ -1381,10 +1403,9 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         case AST_EXPR_ARRAY_LITERAL: {
             ASTNode *element = node->lhs;
             if(element == NULL)
-            {
-                printf("Type error: empty array literal requires an explicit array type\n");
-                exit(1);
-            }
+                typeSystemAbortNode("T1229", node,
+                                    "empty array literal requires an explicit array type",
+                                    "add an explicit array type annotation");
 
             TypeSystemExprType first_type = inferExprType(element, scope);
             ASTDataType *element_type = inferDeclaredTypeFromExpr(element, scope);
@@ -1393,11 +1414,9 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             {
                 TypeSystemExprType current_type = inferExprType(element, scope);
                 if(!canImplicitConvertDataType(current_type, element, element_type))
-                {
-                    printf("Type error: array literal element type mismatch at file %s, line %d, column %d\n",
-                           element->filename, element->line_number, element->column_number);
-                    exit(1);
-                }
+                    typeSystemAbortNode("T1230", element,
+                                        "array literal element type mismatch",
+                                        "this element does not match the inferred array element type");
                 length ++;
                 element = element->next;
             }
@@ -1407,11 +1426,9 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         case AST_EXPR_STRUCT_LITERAL: {
             TypeSystemExprType type_expr = inferExprType(node->lhs, scope);
             if(type_expr.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE || !isStructDataType(type_expr.data_type))
-            {
-                printf("Type error: struct literal requires a struct type at file %s, line %d, column %d\n",
-                       node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                typeSystemAbortNode("T1231", node,
+                                    "struct literal requires a struct type",
+                                    "the expression before `{ ... }` is not a struct type");
 
             ASTStructMember *member = type_expr.data_type->members;
             while(member)
@@ -1422,19 +1439,17 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                     while(field && strcmp(field->identifier, member->identifier) != 0)
                         field = field->next;
                     if(field == NULL)
-                    {
-                        printf("Type error: missing field %s in struct literal at file %s, line %d, column %d\n",
-                               member->identifier, node->filename, node->line_number, node->column_number);
-                        exit(1);
-                    }
+                        typeSystemAbortFormatted("T1232", node,
+                                                 "missing struct field",
+                                                 "missing field `%s` in struct literal",
+                                                 member->identifier);
 
                     TypeSystemExprType field_type = inferExprType(field->value, scope);
                     if(!canImplicitConvertDataType(field_type, field->value, member->data_type))
-                    {
-                        printf("Type error: struct field %s type mismatch at file %s, line %d, column %d\n",
-                               member->identifier, field->value->filename, field->value->line_number, field->value->column_number);
-                        exit(1);
-                    }
+                        typeSystemAbortFormatted("T1233", field->value,
+                                                 "struct field type mismatch",
+                                                 "struct field `%s` has an incompatible value",
+                                                 member->identifier);
                 }
                 member = member->next;
             }
@@ -1444,11 +1459,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             {
                 ASTStructMember *declared_member = findStructMember(type_expr.data_type, field->identifier);
                 if(declared_member == NULL || declared_member->value != NULL)
-                {
-                    printf("Type error: unknown struct field %s at file %s, line %d, column %d\n",
-                           field->identifier, field->filename, field->line_number, field->column_number);
-                    exit(1);
-                }
+                    typeSystemAbortFormatted("T1234", field->value != NULL ? field->value : node,
+                                             "unknown struct field",
+                                             "unknown struct field `%s`",
+                                             field->identifier);
                 field = field->next;
             }
 
@@ -1470,44 +1484,37 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             if(isEnumDataType(owner_data_type))
             {
                 if(owner_type.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
-                {
-                    printf("Type error: enum variant access requires the enum type at file %s, line %d, column %d\n",
-                           node->filename, node->line_number, node->column_number);
-                    exit(1);
-                }
+                    typeSystemAbortNode("T1235", node,
+                                        "enum variant access requires the enum type",
+                                        "use `EnumType.Variant` syntax");
 
                 if(findEnumVariant(owner_data_type, node->identifier) == NULL)
-                {
-                    printf("Type error: unknown enum variant %s at file %s, line %d, column %d\n",
-                           node->identifier, node->filename, node->line_number, node->column_number);
-                    exit(1);
-                }
+                    typeSystemAbortFormatted("T1236", node,
+                                             "unknown enum variant",
+                                             "unknown enum variant `%s`",
+                                             node->identifier);
 
                 return newValueExprType(owner_data_type);
             }
 
             ASTDataType *struct_type = owner_data_type;
             if(!isStructDataType(struct_type))
-            {
-                printf("Type error: member access requires a struct type at file %s, line %d, column %d\n",
-                       node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                typeSystemAbortNode("T1237", node,
+                                    "member access requires a struct type",
+                                    "the receiver is not a struct");
 
             ASTStructMember *member = findStructMember(struct_type, node->identifier);
             if(member == NULL)
-            {
-                printf("Type error: unknown struct member %s at file %s, line %d, column %d\n",
-                       node->identifier, node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                typeSystemAbortFormatted("T1238", node,
+                                         "unknown struct member",
+                                         "unknown struct member `%s`",
+                                         node->identifier);
 
             if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE && member->value == NULL)
-            {
-                printf("Type error: struct field %s cannot be accessed on the type itself at file %s, line %d, column %d\n",
-                       node->identifier, node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                typeSystemAbortFormatted("T1239", node,
+                                         "instance field accessed on type",
+                                         "struct field `%s` cannot be accessed on the type itself",
+                                         node->identifier);
 
             if(member->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
                 return newValueExprType(member->data_type->child);
@@ -1516,33 +1523,27 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         case AST_EXPR_INDEX: {
             TypeSystemExprType owner_type = inferExprType(node->lhs, scope);
             if(owner_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
-            {
-                printf("Type error: indexing requires a value receiver at file %s, line %d, column %d\n",
-                       node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                typeSystemAbortNode("T1240", node,
+                                    "indexing requires a value receiver",
+                                    "the indexed expression is not a runtime value");
 
             ASTDataType *owner_data_type = owner_type.data_type;
             if(owner_data_type->kind == AST_DATA_TYPE_KIND_POINTER || owner_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
                 owner_data_type = owner_data_type->child;
 
             if(!isArrayDataType(owner_data_type))
-            {
-                printf("Type error: indexing requires an array type at file %s, line %d, column %d\n",
-                       node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                typeSystemAbortNode("T1241", node,
+                                    "indexing requires an array type",
+                                    "the indexed expression is not an array");
 
             TypeSystemExprType index_type = inferExprType(node->rhs, scope);
             if(index_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
                (index_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
                 (index_type.data_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
                  !isIntegerPrimary(index_type.data_type->primary))))
-            {
-                printf("Type error: array index must be an integer at file %s, line %d, column %d\n",
-                       node->rhs->filename, node->rhs->line_number, node->rhs->column_number);
-                exit(1);
-            }
+                typeSystemAbortNode("T1242", node->rhs,
+                                    "array index must be an integer",
+                                    "this index expression is not an integer");
 
             return newValueExprType(owner_data_type->child);
         }
@@ -1588,11 +1589,9 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
 
             TypeSystemExprType callee_type = inferExprType(node->lhs, scope);
             if(callee_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || callee_type.data_type->kind != AST_DATA_TYPE_KIND_FUNCTION)
-            {
-                printf("Type error: called expression is not a function at file %s, line %d, column %d\n",
-                       node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                typeSystemAbortNode("T1243", node,
+                                    "called expression is not a function",
+                                    "this callee does not have a function type");
 
             checkFunctionCallArguments(callee_type.data_type->parameters, node->rhs, scope, callee_type.data_type->is_variadic);
 
@@ -1638,26 +1637,20 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         case AST_EXPR_ADDRESS_OF:
         case AST_EXPR_ADDRESS_OF_MUT: {
             if(!isAddressableExpr(node->lhs))
-            {
-                printf("Type error: cannot take address of non-addressable expression at file %s, line %d, column %d\n",
-                       node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                typeSystemAbortNode("T1244", node,
+                                    "cannot take address of non-addressable expression",
+                                    "this expression has no stable address");
 
             if(node->kind == AST_EXPR_ADDRESS_OF_MUT && !isMutableAddressableExpr(node->lhs, scope))
-            {
-                printf("Type error: cannot take mutable address of immutable expression at file %s, line %d, column %d\n",
-                       node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                typeSystemAbortNode("T1245", node,
+                                    "cannot take mutable address of immutable expression",
+                                    "the target expression is not mutable");
 
             TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
             if(operand_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
-            {
-                printf("Type error: cannot take address of literal at file %s, line %d, column %d\n",
-                       node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                typeSystemAbortNode("T1246", node,
+                                    "cannot take address of literal",
+                                    "literals do not have an addressable storage location");
 
             bool mutable_pointer = node->kind == AST_EXPR_ADDRESS_OF_MUT || isMutableAddressableExpr(node->lhs, scope);
 
@@ -1742,8 +1735,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
         }
         default:
-            printf("inferExprType: unsupported AST node kind %s\n", astNodeKindToString(node->kind));
-            exit(1);
+            typeSystemAbortFormatted("ICE0202", node,
+                                     NULL,
+                                     "inferExprType hit unsupported AST node kind %s",
+                                     astNodeKindToString(node->kind));
     }
 }
 

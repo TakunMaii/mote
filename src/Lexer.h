@@ -1,6 +1,7 @@
 #ifndef LEXER_H
 #define LEXER_H
 
+#include "Diagnostic.h"
 #include "Token.h"
 #include <stdio.h>
 #include <stdbool.h>
@@ -50,9 +51,14 @@ char parseEscapedChar(char escape_char, const char *filename, int line, int colu
         case '\'': return '\'';
         case '"': return '"';
         default:
-            printf("Unknown escaped char %c at file %s, line %d, column %d\n",
-                   escape_char, filename, line, column);
-            exit(1);
+        {
+            char escaped_label[64] = {0};
+            diagnosticFormat(escaped_label, sizeof(escaped_label), "invalid escape sequence '\\%c'", escape_char);
+            diagnosticAbortSimple("L1001",
+                                  "unknown escape sequence",
+                                  makePointSourceSpan(filename, line, column),
+                                  escaped_label);
+        }
     }
 }
 
@@ -98,9 +104,10 @@ void skipBlockComment(char **code, int *line, int *column, const char *filename)
         }
     }
 
-    printf("Unclosed block comment at file %s, line %d, column %d\n",
-           filename, start_line, start_column);
-    exit(1);
+    diagnosticAbortSimple("L1002",
+                          "unterminated block comment",
+                          makePointSourceSpan(filename, start_line, start_column),
+                          "block comment starts here");
 }
 
 Token* tokenize(char *code, const char* filename)
@@ -128,6 +135,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 3;
             column += 3;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("pub", 3, code)) {
             if(isIdentifier(code[3]))
@@ -136,6 +144,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 3;
             column += 3;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("fn", 2, code)) {
             if(isIdentifier(code[2]))
@@ -144,6 +153,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("enum", 4, code)) {
             if(isIdentifier(code[4]))
@@ -152,6 +162,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 4;
             column += 4;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("struct", 6, code)) {
             if(isIdentifier(code[6]))
@@ -160,6 +171,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 6;
             column += 6;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("return", 6, code)) {
             if(isIdentifier(code[6]))
@@ -168,6 +180,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 6;
             column += 6;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("Type", 4, code)) {
             if(isIdentifier(code[4]))
@@ -176,6 +189,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 4;
             column += 4;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("if", 2, code)) {
             if(isIdentifier(code[2]))
@@ -184,6 +198,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("else", 4, code)) {
             if(isIdentifier(code[4]))
@@ -192,6 +207,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 4;
             column += 4;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("for", 3, code)) {
             if(isIdentifier(code[3]))
@@ -200,6 +216,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 3;
             column += 3;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("while", 5, code)) {
             if(isIdentifier(code[5]))
@@ -208,6 +225,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 5;
             column += 5;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("do", 2, code)) {
             if(isIdentifier(code[2]))
@@ -216,6 +234,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("break", 5, code)) {
             if(isIdentifier(code[5]))
@@ -224,6 +243,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 5;
             column += 5;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("continue", 8, code)) {
             if(isIdentifier(code[8]))
@@ -232,6 +252,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 8;
             column += 8;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("defer", 5, code)) {
             if(isIdentifier(code[5]))
@@ -240,6 +261,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 5;
             column += 5;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("void", 4, code)) {
             if(isIdentifier(code[4]))
@@ -248,6 +270,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 4;
             column += 4;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("true", 4, code)) {
             if(isIdentifier(code[4]))
@@ -256,6 +279,7 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 4;
             column += 4;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("false", 5, code)) {
             if(isIdentifier(code[5]))
@@ -264,84 +288,98 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 5;
             column += 5;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("&&", 2, code)) {
             token->next = newToken(TK_DOUBLE_AMPERSAND, filename, line, column);
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("||", 2, code)) {
             token->next = newToken(TK_DOUBLE_PIPE, filename, line, column);
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("==", 2, code)) {
             token->next = newToken(TK_DOUBLE_EQUAL, filename, line, column);
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("!=", 2, code)) {
             token->next = newToken(TK_EXCLAMATION_EQUAL, filename, line, column);
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("...", 3, code)) {
             token->next = newToken(TK_ELLIPSIS, filename, line, column);
             token = token->next;
             code += 3;
             column += 3;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("<=", 2, code)) {
             token->next = newToken(TK_LESS_EQUAL, filename, line, column);
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr(">=", 2, code)) {
             token->next = newToken(TK_GREATER_EQUAL, filename, line, column);
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("<<", 2, code)) {
             token->next = newToken(TK_LEFT_SHIFT, filename, line, column);
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr(">>", 2, code)) {
             token->next = newToken(TK_RIGHT_SHIFT, filename, line, column);
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("=", 1, code)) {
             token->next = newToken(TK_EQUAL, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("+", 1, code)) {
             token->next = newToken(TK_PLUS, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("-", 1, code)) {
             token->next = newToken(TK_MINUS, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("*", 1, code)) {
             token->next = newToken(TK_STAR, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("//", 2, code)) {
             skipLineComment(&code, &column);
@@ -354,120 +392,140 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("%", 1, code)) {
             token->next = newToken(TK_PERCENT, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("&", 1, code)) {
             token->next = newToken(TK_AMPERSAND, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("|", 1, code)) {
             token->next = newToken(TK_PIPE, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("^", 1, code)) {
             token->next = newToken(TK_CARET, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("~", 1, code)) {
             token->next = newToken(TK_TILDE, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("!", 1, code)) {
             token->next = newToken(TK_EXCLAMATION, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("<", 1, code)) {
             token->next = newToken(TK_LESS, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr(">", 1, code)) {
             token->next = newToken(TK_GREATER, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("(", 1, code)) {
             token->next = newToken(TK_LEFT_PARENTHESIS, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr(")", 1, code)) {
             token->next = newToken(TK_RIGHT_PARENTHESIS, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("{", 1, code)) {
             token->next = newToken(TK_LEFT_BRACE, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("}", 1, code)) {
             token->next = newToken(TK_RIGHT_BRACE, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("[", 1, code)) {
             token->next = newToken(TK_LEFT_BRACKET, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("]", 1, code)) {
             token->next = newToken(TK_RIGHT_BRACKET, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr(",", 1, code)) {
             token->next = newToken(TK_COMMA, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr(":", 1, code)) {
             token->next = newToken(TK_COLON, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr(".", 1, code)) {
             token->next = newToken(TK_DOT, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("@", 1, code)) {
             token->next = newToken(TK_AT, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr(";", 1, code)) {
             token->next = newToken(TK_SEMICOLON, filename, line, column);
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("'", 1, code)) {
             int literal_line = line;
@@ -480,9 +538,10 @@ Token* tokenize(char *code, const char* filename)
 
             if(*code == '\0' || *code == '\n')
             {
-                printf("Unclosed char literal at file %s, line %d, column %d\n",
-                       filename, literal_line, literal_column);
-                exit(1);
+                diagnosticAbortSimple("L1003",
+                                      "unterminated character literal",
+                                      makePointSourceSpan(filename, literal_line, literal_column),
+                                      "character literal starts here");
             }
 
             if(*code == '\\')
@@ -492,9 +551,10 @@ Token* tokenize(char *code, const char* filename)
 
                 if(*code == '\0' || *code == '\n')
                 {
-                    printf("Unclosed char literal at file %s, line %d, column %d\n",
-                           filename, literal_line, literal_column);
-                    exit(1);
+                    diagnosticAbortSimple("L1003",
+                                          "unterminated character literal",
+                                          makePointSourceSpan(filename, literal_line, literal_column),
+                                          "character literal starts here");
                 }
 
                 token->literal_char = parseEscapedChar(*code, filename, line, column);
@@ -510,13 +570,15 @@ Token* tokenize(char *code, const char* filename)
 
             if(*code != '\'')
             {
-                printf("Char literal should contain exactly one char at file %s, line %d, column %d\n",
-                       filename, literal_line, literal_column);
-                exit(1);
+                diagnosticAbortSimple("L1004",
+                                      "character literal must contain exactly one character",
+                                      makePointSourceSpan(filename, literal_line, literal_column),
+                                      "invalid character literal");
             }
 
             code ++;
             column ++;
+            setTokenEnd(token, line, column);
         }
         else if(expectStr("\"", 1, code)) {
             int literal_line = line;
@@ -537,18 +599,20 @@ Token* tokenize(char *code, const char* filename)
                     column ++;
                     if(*code == '\0' || *code == '\n')
                     {
-                        printf("Unclosed string literal at file %s, line %d, column %d\n",
-                               filename, literal_line, literal_column);
-                        exit(1);
+                        diagnosticAbortSimple("L1005",
+                                              "unterminated string literal",
+                                              makePointSourceSpan(filename, literal_line, literal_column),
+                                              "string literal starts here");
                     }
                     ch = parseEscapedChar(*code, filename, line, column);
                 }
 
                 if(string_index >= MAX_STRING_LITERAL_LENGTH - 1)
                 {
-                    printf("String literal too long at file %s, line %d, column %d\n",
-                           filename, literal_line, literal_column);
-                    exit(1);
+                    diagnosticAbortSimple("L1006",
+                                          "string literal is too long",
+                                          makePointSourceSpan(filename, literal_line, literal_column),
+                                          "string literal starts here");
                 }
 
                 token->literal_string[string_index++] = ch;
@@ -558,14 +622,16 @@ Token* tokenize(char *code, const char* filename)
 
             if(*code != '"')
             {
-                printf("Unclosed string literal at file %s, line %d, column %d\n",
-                       filename, literal_line, literal_column);
-                exit(1);
+                diagnosticAbortSimple("L1005",
+                                      "unterminated string literal",
+                                      makePointSourceSpan(filename, literal_line, literal_column),
+                                      "string literal starts here");
             }
 
             token->literal_string[string_index] = '\0';
             code ++;
             column ++;
+            setTokenEnd(token, line, column);
         }
         else if(isDigit(*code)) {
             token->next = newToken(TK_LITERAL_INTEGER, filename, line, column);
@@ -579,9 +645,10 @@ Token* tokenize(char *code, const char* filename)
             do {
                 if(*code == '.' && float_mode)
                 {
-                    printf("Two dots in a number, at file %s, line %d, column %d\n",
-                          filename, line, column);
-                    exit(1);
+                    diagnosticAbortSimple("L1007",
+                                          "invalid number literal",
+                                          makePointSourceSpan(filename, line, column),
+                                          "second '.' is not allowed here");
                 }
                 else if(*code == '.' && !float_mode)
                 {
@@ -614,6 +681,7 @@ Token* tokenize(char *code, const char* filename)
                 token->literal_float = literal_float;
             }
             else token->literal_integer = literal_integer;
+            setTokenEnd(token, line, column);
         }
         else if(isIdentifierHead(*code))
         {
@@ -627,16 +695,24 @@ tokenize_identifier:
                 column ++;
             }
             token->identifier[counter] = 0;
+            setTokenEnd(token, line, column);
         }
         else
         {
-            printf("The Lexer dose't know how to deal with %d, at file %s, line %d, column %d\n", *code,
-                  filename, line, column);
-            exit(1);
+            char label[128] = {0};
+            if(isprint((unsigned char)*code))
+                diagnosticFormat(label, sizeof(label), "unexpected character '%c'", *code);
+            else
+                diagnosticFormat(label, sizeof(label), "unexpected byte 0x%02X", (unsigned char)*code);
+            diagnosticAbortSimple("L1008",
+                                  "unexpected character",
+                                  makePointSourceSpan(filename, line, column),
+                                  label);
         }
     }
 
     token->next = newToken(TK_END_OF_CODE, filename, line, column);
+    setTokenEnd(token->next, line, column);
 
     return head;
 }

@@ -1,11 +1,55 @@
 #ifndef SEMANTIC_H
 #define SEMANTIC_H
 
+#include "Diagnostic.h"
 #include "AST.h"
 #include "SymbolTable.h"
 #include "TypeSystem.h"
 #include <stdbool.h>
 #include <string.h>
+
+void semanticAbortNode(const char *code, ASTNode *node, const char *message, const char *label)
+{
+    diagnosticAbortSimple(code, message, astNodeSourceSpan(node), label);
+}
+
+void semanticAbortNodeFormatted(const char *code, ASTNode *node, const char *label, const char *format, ...)
+{
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code, astNodeSourceSpan(node), "");
+    va_list args;
+    va_start(args, format);
+    diagnosticVFormat(diagnostic.message, sizeof(diagnostic.message), format, args);
+    va_end(args);
+    if(label != NULL)
+        diagnosticSetPrimaryLabel(&diagnostic, "%s", label);
+    diagnosticAbort(diagnostic);
+}
+
+void semanticAbortTypeNode(const char *code, ASTNode *node, const char *message, const char *label)
+{
+    diagnosticAbortSimple(code, message, astNodeSourceSpan(node), label);
+}
+
+void semanticAbortTypeFormatted(const char *code, ASTNode *node, const char *label, const char *format, ...)
+{
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code, astNodeSourceSpan(node), "");
+    va_list args;
+    va_start(args, format);
+    diagnosticVFormat(diagnostic.message, sizeof(diagnostic.message), format, args);
+    va_end(args);
+    if(label != NULL)
+        diagnosticSetPrimaryLabel(&diagnostic, "%s", label);
+    diagnosticAbort(diagnostic);
+}
+
+void semanticAbortTypeDataType(const char *code, ASTNode *node, const char *message, ASTDataType *expected_type)
+{
+    char type_buffer[256] = {0};
+    appendASTDataTypeString(expected_type, type_buffer, sizeof(type_buffer));
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code, astNodeSourceSpan(node), message);
+    diagnosticSetPrimaryLabel(&diagnostic, "expected type %s", type_buffer);
+    diagnosticAbort(diagnostic);
+}
 
 bool isExplicitDeclared(ASTNode *node)
 {
@@ -80,8 +124,12 @@ void declareFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scop
     {
         if(findVariableInfoInScope(scope, parameter->identifier) >= 0)
         {
-            printf("Function parameter %s is declared more than once\n", parameter->identifier);
-            exit(1);
+            Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                                   "S1001",
+                                                   astFunctionParameterSourceSpan(parameter),
+                                                   "duplicate function parameter");
+            diagnosticSetPrimaryLabel(&diagnostic, "parameter `%s` is declared more than once", parameter->identifier);
+            diagnosticAbort(diagnostic);
         }
 
         VariableInfo *variable_info = declareVariableInfo(scope, parameter->identifier);
@@ -103,15 +151,25 @@ void declareFunctionCaptures(ASTFunctionCapture *capture, ScopeFrame *target_sco
     {
         if(findVariableInfoInScope(target_scope, capture->identifier) >= 0)
         {
-            printf("Function capture %s is declared more than once\n", capture->identifier);
-            exit(1);
+            diagnosticAbortFormatted("S1002",
+                                     makeSourceSpan(capture->filename,
+                                                    capture->line_number, capture->column_number,
+                                                    capture->end_line_number, capture->end_column_number),
+                                     "duplicate capture",
+                                     "function capture `%s` is declared more than once",
+                                     capture->identifier);
         }
 
         VariableInfo *outer_variable = findVariableInfo(source_scope, capture->identifier);
         if(outer_variable == NULL)
         {
-            printf("Unknown function capture %s\n", capture->identifier);
-            exit(1);
+            diagnosticAbortFormatted("S1003",
+                                     makeSourceSpan(capture->filename,
+                                                    capture->line_number, capture->column_number,
+                                                    capture->end_line_number, capture->end_column_number),
+                                     "unknown capture",
+                                     "unknown function capture `%s`",
+                                     capture->identifier);
         }
 
         VariableInfo *variable_info = declareVariableInfo(target_scope, capture->identifier);
@@ -128,9 +186,10 @@ void checkFunctionExprSemantics(ASTNode *node, ScopeFrame *scope)
 {
     if(node->is_variadic)
     {
-        printf("Semantic error: variadic mote function definitions are not supported yet at file %s, line %d, column %d\n",
-               node->filename, node->line_number, node->column_number);
-        exit(1);
+        diagnosticAbortSimple("S1004",
+                              "variadic mote function definitions are not supported yet",
+                              astNodeSourceSpan(node),
+                              "function definition appears here");
     }
 
     ScopeFrame *function_scope = newScopeFrame(scope);
@@ -172,8 +231,11 @@ void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
 
         if(findVariableInfo(scope, node->identifier) == NULL && findTypeInfo(scope, node->identifier) == NULL)
         {
-            printf("Use of undeclared variable %s in expression\n", node->identifier);
-            exit(1);
+            diagnosticAbortFormatted("S1005",
+                                     astNodeSourceSpan(node),
+                                     "unknown name",
+                                     "use of undeclared variable `%s` in expression",
+                                     node->identifier);
         }
         return;
     }
@@ -227,9 +289,9 @@ void checkDeferredAssignmentSemantics(ASTNode *node, ScopeFrame *scope)
 
     if(isStructDeclAssign(node) || isEnumDeclAssign(node))
     {
-        printf("Semantic error: defer cannot declare a type at file %s, line %d, column %d\n",
-               node->filename, node->line_number, node->column_number);
-        exit(1);
+        semanticAbortNode("S1006", node,
+                          "defer cannot declare a type",
+                          "move the type declaration outside `defer`");
     }
 
     if(node->lhs->kind != AST_EXPR_VARIABLE)
@@ -237,16 +299,16 @@ void checkDeferredAssignmentSemantics(ASTNode *node, ScopeFrame *scope)
 
     if(isExplicitDeclared(node))
     {
-        printf("Semantic error: defer cannot declare a variable at file %s, line %d, column %d\n",
-               node->filename, node->line_number, node->column_number);
-        exit(1);
+        semanticAbortNode("S1007", node,
+                          "defer cannot declare a variable",
+                          "declare the variable before the `defer` statement");
     }
 
     if(findVariableInfo(scope, node->identifier) == NULL)
     {
-        printf("Semantic error: defer assignment target must already exist at file %s, line %d, column %d\n",
-               node->filename, node->line_number, node->column_number);
-        exit(1);
+        semanticAbortNode("S1008", node,
+                          "defer assignment target must already exist",
+                          "assignment target is not declared in an outer scope");
     }
 }
 
@@ -256,8 +318,10 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
     {
         if(findTypeInfoInScope(scope, node->identifier) >= 0)
         {
-            printf("Type %s has already been declared in this scope\n", node->identifier);
-            exit(1);
+            semanticAbortNodeFormatted("S1009", node,
+                                       "duplicate type declaration",
+                                       "type `%s` has already been declared in this scope",
+                                       node->identifier);
         }
 
         TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
@@ -281,9 +345,9 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
     {
         if(node->modifier.mutable)
         {
-            printf("Semantic error: member assignment cannot use mut declaration syntax at file %s, line %d, column %d\n",
-                   node->filename, node->line_number, node->column_number);
-            exit(1);
+            semanticAbortNode("S1010", node,
+                              "member assignment cannot use `mut` declaration syntax",
+                              "remove `mut` from this assignment");
         }
 
         checkExprDeclaredVariable(node->lhs->lhs, scope);
@@ -294,9 +358,9 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
     {
         if(node->modifier.mutable)
         {
-            printf("Semantic error: index assignment cannot use mut declaration syntax at file %s, line %d, column %d\n",
-                   node->filename, node->line_number, node->column_number);
-            exit(1);
+            semanticAbortNode("S1011", node,
+                              "index assignment cannot use `mut` declaration syntax",
+                              "remove `mut` from this assignment");
         }
 
         checkExprDeclaredVariable(node->lhs->lhs, scope);
@@ -306,9 +370,9 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
 
     if(node->lhs->kind != AST_EXPR_VARIABLE)
     {
-        printf("Semantic error: only variable, deref, member, or index can be assigned at file %s, line %d, column %d\n",
-               node->filename, node->line_number, node->column_number);
-        exit(1);
+        semanticAbortNode("S1012", node,
+                          "invalid assignment target",
+                          "only variables, dereferences, member access, and indexing can be assigned");
     }
 
     VariableInfo *local_variable_info = NULL;
@@ -320,8 +384,10 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
     {
         if(local_variable_info != NULL)
         {
-            printf("Variable %s has already been declared and cannot be declared again\n", node->identifier);
-            exit(1);
+            semanticAbortNodeFormatted("S1013", node,
+                                       "duplicate variable declaration",
+                                       "variable `%s` has already been declared and cannot be declared again",
+                                       node->identifier);
         }
 
         VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
@@ -342,8 +408,10 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
         }
         else if(!resolved_variable_info->mutable && !isReferenceDataType(resolved_variable_info->data_type))
         {
-            printf("Cannot assign to immutable variable %s\n", node->identifier);
-            exit(1);
+            semanticAbortNodeFormatted("S1014", node,
+                                       "immutable assignment target",
+                                       "cannot assign to immutable variable `%s`",
+                                       node->identifier);
         }
     }
 }
@@ -363,16 +431,16 @@ void checkStatementSemantics(ASTNode *node, ScopeFrame *scope, FunctionContext *
     {
         if(!isInsideFunction(function_context))
         {
-            printf("Return statement is only allowed inside a function at file %s, line %d, column %d\n",
-                   node->filename, node->line_number, node->column_number);
-            exit(1);
+            semanticAbortNode("S1015", node,
+                              "return statement is only allowed inside a function",
+                              "remove this `return` or move it into a function body");
         }
 
         if(function_context->inside_defer)
         {
-            printf("Return statement is not allowed inside defer at file %s, line %d, column %d\n",
-                   node->filename, node->line_number, node->column_number);
-            exit(1);
+            semanticAbortNode("S1016", node,
+                              "return statement is not allowed inside defer",
+                              "`defer` bodies cannot exit the surrounding function");
         }
 
         checkExprDeclaredVariable(node->lhs, scope);
@@ -383,18 +451,18 @@ void checkStatementSemantics(ASTNode *node, ScopeFrame *scope, FunctionContext *
     {
         if(function_context == NULL || function_context->loop_depth <= 0)
         {
-            printf("%s statement is only allowed inside a loop at file %s, line %d, column %d\n",
-                   node->kind == AST_STATEMENT_BREAK ? "Break" : "Continue",
-                   node->filename, node->line_number, node->column_number);
-            exit(1);
+            semanticAbortNodeFormatted("S1017", node,
+                                       "loop control used outside loop",
+                                       "%s statement is only allowed inside a loop",
+                                       node->kind == AST_STATEMENT_BREAK ? "break" : "continue");
         }
 
         if(function_context->inside_defer)
         {
-            printf("%s statement is not allowed inside defer at file %s, line %d, column %d\n",
-                   node->kind == AST_STATEMENT_BREAK ? "Break" : "Continue",
-                   node->filename, node->line_number, node->column_number);
-            exit(1);
+            semanticAbortNodeFormatted("S1018", node,
+                                       "loop control used inside defer",
+                                       "%s statement is not allowed inside defer",
+                                       node->kind == AST_STATEMENT_BREAK ? "break" : "continue");
         }
         return;
     }
@@ -459,8 +527,10 @@ void checkStatementSemantics(ASTNode *node, ScopeFrame *scope, FunctionContext *
         return;
     }
 
-    printf("Semantic error: unsupported statement kind %s\n", astNodeKindToString(node->kind));
-    exit(1);
+    semanticAbortNodeFormatted("ICE0101", node,
+                               NULL,
+                               "semantic analysis hit unsupported statement kind %s",
+                               astNodeKindToString(node->kind));
 }
 
 void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context)
@@ -480,8 +550,10 @@ void checkAssignSemantics(ASTNode *root)
 {
     if(root == NULL || root->lhs == NULL || root->lhs->kind != AST_BLOCK)
     {
-        printf("Semantic error: root should contain a top-level block\n");
-        exit(1);
+        diagnosticAbortSimple("ICE0102",
+                              "semantic root should contain a top-level block",
+                              makeSourceSpan(NULL, 0, 0, 0, 0),
+                              NULL);
     }
 
     checkAssignSemanticsInBlock(root->lhs, NULL, NULL);
@@ -521,9 +593,9 @@ void checkFunctionCallArgumentSemantics(ASTNode *call_node, ASTDataType *functio
         {
             if(!isMutableAddressableExpr(argument, scope))
             {
-                printf("Type error: mutable reference argument requires a mutable expression at file %s, line %d, column %d\n",
-                       argument->filename, argument->line_number, argument->column_number);
-                exit(1);
+                semanticAbortTypeNode("T1101", argument,
+                                      "mutable reference argument requires a mutable expression",
+                                      "this argument is not mutable");
             }
         }
 
@@ -545,8 +617,10 @@ ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
     {
         if(findStructMember(struct_type, member->identifier) != NULL)
         {
-            printf("Type error: duplicate struct member %s in %s\n", member->identifier, node->identifier);
-            exit(1);
+            semanticAbortTypeFormatted("T1102", node,
+                                       "duplicate struct member",
+                                       "duplicate struct member `%s` in `%s`",
+                                       member->identifier, node->identifier);
         }
 
         ASTStructMember *resolved_member = (ASTStructMember*) malloc(sizeof(ASTStructMember));
@@ -586,8 +660,10 @@ ASTDataType* declareEnumType(ASTNode *node, ScopeFrame *scope)
     {
         if(findEnumVariant(enum_type, variant->identifier) != NULL)
         {
-            printf("Type error: duplicate enum variant %s in %s\n", variant->identifier, node->identifier);
-            exit(1);
+            semanticAbortTypeFormatted("T1103", node,
+                                       "duplicate enum variant",
+                                       "duplicate enum variant `%s` in `%s`",
+                                       variant->identifier, node->identifier);
         }
 
         ASTEnumVariant *resolved_variant = (ASTEnumVariant*) malloc(sizeof(ASTEnumVariant));
@@ -616,26 +692,26 @@ void checkFunctionReturnStatement(ASTNode *node, ScopeFrame *scope, FunctionCont
     {
         if(node->lhs != NULL)
         {
-            printf("Type error: void function should not return a value at file %s, line %d, column %d\n",
-                   node->filename, node->line_number, node->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1104", node,
+                                  "void function should not return a value",
+                                  "remove the returned expression");
         }
         return;
     }
 
     if(node->lhs == NULL)
     {
-        printf("Type error: non-void function must return a value at file %s, line %d, column %d\n",
-               node->filename, node->line_number, node->column_number);
-        exit(1);
+        semanticAbortTypeNode("T1105", node,
+                              "non-void function must return a value",
+                              "this function requires a return value");
     }
 
     TypeSystemExprType return_type = inferExprType(node->lhs, scope);
     if(!canImplicitConvertDataType(return_type, node->lhs, expected_type))
     {
-        printf("Type error: return type mismatch at file %s, line %d, column %d\n",
-               node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-        exit(1);
+        semanticAbortTypeNode("T1106", node->lhs,
+                              "return type mismatch",
+                              "returned expression does not match the function return type");
     }
 }
 
@@ -707,8 +783,14 @@ void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFra
     {
         if(findVariableInfoInScope(scope, parameter->identifier) >= 0)
         {
-            printf("Function parameter %s is declared more than once\n", parameter->identifier);
-            exit(1);
+            Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                                   "T1129",
+                                                   astFunctionParameterSourceSpan(parameter),
+                                                   "duplicate function parameter");
+            diagnosticSetPrimaryLabel(&diagnostic,
+                                      "parameter `%s` is declared more than once",
+                                      parameter->identifier);
+            diagnosticAbort(diagnostic);
         }
 
         VariableInfo *variable_info = declareVariableInfo(scope, parameter->identifier);
@@ -766,9 +848,9 @@ void checkConditionType(ASTNode *condition, ScopeFrame *scope)
     TypeSystemExprType expr_type = inferExprType(condition, scope);
     if(!isBoolConditionType(expr_type))
     {
-        printf("Type error: condition must be bool at file %s, line %d, column %d\n",
-               condition->filename, condition->line_number, condition->column_number);
-        exit(1);
+        semanticAbortTypeNode("T1107", condition,
+                              "condition must be bool",
+                              "this condition does not evaluate to `bool`");
     }
 }
 
@@ -778,8 +860,10 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
     {
         if(findTypeInfoInScope(scope, node->identifier) >= 0)
         {
-            printf("Type %s has already been declared in this scope\n", node->identifier);
-            exit(1);
+            semanticAbortTypeFormatted("T1108", node,
+                                       "duplicate type declaration",
+                                       "type `%s` has already been declared in this scope",
+                                       node->identifier);
         }
 
         ASTDataType *struct_type = declareStructType(node, scope);
@@ -798,8 +882,10 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
     {
         if(findTypeInfoInScope(scope, node->identifier) >= 0)
         {
-            printf("Type %s has already been declared in this scope\n", node->identifier);
-            exit(1);
+            semanticAbortTypeFormatted("T1109", node,
+                                       "duplicate type declaration",
+                                       "type `%s` has already been declared in this scope",
+                                       node->identifier);
         }
 
         declareEnumType(node, scope);
@@ -812,15 +898,15 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         TypeSystemExprType lhs_type = inferExprType(node->lhs->lhs, scope);
         if(lhs_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || !isPointerOrReferenceDataType(lhs_type.data_type))
         {
-            printf("Type error: deref assignment requires a pointer or reference at file %s, line %d, column %d\n",
-                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1110", node->lhs,
+                                  "deref assignment requires a pointer or reference",
+                                  "left-hand side does not dereference a pointer/reference");
         }
         if(!lhs_type.data_type->mutable)
         {
-            printf("Type error: cannot assign through immutable pointer or reference at file %s, line %d, column %d\n",
-                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1111", node->lhs,
+                                  "cannot assign through immutable pointer or reference",
+                                  "the dereferenced target is immutable");
         }
         if(!canImplicitConvertDataType(expr_type, node->rhs, lhs_type.data_type->child))
             typeErrorAssign(node, node->rhs, expr_type, lhs_type.data_type->child);
@@ -836,33 +922,34 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         ASTDataType *struct_type = owner_type.data_type;
         if(owner_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
         {
-            printf("Type error: member assignment requires a value receiver at file %s, line %d, column %d\n",
-                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1112", node->lhs,
+                                  "member assignment requires a value receiver",
+                                  "the receiver is not a runtime value");
         }
 
         if(struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
             struct_type = struct_type->child;
         if(!isStructDataType(struct_type))
         {
-            printf("Type error: member assignment requires a struct receiver at file %s, line %d, column %d\n",
-                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1113", node->lhs,
+                                  "member assignment requires a struct receiver",
+                                  "the receiver is not a struct");
         }
 
         ASTStructMember *member = findStructMember(struct_type, node->lhs->identifier);
         if(member == NULL || member->value != NULL)
         {
-            printf("Type error: cannot assign to member %s at file %s, line %d, column %d\n",
-                   node->lhs->identifier, node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-            exit(1);
+            semanticAbortTypeFormatted("T1114", node->lhs,
+                                       "invalid member assignment target",
+                                       "cannot assign to member `%s`",
+                                       node->lhs->identifier);
         }
 
         if(!isMutableAddressableExpr(node->lhs, scope))
         {
-            printf("Type error: cannot assign through immutable member access at file %s, line %d, column %d\n",
-                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1115", node->lhs,
+                                  "cannot assign through immutable member access",
+                                  "the member receiver is immutable");
         }
 
         ASTDataType *target_type = member->data_type;
@@ -882,9 +969,9 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         TypeSystemExprType owner_type = inferExprType(node->lhs->lhs, scope);
         if(owner_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
         {
-            printf("Type error: index assignment requires a value receiver at file %s, line %d, column %d\n",
-                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1116", node->lhs,
+                                  "index assignment requires a value receiver",
+                                  "the indexed expression is not a runtime value");
         }
 
         ASTDataType *array_type = owner_type.data_type;
@@ -892,16 +979,16 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             array_type = array_type->child;
         if(!isArrayDataType(array_type))
         {
-            printf("Type error: index assignment requires an array receiver at file %s, line %d, column %d\n",
-                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1117", node->lhs,
+                                  "index assignment requires an array receiver",
+                                  "the indexed expression is not an array");
         }
 
         if(!isMutableAddressableExpr(node->lhs, scope))
         {
-            printf("Type error: cannot assign through immutable index access at file %s, line %d, column %d\n",
-                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1118", node->lhs,
+                                  "cannot assign through immutable index access",
+                                  "the indexed receiver is immutable");
         }
 
         if(!canImplicitConvertDataType(expr_type, node->rhs, array_type->child))
@@ -930,8 +1017,10 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         TypeSystemExprType expr_type = {0};
         if(local_variable_info != NULL)
         {
-            printf("Variable %s has already been declared and cannot be declared again\n", node->identifier);
-            exit(1);
+            semanticAbortTypeFormatted("T1119", node,
+                                       "duplicate variable declaration",
+                                       "variable `%s` has already been declared and cannot be declared again",
+                                       node->identifier);
         }
 
         ASTDataType *declared_type = node->data_type;
@@ -948,9 +1037,9 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         {
             if(declared_type->kind != AST_DATA_TYPE_KIND_ARRAY || declared_type->array_length != 0)
             {
-                printf("Type error: empty array literal requires an explicit zero-length array type at file %s, line %d, column %d\n",
-                       node->rhs->filename, node->rhs->line_number, node->rhs->column_number);
-                exit(1);
+                semanticAbortTypeNode("T1120", node->rhs,
+                                      "empty array literal requires an explicit zero-length array type",
+                                      "declare the target as `Array(T, 0)`");
             }
             expr_type = newValueExprType(declared_type);
         }
@@ -961,16 +1050,16 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         {
             if(node->rhs->kind != AST_EXPR_VARIABLE && node->rhs->kind != AST_EXPR_DEREF)
             {
-                printf("Type error: reference initialization requires an addressable expression at file %s, line %d, column %d\n",
-                       node->rhs->filename, node->rhs->line_number, node->rhs->column_number);
-                exit(1);
+                semanticAbortTypeNode("T1121", node->rhs,
+                                      "reference initialization requires an addressable expression",
+                                      "this expression cannot be bound by reference");
             }
 
             if(declared_type->mutable && !isMutableAddressableExpr(node->rhs, scope))
             {
-                printf("Type error: mutable reference requires a mutable expression at file %s, line %d, column %d\n",
-                       node->rhs->filename, node->rhs->line_number, node->rhs->column_number);
-                exit(1);
+                semanticAbortTypeNode("T1122", node->rhs,
+                                      "mutable reference requires a mutable expression",
+                                      "this expression is not mutable");
             }
 
             TypeSystemExprType rhs_value_type = inferExprType(node->rhs, scope);
@@ -1054,16 +1143,16 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
     {
         if(!isInsideFunction(function_context))
         {
-            printf("Return statement is only allowed inside a function at file %s, line %d, column %d\n",
-                   node->filename, node->line_number, node->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1123", node,
+                                  "return statement is only allowed inside a function",
+                                  "remove this `return` or move it into a function body");
         }
 
         if(function_context->inside_defer)
         {
-            printf("Return statement is not allowed inside defer at file %s, line %d, column %d\n",
-                   node->filename, node->line_number, node->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1124", node,
+                                  "return statement is not allowed inside defer",
+                                  "`defer` bodies cannot exit the surrounding function");
         }
 
         if(node->lhs)
@@ -1092,18 +1181,18 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
     {
         if(function_context == NULL || function_context->loop_depth <= 0)
         {
-            printf("%s statement is only allowed inside a loop at file %s, line %d, column %d\n",
-                   node->kind == AST_STATEMENT_BREAK ? "Break" : "Continue",
-                   node->filename, node->line_number, node->column_number);
-            exit(1);
+            semanticAbortTypeFormatted("T1125", node,
+                                       "loop control used outside loop",
+                                       "%s statement is only allowed inside a loop",
+                                       node->kind == AST_STATEMENT_BREAK ? "break" : "continue");
         }
 
         if(function_context->inside_defer)
         {
-            printf("%s statement is not allowed inside defer at file %s, line %d, column %d\n",
-                   node->kind == AST_STATEMENT_BREAK ? "Break" : "Continue",
-                   node->filename, node->line_number, node->column_number);
-            exit(1);
+            semanticAbortTypeFormatted("T1126", node,
+                                       "loop control used inside defer",
+                                       "%s statement is not allowed inside defer",
+                                       node->kind == AST_STATEMENT_BREAK ? "break" : "continue");
         }
         return;
     }
@@ -1112,18 +1201,18 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
     {
         if(node->lhs->kind == AST_EXPR_ARRAY_LITERAL && node->lhs->lhs == NULL)
         {
-            printf("Type error: empty array literal requires an explicit array type at file %s, line %d, column %d\n",
-                   node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-            exit(1);
+            semanticAbortTypeNode("T1127", node->lhs,
+                                  "empty array literal requires an explicit array type",
+                                  "add an explicit array type annotation");
         }
         else if(node->lhs->kind == AST_EXPR_CALL)
         {
             TypeSystemExprType callee_type = inferExprType(node->lhs->lhs, scope);
             if(callee_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || callee_type.data_type->kind != AST_DATA_TYPE_KIND_FUNCTION)
             {
-                printf("Type error: called expression is not a function at file %s, line %d, column %d\n",
-                       node->lhs->filename, node->lhs->line_number, node->lhs->column_number);
-                exit(1);
+                semanticAbortTypeNode("T1128", node->lhs,
+                                      "called expression is not a function",
+                                      "this expression does not have a function type");
             }
             checkFunctionCallArgumentSemantics(node->lhs, callee_type.data_type, scope);
             inferExprType(node->lhs, scope);
@@ -1191,8 +1280,10 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
         return;
     }
 
-    printf("Type error: unsupported statement kind %s\n", astNodeKindToString(node->kind));
-    exit(1);
+    semanticAbortTypeFormatted("ICE0103", node,
+                               NULL,
+                               "type checking hit unsupported statement kind %s",
+                               astNodeKindToString(node->kind));
 }
 
 void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context)
@@ -1212,8 +1303,10 @@ void checkAssignTypes(ASTNode *root)
 {
     if(root == NULL || root->lhs == NULL || root->lhs->kind != AST_BLOCK)
     {
-        printf("Type error: root should contain a top-level block\n");
-        exit(1);
+        diagnosticAbortSimple("ICE0104",
+                              "type-check root should contain a top-level block",
+                              makeSourceSpan(NULL, 0, 0, 0, 0),
+                              NULL);
     }
 
     checkAssignTypesInBlock(root->lhs, NULL, NULL);

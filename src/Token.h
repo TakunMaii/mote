@@ -1,6 +1,7 @@
 #ifndef TOKEN_H
 #define TOKEN_H
 
+#include "Diagnostic.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -80,6 +81,8 @@ typedef struct Token {
     const char* filename;
     int line_number;
     int column_number;
+    int end_line_number;
+    int end_column_number;
 
     // identifier
     char identifier[MAX_IDENTIFIER_LENGTH];
@@ -108,13 +111,34 @@ void printEscapedChar(char literal_char)
 Token* newToken(TokenKind kind, const char* filename, int line, int column)
 {
     Token *token = (Token*)malloc(sizeof(Token));
+    if(token == NULL)
+        diagnosticAbortInternal("token allocation failed", NULL);
     token->kind = kind;
     token->filename = filename;
     token->line_number = line;
     token->column_number = column;
+    token->end_line_number = line;
+    token->end_column_number = column + 1;
     token->next = NULL;
 
     return token;
+}
+
+void setTokenEnd(Token *token, int end_line, int end_column)
+{
+    if(token == NULL)
+        return;
+    token->end_line_number = end_line;
+    token->end_column_number = end_column;
+}
+
+SourceSpan tokenSourceSpan(Token *token)
+{
+    if(token == NULL)
+        return makeSourceSpan(NULL, 0, 0, 0, 0);
+    return makeSourceSpan(token->filename,
+                          token->line_number, token->column_number,
+                          token->end_line_number, token->end_column_number);
 }
 
 const char* tokenKindToString(TokenKind kind)
@@ -180,8 +204,74 @@ const char* tokenKindToString(TokenKind kind)
         case TK_LITERAL_INTEGER: return "TK_LITERAL_INTEGER";
         case TK_LITERAL_FLOAT: return "TK_LITERAL_FLOAT";
         default:
-            printf("In tokenKindToString: Unknown Token kind\n");
-            exit(1);
+            diagnosticAbortInternal("tokenKindToString", "unknown token kind");
+    }
+}
+
+const char* tokenKindToDiagnosticString(TokenKind kind)
+{
+    switch(kind)
+    {
+        case TK_START_OF_CODE: return "start of file";
+        case TK_END_OF_CODE: return "end of file";
+        case TK_MUT: return "`mut`";
+        case TK_PUB: return "`pub`";
+        case TK_FN: return "`fn`";
+        case TK_ENUM: return "`enum`";
+        case TK_STRUCT: return "`struct`";
+        case TK_RETURN: return "`return`";
+        case TK_TYPE: return "`Type`";
+        case TK_IF: return "`if`";
+        case TK_ELSE: return "`else`";
+        case TK_FOR: return "`for`";
+        case TK_WHILE: return "`while`";
+        case TK_DO: return "`do`";
+        case TK_BREAK: return "`break`";
+        case TK_CONTINUE: return "`continue`";
+        case TK_DEFER: return "`defer`";
+        case TK_VOID: return "`void`";
+        case TK_TRUE: return "`true`";
+        case TK_FALSE: return "`false`";
+        case TK_PLUS: return "`+`";
+        case TK_MINUS: return "`-`";
+        case TK_STAR: return "`*`";
+        case TK_SLASH: return "`/`";
+        case TK_PERCENT: return "`%`";
+        case TK_AMPERSAND: return "`&`";
+        case TK_PIPE: return "`|`";
+        case TK_CARET: return "`^`";
+        case TK_TILDE: return "`~`";
+        case TK_EXCLAMATION: return "`!`";
+        case TK_DOUBLE_AMPERSAND: return "`&&`";
+        case TK_DOUBLE_PIPE: return "`||`";
+        case TK_DOUBLE_EQUAL: return "`==`";
+        case TK_EXCLAMATION_EQUAL: return "`!=`";
+        case TK_ELLIPSIS: return "`...`";
+        case TK_LESS: return "`<`";
+        case TK_LESS_EQUAL: return "`<=`";
+        case TK_GREATER: return "`>`";
+        case TK_GREATER_EQUAL: return "`>=`";
+        case TK_LEFT_SHIFT: return "`<<`";
+        case TK_RIGHT_SHIFT: return "`>>`";
+        case TK_LEFT_PARENTHESIS: return "`(`";
+        case TK_RIGHT_PARENTHESIS: return "`)`";
+        case TK_LEFT_BRACE: return "`{`";
+        case TK_RIGHT_BRACE: return "`}`";
+        case TK_LEFT_BRACKET: return "`[`";
+        case TK_RIGHT_BRACKET: return "`]`";
+        case TK_COMMA: return "`,`";
+        case TK_COLON: return "`:`";
+        case TK_DOT: return "`.`";
+        case TK_AT: return "`@`";
+        case TK_EQUAL: return "`=`";
+        case TK_SEMICOLON: return "`;`";
+        case TK_IDENTIFIER: return "identifier";
+        case TK_LITERAL_CHAR: return "character literal";
+        case TK_LITERAL_STRING: return "string literal";
+        case TK_LITERAL_INTEGER: return "integer literal";
+        case TK_LITERAL_FLOAT: return "float literal";
+        default:
+            diagnosticAbortInternal("tokenKindToDiagnosticString", "unknown token kind");
     }
 }
 
@@ -252,8 +342,7 @@ void printToken(Token token)
         case TK_LITERAL_INTEGER: {printf("TK_LITERAL_INTEGER: %lld\n", token.literal_integer);}break;
         case TK_LITERAL_FLOAT: {printf("TK_LITERAL_FLOAT %Lf\n", token.literal_float);}break;
         default:
-            printf("In printToken: Unknown Token kind\n");
-            exit(1);
+            diagnosticAbortInternal("printToken", "unknown token kind");
     }
 }
 

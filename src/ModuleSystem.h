@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "Diagnostic.h"
 #include "Lexer.h"
 #include "Parser.h"
 
@@ -79,11 +80,11 @@ typedef struct RewriteScope {
 
 static void moduleSystemError(const char *message, const char *filename, int line, int column)
 {
+    SourceSpan span = filename != NULL ? makePointSourceSpan(filename, line, column) : makeSourceSpan(NULL, 0, 0, 0, 0);
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, "M1001", span, message);
     if(filename != NULL)
-        printf("Module error: %s at file %s, line %d, column %d\n", message, filename, line, column);
-    else
-        printf("Module error: %s\n", message);
-    exit(1);
+        diagnosticSetPrimaryLabel(&diagnostic, "module error occurred here");
+    diagnosticAbort(diagnostic);
 }
 
 static char* moduleReadFile(const char *path)
@@ -462,14 +463,14 @@ static ModuleSourceFile* moduleLoadRecursive(ModuleCompileContext *context, cons
     if(source == NULL)
         moduleSystemError("cannot open source file", canonical_path, 0, 0);
 
-    Token *tokens = tokenize(source, canonical_path);
-    ASTNode *root = parse(tokens);
-
     ModuleSourceFile *module = moduleAppend(context);
     strcpy(module->canonical_path, canonical_path);
     moduleDirectoryName(canonical_path, module->directory);
-    module->ast_root = root;
     module->visit_state = 1;
+
+    Token *tokens = tokenize(source, module->canonical_path);
+    ASTNode *root = parse(tokens);
+    module->ast_root = root;
 
     moduleScanImports(context, module);
     module->visit_state = 2;

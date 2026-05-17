@@ -1,6 +1,7 @@
 #ifndef SYMBOL_TABLE_H
 #define SYMBOL_TABLE_H
 
+#include "Diagnostic.h"
 #include "AST.h"
 #include <stdlib.h>
 #include <string.h>
@@ -46,7 +47,7 @@ ScopeFrame* newScopeFrame(ScopeFrame *parent)
 {
     ScopeFrame *scope = (ScopeFrame*) malloc(sizeof(ScopeFrame));
     if(scope == NULL)
-        exit(1);
+        diagnosticAbortInternal("scope allocation failed", NULL);
     initScopeFrame(scope, parent);
     return scope;
 }

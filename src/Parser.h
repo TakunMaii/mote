@@ -1,6 +1,7 @@
 #ifndef PARSER_H
 #define PARSER_H
 
+#include "Diagnostic.h"
 #include "AST.h"
 #include <stdio.h>
 #include <stdbool.h>
@@ -10,10 +11,15 @@ Token* expectToken(Token* token, TokenKind kind)
 {
     if(token->kind != kind)
     {
-        printf("Expected %s but got %s at file %s, line %d, column %d\n",
-            tokenKindToString(kind), tokenKindToString(token->kind),
-            token->filename, token->line_number, token->column_number);
-        exit(1);
+        Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                               "P1001",
+                                               tokenSourceSpan(token),
+                                               "unexpected token");
+        diagnosticSetPrimaryLabel(&diagnostic,
+                                  "expected %s, found %s",
+                                  tokenKindToDiagnosticString(kind),
+                                  tokenKindToDiagnosticString(token->kind));
+        diagnosticAbort(diagnostic);
     }
     return token;
 }
@@ -36,9 +42,10 @@ void parseQualifiedIdentifier(Token **token, char *buffer)
         Token *member_token = expectToken(*token, TK_IDENTIFIER);
         if(strlen(buffer) + 1 + strlen(member_token->identifier) >= MAX_IDENTIFIER_LENGTH)
         {
-            printf("Qualified identifier is too long at file %s, line %d, column %d\n",
-                   member_token->filename, member_token->line_number, member_token->column_number);
-            exit(1);
+            diagnosticAbortSimple("P1002",
+                                  "qualified identifier is too long",
+                                  tokenSourceSpan(member_token),
+                                  "identifier exceeds the compiler limit");
         }
         strcat(buffer, ".");
         strcat(buffer, member_token->identifier);
@@ -349,9 +356,10 @@ ASTNode* parseLiteralValue(Token **token)
         (*token) = (*token)->next;
     }
     else {
-        printf("parseLiteralValue: expected literal bool, char, integer or float here at file %s, line %d, column %d",
-               (*token)->filename, (*token)->line_number, (*token)->column_number);
-        exit(1);
+        diagnosticAbortSimple("P1003",
+                              "expected a literal expression",
+                              tokenSourceSpan(*token),
+                              "expected `true`, `false`, a character, string, integer, or float literal");
     }
 
     return node;
@@ -750,9 +758,10 @@ ASTNode* parseLValue(Token **token)
     if(node->kind == AST_EXPR_VARIABLE || node->kind == AST_EXPR_DEREF || node->kind == AST_EXPR_MEMBER || node->kind == AST_EXPR_INDEX)
         return node;
 
-    printf("parseLValue: expected assignable expression here at file %s, line %d, column %d\n",
-           node->filename, node->line_number, node->column_number);
-    exit(1);
+    diagnosticAbortSimple("P1004",
+                          "expected an assignable expression",
+                          astNodeSourceSpan(node),
+                          "only variables, dereferences, member access, and indexing can appear on the left side of `=`");
 }
 
 ASTNode* parseUnary(Token **token)
@@ -1273,9 +1282,10 @@ ASTNode* parseStatement(Token **token)
 {
     if((*token)->kind == TK_PUB)
     {
-        printf("pub is only allowed at the top level at file %s, line %d, column %d\n",
-               (*token)->filename, (*token)->line_number, (*token)->column_number);
-        exit(1);
+        diagnosticAbortSimple("P1005",
+                              "`pub` is only allowed at the top level",
+                              tokenSourceSpan(*token),
+                              "remove `pub` here or move this declaration to the top level");
     }
 
     if((*token)->kind == TK_LEFT_BRACE)
