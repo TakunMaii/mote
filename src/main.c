@@ -1,6 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <unistd.h>
+#else
+#include <unistd.h>
+#endif
 #include "Lexer.h"
 #include "Token.h"
 #include "AST.h"
@@ -13,6 +21,13 @@
 #define CLI_MAX_PACKAGES 128
 #define CLI_MAX_LINK_ARGS 256
 #define CLI_MAX_LINKER_ARGS 256
+#define CLI_PATH_BUFFER_SIZE 4096
+
+#if defined(_WIN32)
+#define MOTE_RUNTIME_RELATIVE_PATH "runtime\\mote_runtime.c"
+#else
+#define MOTE_RUNTIME_RELATIVE_PATH "runtime/mote_runtime.c"
+#endif
 
 static bool starts_with(const char *value, const char *prefix)
 {
@@ -67,6 +82,79 @@ static void build_output_path(char *buffer, size_t buffer_size, const char *inpu
         snprintf(buffer, buffer_size, "%.*s%s", (int)(last_dot - input_path), input_path, extension);
 }
 
+static bool file_exists(const char *path)
+{
+    FILE *stream = fopen(path, "rb");
+    if(stream == NULL)
+        return false;
+    fclose(stream);
+    return true;
+}
+
+static bool get_executable_path(char *buffer, size_t buffer_size, const char *argv0)
+{
+#if defined(_WIN32)
+    DWORD executable_length = GetModuleFileNameA(NULL, buffer, (DWORD) buffer_size);
+    if(executable_length == 0 || executable_length >= buffer_size)
+        return false;
+    buffer[executable_length] = '\0';
+    return true;
+#elif defined(__APPLE__)
+    uint32_t size = (uint32_t) buffer_size;
+    if(_NSGetExecutablePath(buffer, &size) == 0)
+        return true;
+#else
+    ssize_t length = readlink("/proc/self/exe", buffer, buffer_size - 1);
+    if(length >= 0 && (size_t) length < buffer_size)
+    {
+        buffer[length] = '\0';
+        return true;
+    }
+#endif
+
+    if(argv0 == NULL)
+        return false;
+
+    size_t argv0_length = strlen(argv0);
+    if(argv0_length + 1 > buffer_size)
+        return false;
+    memcpy(buffer, argv0, argv0_length + 1);
+    return true;
+}
+
+static bool trim_to_directory(char *path)
+{
+    char *last_slash = strrchr(path, '\\');
+    char *last_forward_slash = strrchr(path, '/');
+    char *separator = last_slash;
+    if(separator == NULL || (last_forward_slash != NULL && last_forward_slash > separator))
+        separator = last_forward_slash;
+    if(separator == NULL)
+        return false;
+    *separator = '\0';
+    return true;
+}
+
+static bool join_path(char *buffer, size_t buffer_size, const char *left, const char *right)
+{
+#if defined(_WIN32)
+    int written = snprintf(buffer, buffer_size, "%s\\%s", left, right);
+#else
+    int written = snprintf(buffer, buffer_size, "%s/%s", left, right);
+#endif
+    return written >= 0 && (size_t) written < buffer_size;
+}
+
+static bool resolve_runtime_source_path(char *buffer, size_t buffer_size, const char *argv0)
+{
+    char executable_path[CLI_PATH_BUFFER_SIZE] = {0};
+    if(!get_executable_path(executable_path, sizeof(executable_path), argv0))
+        return false;
+    if(!trim_to_directory(executable_path))
+        return false;
+    return join_path(buffer, buffer_size, executable_path, MOTE_RUNTIME_RELATIVE_PATH);
+}
+
 static void append_shell_escaped(char *command, size_t command_size, const char *arg)
 {
     size_t used = strlen(command);
@@ -109,19 +197,20 @@ static void append_shell_escaped(char *command, size_t command_size, const char 
     command[used] = '\0';
 }
 
-static int run_clang_link(const char *llvm_input_path, const char *exe_output_path,
+static int run_clang_link(const char *llvm_input_path, const char *runtime_source_path,
+                          const char *exe_output_path,
                           const char **driver_args, int driver_arg_count,
                           const char **linker_args, int linker_arg_count)
 {
     char command[4096];
+    strcpy(command, "clang");
+    append_shell_escaped(command, sizeof(command), llvm_input_path);
+    append_shell_escaped(command, sizeof(command), runtime_source_path);
+    append_shell_escaped(command, sizeof(command), "-o");
+    append_shell_escaped(command, sizeof(command), exe_output_path);
 #if defined(_WIN32)
-    snprintf(command, sizeof(command),
-             "clang \"%s\" \"src\\mote_runtime.c\" -o \"%s\" -Xlinker /subsystem:console",
-             llvm_input_path, exe_output_path);
-#else
-    snprintf(command, sizeof(command),
-             "clang \"%s\" \"src/mote_runtime.c\" -o \"%s\"",
-             llvm_input_path, exe_output_path);
+    append_shell_escaped(command, sizeof(command), "-Xlinker");
+    append_shell_escaped(command, sizeof(command), "/subsystem:console");
 #endif
 
     for(int i = 0; i < driver_arg_count; i++)
@@ -377,6 +466,18 @@ int main(int argn, char** argv)
 
     if(emit_exe)
     {
+        char runtime_source_path[CLI_PATH_BUFFER_SIZE] = {0};
+        if(!resolve_runtime_source_path(runtime_source_path, sizeof(runtime_source_path), argv[0]))
+        {
+            printf("Failed to resolve runtime path relative to the compiler executable\n");
+            exit(1);
+        }
+        if(!file_exists(runtime_source_path))
+        {
+            printf("Failed to locate runtime source at %s\n", runtime_source_path);
+            exit(1);
+        }
+
         if(!emit_llvm)
         {
             build_output_path(default_llvm_output_path, sizeof(default_llvm_output_path), exe_output_path, ".ll");
@@ -385,7 +486,7 @@ int main(int argn, char** argv)
             printf("WROTE LLVM IR ===============\n\n%s\n\n", llvm_output_path);
         }
 
-        int clang_exit_code = run_clang_link(llvm_output_path, exe_output_path,
+        int clang_exit_code = run_clang_link(llvm_output_path, runtime_source_path, exe_output_path,
                                              driver_args, driver_arg_count,
                                              linker_args, linker_arg_count);
         if(clang_exit_code != 0)

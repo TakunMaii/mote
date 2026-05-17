@@ -33,7 +33,8 @@ c.printf(@as(*char, "1 + 2 = %d\n"), add(1, 2));
 
 ## 仓库结构
 
-- `src/`：编译器实现与运行时
+- `src/`：编译器实现
+- `runtime/`：链接生成可执行文件时使用的运行时支持代码
 - `lib/`：内置包，目前主要是 `c` 和 `raylib`
 - `test/`：语言样例、错误样例、FFI、多文件、raylib、`notgate`
 - `docs/`：编译器用法、语法教程、运行时 ABI
@@ -50,6 +51,7 @@ gcc src\main.c -o mote.exe
 
 - `gcc` 用来构建 `mote.exe`
 - `clang` 需要在 `PATH` 中，默认生成可执行文件时会用到
+- 分发 `mote.exe` 时，需要连同 `runtime/mote_runtime.c` 一起保留相对目录结构
 
 ## 编译器用法
 

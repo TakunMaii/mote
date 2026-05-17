@@ -44,6 +44,7 @@ mote [options] <input.mote>
 - AST and MIR are only printed when `--dump-ast` or `--dump-mir` are passed explicitly.
 - When executable linking succeeds, the temporary `.ll` file is removed.
 - If `clang` link fails, the compiler keeps the intermediate `.ll` file for debugging.
+- When emitting an executable, the compiler resolves `runtime/mote_runtime.c` relative to the `mote` executable location, not the caller's current working directory.
 
 ## Entry Model
 
@@ -152,3 +153,5 @@ c.printf(@as(*char, "hello %d\n"), 42);
 ## Toolchain Requirement
 
 Executable emission currently depends on `clang` being available in `PATH`.
+
+The distributed compiler must keep `runtime/mote_runtime.c` next to `mote.exe` using that relative layout.
