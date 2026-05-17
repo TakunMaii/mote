@@ -58,11 +58,27 @@ static const char* llvmHostTargetTriple(void)
 
 static void llvmBackendError(const char *message, const char *filename, int line, int column)
 {
-    if(filename != NULL)
-        printf("LLVM backend error: %s at file %s, line %d, column %d\n", message, filename, line, column);
-    else
-        printf("LLVM backend error: %s\n", message);
-    exit(1);
+    SourceSpan span = filename != NULL
+        ? makePointSourceSpan(filename, line, column)
+        : makeSourceSpan(NULL, 0, 0, 0, 0);
+    diagnosticAbortSimple("L2001", message, span,
+                          filename != NULL ? "LLVM backend failed here" : NULL);
+}
+
+static void llvmBackendErrorFormatted(const char *code, const char *filename, int line, int column,
+                                      const char *label, const char *format, ...)
+{
+    SourceSpan span = filename != NULL
+        ? makePointSourceSpan(filename, line, column)
+        : makeSourceSpan(NULL, 0, 0, 0, 0);
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code, span, "");
+    va_list args;
+    va_start(args, format);
+    diagnosticVFormat(diagnostic.message, sizeof(diagnostic.message), format, args);
+    va_end(args);
+    if(label != NULL)
+        diagnosticSetPrimaryLabel(&diagnostic, "%s", label);
+    diagnosticAbort(diagnostic);
 }
 
 static bool llvmIsIntegerLikePrimary(ASTPrimaryDataType primary)
@@ -1733,10 +1749,10 @@ static void emitLLVMProgramToFile(MirProgram *program, const char *module_name, 
 {
     FILE *stream = fopen(output_path, "wb");
     if(stream == NULL)
-    {
-        printf("Failed to open LLVM output file %s\n", output_path);
-        exit(1);
-    }
+        llvmBackendErrorFormatted("L2002", NULL, 0, 0,
+                                  NULL,
+                                  "failed to open LLVM output file `%s`",
+                                  output_path);
 
     fprintf(stream, "; ModuleID = '%s'\n", module_name != NULL ? module_name : "mote");
     fprintf(stream, "source_filename = \"%s\"\n\n", module_name != NULL ? module_name : "mote");

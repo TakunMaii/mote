@@ -783,7 +783,10 @@ void printASTDataType(ASTDataType *data_type)
                 printf("...");
             }
             printf("], ");
-            printASTDataType(data_type->return_data_type);
+            if(data_type->return_data_type != NULL)
+                printASTDataType(data_type->return_data_type);
+            else
+                printf("<infer return>");
             printf(")");
         } break;
         case AST_DATA_TYPE_KIND_NAMED: {
@@ -934,7 +937,10 @@ void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer
                 appendStringFragment(buffer, buffer_size, "...");
             }
             appendStringFragment(buffer, buffer_size, "], ");
-            appendASTDataTypeString(data_type->return_data_type, buffer, buffer_size);
+            if(data_type->return_data_type != NULL)
+                appendASTDataTypeString(data_type->return_data_type, buffer, buffer_size);
+            else
+                appendStringFragment(buffer, buffer_size, "<infer return>");
             appendStringFragment(buffer, buffer_size, ")");
             break;
         case AST_DATA_TYPE_KIND_NAMED:
@@ -1097,7 +1103,10 @@ void printASTNode(ASTNode node)
                 printf("...");
             }
             printf(") ");
-            printASTDataType(node.return_data_type);
+            if(node.return_data_type != NULL)
+                printASTDataType(node.return_data_type);
+            else
+                printf("<infer return>");
             printf(" ");
             printASTNode(*(node.body));
         } break;

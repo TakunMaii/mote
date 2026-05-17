@@ -22,6 +22,7 @@ typedef struct TypeInfo {
 
 typedef struct FunctionContext {
     struct FunctionContext *parent;
+    bool active;
     ASTDataType *return_data_type;
     ASTDataType *self_data_type;
     bool self_available_as_type_value;
@@ -29,11 +30,14 @@ typedef struct FunctionContext {
     bool inside_defer;
 } FunctionContext;
 
+#define SCOPE_MAX_VARIABLE_INFOS 1024
+#define SCOPE_MAX_TYPE_INFOS 256
+
 typedef struct ScopeFrame {
     struct ScopeFrame *parent;
-    VariableInfo variable_infos[1024];
+    VariableInfo variable_infos[SCOPE_MAX_VARIABLE_INFOS];
     int variable_count;
-    TypeInfo type_infos[256];
+    TypeInfo type_infos[SCOPE_MAX_TYPE_INFOS];
     int type_count;
 } ScopeFrame;
 
@@ -83,6 +87,13 @@ VariableInfo* findVariableInfo(ScopeFrame *scope, const char *identifier)
 
 VariableInfo* declareVariableInfo(ScopeFrame *scope, const char *identifier)
 {
+    if(scope->variable_count >= SCOPE_MAX_VARIABLE_INFOS)
+        diagnosticAbortFormatted("S2001",
+                                 makeSourceSpan(NULL, 0, 0, 0, 0),
+                                 NULL,
+                                 "scope variable capacity exceeded while declaring `%s`",
+                                 identifier);
+
     VariableInfo *variable_info = &(scope->variable_infos[scope->variable_count++]);
     memset(variable_info, 0, sizeof(VariableInfo));
     strcpy(variable_info->identifier, identifier);
@@ -114,6 +125,13 @@ TypeInfo* findTypeInfo(ScopeFrame *scope, const char *identifier)
 
 TypeInfo* declareTypeInfo(ScopeFrame *scope, const char *identifier)
 {
+    if(scope->type_count >= SCOPE_MAX_TYPE_INFOS)
+        diagnosticAbortFormatted("S2002",
+                                 makeSourceSpan(NULL, 0, 0, 0, 0),
+                                 NULL,
+                                 "scope type capacity exceeded while declaring `%s`",
+                                 identifier);
+
     TypeInfo *type_info = &(scope->type_infos[scope->type_count++]);
     memset(type_info, 0, sizeof(TypeInfo));
     strcpy(type_info->identifier, identifier);

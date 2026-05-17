@@ -138,7 +138,7 @@ Mote 当前已经稳定可用的一批语法包括：
 
 - 基础类型：`i8/i16/i32/i64`、`u8/u16/u32/u64`、`f8/f16/f32/f64`、`char`、`bool`
 - 顶层绑定与局部变量：`x = 1;`、`mut y: i32 = 2;`
-- 函数字面量：`fn(a: i32) i32 { ... }`
+- 函数字面量：`fn(a: i32) i32 { ... }`，返回类型也可以省略为 `fn(a: i32) { ... }`
 - 控制流：`if`、`while`、`do while`、`for`、`break`、`continue`、`defer`
 - 指针 / 引用：`*T`、`*mut T`、`&T`、`&mut T`
 - 定长数组：`Array(T, N)`
@@ -187,3 +187,24 @@ a.add(b);
 - `src/` 中的实际实现
 
 三者交叉确认。
+
+## 最小测试 Harness
+
+仓库现在提供一个最小回归入口，用来验证基础成功样例和关键失败诊断：
+
+```powershell
+pwsh -File scripts/test.ps1 -Build
+```
+
+或者：
+
+```powershell
+make test
+```
+
+当前 manifest 位于 `test/harness/manifest.json`，第一版只覆盖：
+
+- 基础 LLVM 生成
+- 多文件模块 LLVM 生成
+- 类型错误诊断
+- `break` 越界语义诊断

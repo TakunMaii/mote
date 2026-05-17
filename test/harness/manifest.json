@@ -1,0 +1,94 @@
+{
+  "tests": [
+    {
+      "name": "basic-simple-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\simple.mote"
+    },
+    {
+      "name": "multi-module-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\multi\\main.mote"
+    },
+    {
+      "name": "function-return-infer-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\function_return_infer.mote"
+    },
+    {
+      "name": "diagnostic-type-error",
+      "expect": "failure",
+      "input": "test\\diagnostic\\bad_type.mote",
+      "contains": [
+        "error[T1003]",
+        "cannot implicitly convert assigned value",
+        "cannot implicitly convert bool to i32"
+      ]
+    },
+    {
+      "name": "diagnostic-break-outside-loop",
+      "expect": "failure",
+      "input": "test\\error\\break_outside_loop_error.mote",
+      "contains": [
+        "error[S1017]",
+        "break statement is only allowed inside a loop",
+        "loop control used outside loop"
+      ]
+    },
+    {
+      "name": "diagnostic-return-infer-conflict",
+      "expect": "failure",
+      "input": "test\\diagnostic\\bad_return_infer_conflict.mote",
+      "contains": [
+        "error[T1130]",
+        "conflicting inferred return types"
+      ]
+    },
+    {
+      "name": "diagnostic-scope-variable-overflow",
+      "expect": "failure",
+      "generated": {
+        "kind": "scope_variable_overflow",
+        "count": 1023
+      },
+      "contains": [
+        "error[S2001]",
+        "scope variable capacity exceeded while declaring `Self`"
+      ]
+    },
+    {
+      "name": "diagnostic-scope-type-overflow",
+      "expect": "failure",
+      "generated": {
+        "kind": "scope_type_overflow",
+        "count": 257
+      },
+      "contains": [
+        "error[S2002]",
+        "scope type capacity exceeded while declaring `m0__T256`"
+      ]
+    },
+    {
+      "name": "diagnostic-mir-variadic-extern-value",
+      "expect": "failure",
+      "input": "test\\diagnostic\\mir_variadic_extern_value.mote",
+      "contains": [
+        "error[M2007]",
+        "variadic extern values cannot be materialized as first-class closures"
+      ]
+    },
+    {
+      "name": "diagnostic-llvm-f8-backend",
+      "expect": "failure",
+      "mode": "llvm",
+      "input": "test\\diagnostic\\backend_f8_llvm.mote",
+      "contains": [
+        "error[L2001]",
+        "f8 is not supported by the textual LLVM backend yet"
+      ]
+    }
+  ]
+}

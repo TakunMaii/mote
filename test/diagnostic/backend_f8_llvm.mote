@@ -1,0 +1,3 @@
+main = fn() void {
+    value: f8 = 1.0;
+};

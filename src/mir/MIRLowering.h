@@ -4,12 +4,56 @@
 #include "../AST.h"
 #include "../Semantic.h"
 #include "../TypeSystem.h"
+#include <stdarg.h>
 #include <stdlib.h>
 
 #define MIR_MAX_NAME_LENGTH 128
 
 typedef int MirValueId;
 typedef int MirBlockId;
+
+static void mirLoweringAbortNode(const char *code, ASTNode *node, const char *message, const char *label)
+{
+    diagnosticAbortSimple(code, message, astNodeSourceSpan(node), label);
+}
+
+static void mirLoweringAbortNodeFormatted(const char *code, ASTNode *node, const char *label, const char *format, ...)
+{
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code, astNodeSourceSpan(node), "");
+    va_list args;
+    va_start(args, format);
+    diagnosticVFormat(diagnostic.message, sizeof(diagnostic.message), format, args);
+    va_end(args);
+    if(label != NULL)
+        diagnosticSetPrimaryLabel(&diagnostic, "%s", label);
+    diagnosticAbort(diagnostic);
+}
+
+static void mirLoweringAbortPointFormatted(const char *code, const char *filename, int line, int column,
+                                           const char *label, const char *format, ...)
+{
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code,
+                                           makePointSourceSpan(filename, line, column), "");
+    va_list args;
+    va_start(args, format);
+    diagnosticVFormat(diagnostic.message, sizeof(diagnostic.message), format, args);
+    va_end(args);
+    if(label != NULL)
+        diagnosticSetPrimaryLabel(&diagnostic, "%s", label);
+    diagnosticAbort(diagnostic);
+}
+
+static void mirLoweringAbortInternal(const char *code, const char *context, const char *detail)
+{
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code,
+                                           makeSourceSpan(NULL, 0, 0, 0, 0),
+                                           "compiler internal error");
+    if(context != NULL && context[0] != '\0')
+        diagnosticAddNote(&diagnostic, "%s", context);
+    if(detail != NULL && detail[0] != '\0')
+        diagnosticAddNote(&diagnostic, "%s", detail);
+    diagnosticAbort(diagnostic);
+}
 
 typedef enum MirInstKind {
     MIR_INST_ZERO,
@@ -438,11 +482,10 @@ static const char* mirEnsureExternFunction(MirLowering *lowering, const char *sy
         if(strcmp(extern_function->symbol_name, symbol_name) == 0)
         {
             if(!isSameDataType(extern_function->function_type, function_type))
-            {
-                printf("MIR lowering error: extern symbol %s is declared with conflicting function types at file %s, line %d, column %d\n",
-                       symbol_name, filename, line, column);
-                exit(1);
-            }
+                mirLoweringAbortPointFormatted("M2001", filename, line, column,
+                                               "conflicting extern symbol declaration",
+                                               "extern symbol `%s` is declared with conflicting function types",
+                                               symbol_name);
             return extern_function->is_direct ? extern_function->symbol_name : extern_function->wrapper_name;
         }
     }
@@ -461,10 +504,10 @@ static ASTDataType* mirGetValueType(MirFunctionState *state, MirValueId value)
 {
     MirFunction *function = mirCurrentFunction(state);
     if(value < 0 || value >= function->value_count)
-    {
-        printf("MIR internal error: invalid value id %d\n", value);
-        exit(1);
-    }
+        mirLoweringAbortInternal("ICE0301", "invalid MIR value id",
+                                 value < 0
+                                     ? "negative MIR value ids are invalid"
+                                     : "value id is outside the current function value table");
     return function->values[value].data_type;
 }
 
@@ -483,11 +526,9 @@ static ASTDataType* mirResolvedExprValueType(ASTNode *node, ScopeFrame *scope)
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
         return defaultFloatDataType();
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
-    {
-        printf("MIR lowering error: type-valued expression cannot be lowered directly at file %s, line %d, column %d\n",
-               node->filename, node->line_number, node->column_number);
-        exit(1);
-    }
+        mirLoweringAbortNode("M2002", node,
+                             "type-valued expression cannot be lowered directly",
+                             "this expression is compile-time only and has no runtime representation");
     return cloneDataType(expr_type.data_type);
 }
 
@@ -986,20 +1027,20 @@ static MirValueId mirBindingAddress(MirFunctionState *state, MirRuntimeBinding *
         return mirEmitGlobalAddr(state, binding->global_name, binding->declared_data_type,
                                  use_node->filename, use_node->line_number, use_node->column_number);
 
-    printf("MIR lowering error: identifier %s has no runtime address at file %s, line %d, column %d\n",
-           binding->identifier, use_node->filename, use_node->line_number, use_node->column_number);
-    exit(1);
+    mirLoweringAbortNodeFormatted("M2003", use_node,
+                                  "runtime address is unavailable here",
+                                  "identifier `%s` has no runtime address",
+                                  binding->identifier);
 }
 
 static MirValueId lowerVariableValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *node, ASTDataType *expected_type)
 {
     MirRuntimeBinding *binding = findMirRuntimeBinding(scope, node->identifier);
     if(binding == NULL || binding->kind == MIR_RUNTIME_BINDING_COMPTIME_ONLY)
-    {
-        printf("MIR lowering error: variable %s is compile-time only or unavailable at file %s, line %d, column %d\n",
-               node->identifier, node->filename, node->line_number, node->column_number);
-        exit(1);
-    }
+        mirLoweringAbortNodeFormatted("M2004", node,
+                                      "this name does not exist as a runtime value",
+                                      "variable `%s` is compile-time only or unavailable",
+                                      node->identifier);
 
     ASTDataType *expr_type = mirResolvedExprValueType(node, &(scope->type_scope));
     MirValueId address = mirBindingAddress(state, binding, node);
@@ -1186,10 +1227,9 @@ static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirL
     }
 
     if(parameter != NULL || argument != NULL)
-    {
-        printf("MIR lowering error: function call argument count mismatch during instantiation\n");
-        exit(1);
-    }
+        mirLoweringAbortInternal("ICE0302",
+                                 "function call argument count mismatch during MIR instantiation",
+                                 "type checking should reject mismatched call arity before MIR lowering");
 
     return inst_scope;
 }
@@ -1308,11 +1348,9 @@ static MirValueId lowerFunctionExprAsValue(MirFunctionState *state, MirLowerScop
                                            const char *name_hint, ASTDataType *self_data_type)
 {
     if(functionHasTypeParameters(function_expr->parameters))
-    {
-        printf("MIR lowering error: generic function value requires compile-time specialization before runtime lowering at file %s, line %d, column %d\n",
-               function_expr->filename, function_expr->line_number, function_expr->column_number);
-        exit(1);
-    }
+        mirLoweringAbortNode("M2005", function_expr,
+                             "generic function value requires compile-time specialization before runtime lowering",
+                             "specialize this generic function before using it as a runtime value");
 
     int function_index = lowerFunctionExprDefinition(state->lowering, scope, function_expr, name_hint, self_data_type);
     MirFunction *mir_function = &(state->lowering->program->functions[function_index]);
@@ -1533,10 +1571,9 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
         if(mirIsValueTypeVoid(lowered_function->return_data_type))
             mirEmitRetVoid(&state);
         else
-        {
-            printf("MIR lowering error: function %s may fall through without return\n", lowered_function->name);
-            exit(1);
-        }
+            mirLoweringAbortInternal("ICE0303",
+                                     "lowered function may fall through without return",
+                                     lowered_function->name);
     }
 
     return function_index;
@@ -1547,11 +1584,10 @@ static MirValueId lowerMethodFunctionValue(MirFunctionState *state, MirLowerScop
 {
     ASTStructMember *member = findStructMember(struct_type, member_node->identifier);
     if(member == NULL || member->value == NULL)
-    {
-        printf("MIR lowering error: unknown method %s at file %s, line %d, column %d\n",
-               member_node->identifier, member_node->filename, member_node->line_number, member_node->column_number);
-        exit(1);
-    }
+        mirLoweringAbortNodeFormatted("M2006", member_node,
+                                      "this member does not resolve to a method",
+                                      "unknown method `%s`",
+                                      member_node->identifier);
 
     char hint[MIR_MAX_NAME_LENGTH] = {0};
     if(struct_type->identifier[0] != '\0')
@@ -1621,11 +1657,9 @@ static MirValueId lowerExternBuiltinExpr(MirFunctionState *state, MirLowerScope 
 {
     ASTDataType *function_type = mirResolvedExprValueType(node, &(scope->type_scope));
     if(function_type->is_variadic)
-    {
-        printf("MIR lowering error: variadic extern values cannot be materialized as first-class closures at file %s, line %d, column %d\n",
-               node->filename, node->line_number, node->column_number);
-        exit(1);
-    }
+        mirLoweringAbortNode("M2007", node,
+                             "variadic extern values cannot be materialized as first-class closures",
+                             "call the extern function directly instead of storing it as a runtime closure");
 
     const char *wrapper_name = mirEnsureExternFunction(
         state->lowering,
@@ -1688,11 +1722,9 @@ static ASTDataType* mirInferVariadicArgumentType(ASTNode *argument_node, MirLowe
     TypeSystemExprType argument_type = inferExprType(argument_node, &(scope->type_scope));
     ASTDataType *promoted_type = variadicPromotedExprType(argument_type);
     if(promoted_type == NULL)
-    {
-        printf("MIR lowering error: variadic argument must be a runtime value at file %s, line %d, column %d\n",
-               argument_node->filename, argument_node->line_number, argument_node->column_number);
-        exit(1);
-    }
+        mirLoweringAbortNode("M2008", argument_node,
+                             "variadic argument must be a runtime value",
+                             "compile-time-only expressions cannot be passed through variadic ABI lowering");
     return promoted_type;
 }
 
@@ -1866,13 +1898,6 @@ static MirValueId lowerCallExpr(MirFunctionState *state, MirLowerScope *scope, A
     TypeSystemExprType callee_type = inferExprType(callee_expr, &(scope->type_scope));
     ASTFunctionParameter *parameter = callee_type.data_type == NULL ? NULL : callee_type.data_type->parameters;
 
-    if(callee_expr->kind == AST_EXPR_VARIABLE &&
-       strcmp(callee_expr->identifier, "draw_game") == 0)
-    {
-        printf("DBG lowerCallExpr draw_game param0 kind=%d\n",
-               parameter != NULL && parameter->data_type != NULL ? parameter->data_type->kind : -1);
-    }
-
     arguments = newMirOperandList(countASTNodes(node->rhs));
     ASTNode *argument_node = node->rhs;
     int index = 0;
@@ -1971,9 +1996,10 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                 return lowerZeroBuiltinExpr(state, scope, node, expected_type);
             if(strcmp(node->identifier, "as") == 0)
                 return lowerAsBuiltinExpr(state, scope, node, expected_type);
-            printf("MIR lowering error: unsupported builtin @%s at file %s, line %d, column %d\n",
-                   node->identifier, node->filename, node->line_number, node->column_number);
-            exit(1);
+            mirLoweringAbortNodeFormatted("M2009", node,
+                                          "builtin lowering is missing",
+                                          "unsupported builtin `@%s`",
+                                          node->identifier);
         case AST_EXPR_VARIABLE:
             return lowerVariableValue(state, scope, node, expected_type);
         case AST_EXPR_PARENTHESIS:
@@ -2132,8 +2158,10 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
             return mirMaybeConvertValue(state, scope, node, value, expected_type);
         }
         default:
-            printf("MIR lowering error: unsupported expression kind %s\n", astNodeKindToString(node->kind));
-            exit(1);
+            mirLoweringAbortNodeFormatted("ICE0304", node,
+                                          NULL,
+                                          "MIR lowering hit unsupported expression kind %s",
+                                          astNodeKindToString(node->kind));
     }
 }
 
@@ -2144,11 +2172,10 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
         case AST_EXPR_VARIABLE: {
             MirRuntimeBinding *binding = findMirRuntimeBinding(scope, node->identifier);
             if(binding == NULL || binding->kind == MIR_RUNTIME_BINDING_COMPTIME_ONLY)
-            {
-                printf("MIR lowering error: variable %s is not addressable at file %s, line %d, column %d\n",
-                       node->identifier, node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                mirLoweringAbortNodeFormatted("M2010", node,
+                                              "this variable does not have addressable runtime storage",
+                                              "variable `%s` is not addressable",
+                                              node->identifier);
             return mirBindingAddress(state, binding, node);
         }
         case AST_EXPR_DEREF:
@@ -2159,11 +2186,9 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
             MirValueId base_address = -1;
 
             if(owner_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
-            {
-                printf("MIR lowering error: member base is not a runtime value at file %s, line %d, column %d\n",
-                       node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                mirLoweringAbortNode("M2011", node,
+                                     "member base is not a runtime value",
+                                     "only runtime values can be lowered to field addresses");
 
             if(struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
             {
@@ -2177,11 +2202,10 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
 
             ASTStructMember *member = findStructMember(struct_type, node->identifier);
             if(member == NULL || member->value != NULL)
-            {
-                printf("MIR lowering error: member %s is not an addressable field at file %s, line %d, column %d\n",
-                       node->identifier, node->filename, node->line_number, node->column_number);
-                exit(1);
-            }
+                mirLoweringAbortNodeFormatted("M2012", node,
+                                              "this member is not a stored field",
+                                              "member `%s` is not an addressable field",
+                                              node->identifier);
             return mirEmitFieldPtr(state, base_address, member->data_type, member->identifier,
                                    findStructDataFieldIndex(struct_type, member->identifier),
                                    node->filename, node->line_number, node->column_number);
@@ -2524,19 +2548,17 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
         }
         case AST_STATEMENT_BREAK:
             if(state->loop_top == NULL)
-            {
-                printf("MIR lowering error: break used outside loop\n");
-                exit(1);
-            }
+                mirLoweringAbortNode("M2013", node,
+                                     "break used outside loop",
+                                     "this `break` has no enclosing loop to exit");
             emitCleanupRange(state, scope, state->cleanup_top, state->loop_top->cleanup_stop);
             mirEmitBr(state, state->loop_top->break_block);
             return;
         case AST_STATEMENT_CONTINUE:
             if(state->loop_top == NULL)
-            {
-                printf("MIR lowering error: continue used outside loop\n");
-                exit(1);
-            }
+                mirLoweringAbortNode("M2014", node,
+                                     "continue used outside loop",
+                                     "this `continue` has no enclosing loop to target");
             emitCleanupRange(state, scope, state->cleanup_top, state->loop_top->cleanup_stop);
             mirEmitBr(state, state->loop_top->continue_block);
             return;
@@ -2544,18 +2566,19 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
             appendDeferredStatement(state->cleanup_top, node->lhs);
             return;
         default:
-            printf("MIR lowering error: unsupported statement kind %s\n", astNodeKindToString(node->kind));
-            exit(1);
+            mirLoweringAbortNodeFormatted("ICE0305", node,
+                                          NULL,
+                                          "MIR lowering hit unsupported statement kind %s",
+                                          astNodeKindToString(node->kind));
     }
 }
 
 MirProgram* lowerASTToMIR(ASTNode *root)
 {
     if(root == NULL || root->lhs == NULL || root->lhs->kind != AST_BLOCK)
-    {
-        printf("MIR lowering error: root should contain a top-level block\n");
-        exit(1);
-    }
+        mirLoweringAbortInternal("ICE0306",
+                                 "AST root should contain a top-level block before MIR lowering",
+                                 NULL);
 
     MirProgram *program = newMirProgram();
     MirLowering lowering = {0};

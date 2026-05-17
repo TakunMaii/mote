@@ -92,10 +92,11 @@ void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, Funct
 void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context);
 void checkStatementSemantics(ASTNode *node, ScopeFrame *scope, FunctionContext *function_context);
 void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *function_context);
+void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scope, ASTDataType *self_data_type);
 
 bool isInsideFunction(FunctionContext *function_context)
 {
-    return function_context != NULL && function_context->return_data_type != NULL;
+    return function_context != NULL && function_context->active;
 }
 
 FunctionContext* deriveLoopContext(FunctionContext *parent_context, FunctionContext *loop_context)
@@ -197,6 +198,7 @@ void checkFunctionExprSemantics(ASTNode *node, ScopeFrame *scope)
     declareFunctionCaptures(node->captures, function_scope, scope);
 
     FunctionContext function_context = {0};
+    function_context.active = true;
     function_context.return_data_type = node->return_data_type;
     function_context.self_available_as_type_value = false;
     function_context.loop_depth = 0;
@@ -752,6 +754,107 @@ ASTFunctionParameter* resolveFunctionTypeParameters(ASTFunctionParameter *parame
     return head;
 }
 
+void inferFunctionReturnTypesInStatement(ASTNode *node, ScopeFrame *scope,
+                                         ASTDataType **inferred_type,
+                                         bool *saw_value_return,
+                                         bool *saw_void_return)
+{
+    if(node == NULL)
+        return;
+
+    switch(node->kind)
+    {
+        case AST_BLOCK: {
+            ASTNode *statement = node->lhs;
+            while(statement)
+            {
+                inferFunctionReturnTypesInStatement(statement, scope, inferred_type, saw_value_return, saw_void_return);
+                statement = statement->next;
+            }
+            return;
+        }
+        case AST_STATEMENT_RETURN:
+            if(node->lhs == NULL)
+            {
+                if(*saw_value_return)
+                    semanticAbortTypeNode("T1131", node,
+                                          "conflicting inferred return types",
+                                          "this `return;` conflicts with earlier non-void returns");
+                *saw_void_return = true;
+                return;
+            }
+
+            if(*saw_void_return)
+                semanticAbortTypeNode("T1131", node->lhs,
+                                      "conflicting inferred return types",
+                                      "this return expression conflicts with earlier `return;`");
+
+            ASTDataType *current_type = inferDeclaredTypeFromExpr(node->lhs, scope);
+            if(*inferred_type == NULL)
+            {
+                *inferred_type = cloneDataType(current_type);
+            }
+            else if(!isSameDataType(*inferred_type, current_type))
+            {
+                char expected_buffer[256] = {0};
+                char actual_buffer[256] = {0};
+                appendASTDataTypeString(*inferred_type, expected_buffer, sizeof(expected_buffer));
+                appendASTDataTypeString(current_type, actual_buffer, sizeof(actual_buffer));
+                semanticAbortTypeFormatted("T1130", node->lhs,
+                                           "conflicting inferred return types",
+                                           "this return has type %s, but earlier returns imply %s",
+                                           actual_buffer, expected_buffer);
+            }
+
+            *saw_value_return = true;
+            return;
+        case AST_STATEMENT_IF:
+            inferFunctionReturnTypesInStatement(node->rhs, scope, inferred_type, saw_value_return, saw_void_return);
+            inferFunctionReturnTypesInStatement(node->body, scope, inferred_type, saw_value_return, saw_void_return);
+            return;
+        case AST_STATEMENT_WHILE:
+        case AST_STATEMENT_DO_WHILE:
+            inferFunctionReturnTypesInStatement(node->body, scope, inferred_type, saw_value_return, saw_void_return);
+            return;
+        case AST_STATEMENT_FOR:
+            inferFunctionReturnTypesInStatement(node->lhs, scope, inferred_type, saw_value_return, saw_void_return);
+            inferFunctionReturnTypesInStatement(node->extra, scope, inferred_type, saw_value_return, saw_void_return);
+            inferFunctionReturnTypesInStatement(node->body, scope, inferred_type, saw_value_return, saw_void_return);
+            return;
+        case AST_STATEMENT_DEFER:
+            inferFunctionReturnTypesInStatement(node->lhs, scope, inferred_type, saw_value_return, saw_void_return);
+            return;
+        default:
+            return;
+    }
+}
+
+ASTDataType* inferFunctionExprReturnType(ASTNode *node, ScopeFrame *outer_scope,
+                                         ASTDataType *self_data_type,
+                                         ASTFunctionParameter *resolved_parameters)
+{
+    ScopeFrame *function_scope = newScopeFrame(outer_scope);
+    declareResolvedFunctionParameters(resolved_parameters, function_scope, self_data_type);
+    declareFunctionCaptures(node->captures, function_scope, outer_scope);
+    if(self_data_type != NULL)
+    {
+        VariableInfo *self_variable = declareVariableInfo(function_scope, "Self");
+        self_variable->mutable = false;
+        self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
+        self_variable->type_value = cloneDataType(self_data_type);
+    }
+
+    ASTDataType *inferred_type = NULL;
+    bool saw_value_return = false;
+    bool saw_void_return = false;
+    inferFunctionReturnTypesInStatement(node->body, function_scope, &inferred_type, &saw_value_return, &saw_void_return);
+    deleteScopeFrame(function_scope);
+
+    if(inferred_type == NULL)
+        return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
+    return inferred_type;
+}
+
 ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope, ASTDataType *self_data_type)
 {
     ASTFunctionParameter *resolved_parameters = resolveFunctionTypeParameters(node->parameters, outer_scope, self_data_type);
@@ -772,7 +875,11 @@ ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope,
         parameter = parameter->next;
     }
 
-    ASTDataType *resolved_return_type = resolveNamedDataType(node->return_data_type, signature_scope, self_data_type);
+    ASTDataType *resolved_return_type = NULL;
+    if(node->return_data_type != NULL)
+        resolved_return_type = resolveNamedDataType(node->return_data_type, signature_scope, self_data_type);
+    else
+        resolved_return_type = inferFunctionExprReturnType(node, outer_scope, self_data_type, resolved_parameters);
     deleteScopeFrame(signature_scope);
     return newFunctionDataType(resolved_parameters, node->is_variadic, resolved_return_type);
 }
@@ -823,6 +930,7 @@ void checkFunctionExprTypes(ASTNode *node, ScopeFrame *scope, ASTDataType *self_
     }
 
     FunctionContext function_context = {0};
+    function_context.active = true;
     function_context.return_data_type = node->data_type->return_data_type;
     function_context.self_data_type = self_data_type;
     function_context.self_available_as_type_value = self_data_type != NULL;

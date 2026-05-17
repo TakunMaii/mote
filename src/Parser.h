@@ -481,7 +481,8 @@ ASTNode* parseFunctionExpr(Token **token)
         node->captures = parseFunctionCaptures(token);
 
     node->parameters = parseFunctionParameters(token, &(node->is_variadic));
-    node->return_data_type = parseDataType(token);
+    if((*token)->kind != TK_LEFT_BRACE)
+        node->return_data_type = parseDataType(token);
     node->data_type = newFunctionDataType(cloneFunctionParameters(node->parameters), node->is_variadic, cloneDataType(node->return_data_type));
     node->body = parseBlock(token);
     return node;
