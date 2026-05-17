@@ -257,7 +257,98 @@ c = @import("c");
 c.printf(@as(*char, "value=%d\n"), 42);
 ```
 
+### 8.2 `null`
+
+Mote 现在支持 `null` 字面量，但它不是“任意类型的零值”。
+
+- `null` 只能用于可选类型 `?T`
+- 单独写 `x = null;` 不能做类型推断
+- 需要显式上下文，例如 `x: ?i32 = null;`
+
+例如：
+
+```mote
+maybe_num: ?i32 = null;
+maybe_ptr: ?*char = null;
+```
+
+下面这种写法当前会报错：
+
+```mote
+x = null;
+```
+
 ## 9. 表达式与运算
+
+## 10. 可选类型
+
+当前实现的是一个最小可用版本的可选类型。
+
+### 10.1 类型语法
+
+可选类型写作 `?T`，表示“要么是一个 `T`，要么是 `null`”。
+
+```mote
+maybe_num: ?i32 = null;
+other_num: ?i32 = 42;
+maybe_ptr: ?*char = null;
+```
+
+当前支持把 `T` 隐式装箱成 `?T`，也支持把 `null` 赋给 `?T`。
+
+### 10.2 当前支持的判空方式
+
+当前不提供 `@has`，也不会自动做流敏感缩窄。判空方式就是直接和 `null` 比较：
+
+```mote
+maybe_num: ?i32 = null;
+other_num: ?i32 = 42;
+
+is_null: bool = maybe_num == null;
+is_not_null: bool = other_num != null;
+```
+
+当前只支持：
+
+- `optional_value == null`
+- `optional_value != null`
+
+当前还不支持直接比较两个可选值：
+
+```mote
+a: ?i32 = 1;
+b: ?i32 = 2;
+// 当前会报错
+same: bool = a == b;
+```
+
+### 10.3 取出值：`@unwrap`
+
+当前通过 `@unwrap(optional_value)` 取出内部值：
+
+```mote
+other_num: ?i32 = 42;
+value: i32 = @unwrap(other_num);
+```
+
+它要求参数必须是 `?T`，返回值类型是内部的 `T`。
+
+如果传入的值实际上是 `null`，程序会在运行时直接失败：
+
+- 会向标准错误输出 `runtime panic: @unwrap(null)`
+- 然后调用 `abort()`
+
+也就是说，`@unwrap` 当前是“带运行时检查的强制取值”，不是安全解包。
+
+### 10.4 当前还不支持的能力
+
+为了避免你按别的语言经验误用，这里明确一下当前没有实现的内容：
+
+- 没有 `if x` 这种可选值真值判断
+- 没有基于 `x != null` 的自动类型缩窄
+- 没有 `?.`
+- 没有 `??`
+- 没有 `if let`
 
 当前已实现的常见运算包括：
 

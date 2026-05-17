@@ -518,9 +518,18 @@ static bool mirIsValueTypeVoid(ASTDataType *data_type)
            data_type->primary == AST_PRIMARY_DATA_TYPE_VOID;
 }
 
+static ASTDataType* mirOptionalBoolType(void)
+{
+    return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL);
+}
+
 static ASTDataType* mirResolvedExprValueType(ASTNode *node, ScopeFrame *scope)
 {
     TypeSystemExprType expr_type = inferExprType(node, scope);
+    if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL)
+        mirLoweringAbortNode("M2003", node,
+                             "`null` requires an expected optional type at lowering time",
+                             "add an explicit target type like `?T`");
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
         return defaultIntegerDataType();
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
@@ -910,6 +919,23 @@ static MirValueId mirEmitStructLiteral(MirFunctionState *state, MirFieldValueLis
     return result;
 }
 
+static MirValueId mirEmitOptionalSome(MirFunctionState *state, MirValueId value, ASTDataType *optional_type,
+                                      const char *filename, int line, int column)
+{
+    MirFieldValueList fields = newMirFieldValueList(2);
+    strcpy(fields.items[0].identifier, "has_value");
+    fields.items[0].value = mirEmitConstBool(state, true, filename, line, column);
+    strcpy(fields.items[1].identifier, "value");
+    fields.items[1].value = value;
+    return mirEmitStructLiteral(state, fields, optional_type, filename, line, column);
+}
+
+static MirValueId mirLowerOptionalNull(MirFunctionState *state, ASTDataType *optional_type,
+                                       const char *filename, int line, int column)
+{
+    return mirEmitZero(state, optional_type, filename, line, column);
+}
+
 static MirValueId mirEmitEnumLiteral(MirFunctionState *state, ASTDataType *enum_type, const char *enum_name,
                                      const char *variant_name, int ordinal,
                                      const char *filename, int line, int column)
@@ -1010,9 +1036,13 @@ static MirValueId mirMaybeConvertValue(MirFunctionState *state, MirLowerScope *s
 {
     if(target_type == NULL)
         return value;
+    if(node != NULL && node->kind == AST_EXPR_LITERAL_NULL && target_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
+        return mirLowerOptionalNull(state, target_type, node->filename, node->line_number, node->column_number);
     ASTDataType *value_type = mirGetValueType(state, value);
     if(isSameDataType(value_type, target_type))
         return value;
+    if(target_type->kind == AST_DATA_TYPE_KIND_OPTIONAL && isSameDataType(value_type, target_type->child))
+        return mirEmitOptionalSome(state, value, target_type, node->filename, node->line_number, node->column_number);
     TypeSystemExprType source_type = newValueExprType(value_type);
     if(canImplicitConvertDataType(source_type, node, target_type))
         return mirEmitConvert(state, value, target_type, node->filename, node->line_number, node->column_number);
@@ -1717,6 +1747,65 @@ static MirValueId lowerAsBuiltinExpr(MirFunctionState *state, MirLowerScope *sco
     return mirMaybeConvertValue(state, scope, node, value, expected_type);
 }
 
+static MirValueId lowerUnwrapBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
+                                         ASTDataType *expected_type)
+{
+    ASTNode *operand_expr = node->lhs;
+    ASTDataType *optional_type = mirResolvedExprValueType(operand_expr, &(scope->type_scope));
+    if(optional_type == NULL || optional_type->kind != AST_DATA_TYPE_KIND_OPTIONAL)
+        mirLoweringAbortNode("M2004", node,
+                             "@unwrap lowering expected an optional operand",
+                             "type checking should reject non-optional unwrap operands");
+
+    MirValueId optional_value = lowerExprAsValue(state, scope, operand_expr, optional_type);
+    MirValueId optional_slot = mirEmitAlloca(state, optional_type,
+                                             node->filename, node->line_number, node->column_number);
+    mirEmitStore(state, optional_slot, optional_value,
+                 node->filename, node->line_number, node->column_number);
+
+    MirValueId has_value_ptr = mirEmitFieldPtr(state, optional_slot, mirOptionalBoolType(),
+                                               "has_value", 0,
+                                               node->filename, node->line_number, node->column_number);
+    MirValueId has_value = mirEmitLoad(state, has_value_ptr, mirOptionalBoolType(),
+                                       node->filename, node->line_number, node->column_number);
+
+    MirFunction *function = mirCurrentFunction(state);
+    MirBlockId ok_block = mirCreateBlock(state->lowering, function, "unwrap_ok");
+    MirBlockId panic_block = mirCreateBlock(state->lowering, function, "unwrap_panic");
+    MirBlockId end_block = mirCreateBlock(state->lowering, function, "unwrap_end");
+    MirValueId result_slot = mirEmitAlloca(state, optional_type->child,
+                                           node->filename, node->line_number, node->column_number);
+
+    mirEmitCondBr(state, has_value, ok_block, panic_block);
+
+    mirSwitchToBlock(state, panic_block);
+    ASTFunctionParameter *panic_param = NULL;
+    ASTDataType *panic_type = newFunctionDataType(panic_param, false, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID));
+    const char *panic_name = mirEnsureExternFunction(state->lowering, "mote_unwrap_null_panic", panic_type,
+                                                     node->filename, node->line_number, node->column_number);
+    MirOperandList panic_args = newMirOperandList(0);
+    MirValueId panic_call = mirEmitExternCall(state, panic_name, panic_type, panic_args,
+                                              newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID),
+                                              node->filename, node->line_number, node->column_number);
+    (void)panic_call;
+    mirEmitBr(state, end_block);
+
+    mirSwitchToBlock(state, ok_block);
+    MirValueId inner_ptr = mirEmitFieldPtr(state, optional_slot, optional_type->child,
+                                           "value", 1,
+                                           node->filename, node->line_number, node->column_number);
+    MirValueId inner_value = mirEmitLoad(state, inner_ptr, optional_type->child,
+                                         node->filename, node->line_number, node->column_number);
+    mirEmitStore(state, result_slot, inner_value,
+                 node->filename, node->line_number, node->column_number);
+    mirEmitBr(state, end_block);
+
+    mirSwitchToBlock(state, end_block);
+    MirValueId result = mirEmitLoad(state, result_slot, optional_type->child,
+                                    node->filename, node->line_number, node->column_number);
+    return mirMaybeConvertValue(state, scope, node, result, expected_type);
+}
+
 static ASTDataType* mirInferVariadicArgumentType(ASTNode *argument_node, MirLowerScope *scope)
 {
     TypeSystemExprType argument_type = inferExprType(argument_node, &(scope->type_scope));
@@ -1779,6 +1868,18 @@ static ASTDataType* inferComparisonOperandType(ASTNode *lhs, ASTNode *rhs, Scope
 
     if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
        isSameDataType(lhs_type.data_type, rhs_type.data_type))
+        return cloneDataType(lhs_type.data_type);
+
+    if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL &&
+       rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+       rhs_type.data_type != NULL &&
+       rhs_type.data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
+        return cloneDataType(rhs_type.data_type);
+
+    if(rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL &&
+       lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+       lhs_type.data_type != NULL &&
+       lhs_type.data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
         return cloneDataType(lhs_type.data_type);
 
     if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER || lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
@@ -1964,23 +2065,38 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
             return mirMaybeConvertValue(state, scope, node,
                                         mirEmitConstBool(state, node->literal_bool, node->filename, node->line_number, node->column_number),
                                         expected_type);
+        case AST_EXPR_LITERAL_NULL:
+            if(expected_type == NULL || expected_type->kind != AST_DATA_TYPE_KIND_OPTIONAL)
+                mirLoweringAbortNode("M2010", node,
+                                     "`null` requires an expected optional type",
+                                     "add an explicit optional type like `?T`");
+            return mirLowerOptionalNull(state, expected_type,
+                                        node->filename, node->line_number, node->column_number);
         case AST_EXPR_LITERAL_CHAR:
             return mirMaybeConvertValue(state, scope, node,
                                         mirEmitConstChar(state, node->literal_char, node->filename, node->line_number, node->column_number),
                                         expected_type);
         case AST_EXPR_LITERAL_INTEGER: {
             ASTDataType *literal_type = expected_type;
+            if(literal_type != NULL && literal_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
+                literal_type = literal_type->child;
             if(literal_type == NULL)
                 literal_type = defaultIntegerDataType();
-            return mirEmitConstInt(state, node->literal_integer, literal_type,
-                                   node->filename, node->line_number, node->column_number);
+            return mirMaybeConvertValue(state, scope, node,
+                                        mirEmitConstInt(state, node->literal_integer, literal_type,
+                                                        node->filename, node->line_number, node->column_number),
+                                        expected_type);
         }
         case AST_EXPR_LITERAL_FLOAT: {
             ASTDataType *literal_type = expected_type;
+            if(literal_type != NULL && literal_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
+                literal_type = literal_type->child;
             if(literal_type == NULL)
                 literal_type = defaultFloatDataType();
-            return mirEmitConstFloat(state, node->literal_float, literal_type,
-                                     node->filename, node->line_number, node->column_number);
+            return mirMaybeConvertValue(state, scope, node,
+                                        mirEmitConstFloat(state, node->literal_float, literal_type,
+                                                          node->filename, node->line_number, node->column_number),
+                                        expected_type);
         }
         case AST_EXPR_LITERAL_STRING: {
             ASTDataType *string_type = expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE
@@ -1996,6 +2112,8 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                 return lowerZeroBuiltinExpr(state, scope, node, expected_type);
             if(strcmp(node->identifier, "as") == 0)
                 return lowerAsBuiltinExpr(state, scope, node, expected_type);
+            if(strcmp(node->identifier, "unwrap") == 0)
+                return lowerUnwrapBuiltinExpr(state, scope, node, expected_type);
             mirLoweringAbortNodeFormatted("M2009", node,
                                           "builtin lowering is missing",
                                           "unsupported builtin `@%s`",
@@ -2145,6 +2263,30 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
         case AST_EXPR_GREATER:
         case AST_EXPR_GREATER_EQUAL: {
             ASTDataType *operand_type = inferComparisonOperandType(node->lhs, node->rhs, &(scope->type_scope));
+            if((node->kind == AST_EXPR_EQUAL || node->kind == AST_EXPR_NOT_EQUAL) &&
+               operand_type != NULL &&
+               operand_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
+            {
+                MirValueId optional_value = -1;
+                if(inferExprType(node->lhs, &(scope->type_scope)).kind == TYPE_SYSTEM_EXPR_TYPE_NULL)
+                    optional_value = lowerExprAsValue(state, scope, node->rhs, operand_type);
+                else
+                    optional_value = lowerExprAsValue(state, scope, node->lhs, operand_type);
+
+                MirValueId optional_slot = mirEmitAlloca(state, operand_type,
+                                                         node->filename, node->line_number, node->column_number);
+                mirEmitStore(state, optional_slot, optional_value,
+                             node->filename, node->line_number, node->column_number);
+                MirValueId has_value_ptr = mirEmitFieldPtr(state, optional_slot, mirOptionalBoolType(),
+                                                           "has_value", 0,
+                                                           node->filename, node->line_number, node->column_number);
+                MirValueId has_value = mirEmitLoad(state, has_value_ptr, mirOptionalBoolType(),
+                                                   node->filename, node->line_number, node->column_number);
+                if(node->kind == AST_EXPR_NOT_EQUAL)
+                    has_value = mirEmitUnary(state, MIR_INST_NOT, has_value, mirOptionalBoolType(),
+                                             node->filename, node->line_number, node->column_number);
+                return mirMaybeConvertValue(state, scope, node, has_value, expected_type);
+            }
             MirValueId lhs = lowerExprAsValue(state, scope, node->lhs, operand_type);
             MirValueId rhs = lowerExprAsValue(state, scope, node->rhs, operand_type);
             MirInstKind kind = MIR_INST_EQ;

@@ -182,7 +182,8 @@ static bool llvmIsExternAggregateType(ASTDataType *data_type)
 {
     return data_type != NULL &&
            (data_type->kind == AST_DATA_TYPE_KIND_ARRAY ||
-            data_type->kind == AST_DATA_TYPE_KIND_STRUCT);
+            data_type->kind == AST_DATA_TYPE_KIND_STRUCT ||
+            data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL);
 }
 
 static size_t llvmExternABITypeSize(ASTDataType *data_type)
@@ -198,6 +199,15 @@ static size_t llvmExternABITypeSize(ASTDataType *data_type)
         case AST_DATA_TYPE_KIND_REFERENCE:
         case AST_DATA_TYPE_KIND_FUNCTION:
             return sizeof(void*);
+        case AST_DATA_TYPE_KIND_OPTIONAL: {
+            size_t flag_align = llvmExternABIPrimaryTypeAlignment(AST_PRIMARY_DATA_TYPE_BOOL);
+            size_t flag_size = llvmExternABIPrimaryTypeSize(AST_PRIMARY_DATA_TYPE_BOOL);
+            size_t child_align = llvmExternABITypeAlignment(data_type->child);
+            size_t child_size = llvmExternABITypeSize(data_type->child);
+            size_t offset = llvmAlignTo(flag_size, child_align);
+            size_t max_align = flag_align > child_align ? flag_align : child_align;
+            return llvmAlignTo(offset + child_size, max_align);
+        }
         case AST_DATA_TYPE_KIND_ENUM:
             return 4;
         case AST_DATA_TYPE_KIND_ARRAY: {
@@ -241,6 +251,11 @@ static size_t llvmExternABITypeAlignment(ASTDataType *data_type)
         case AST_DATA_TYPE_KIND_REFERENCE:
         case AST_DATA_TYPE_KIND_FUNCTION:
             return sizeof(void*);
+        case AST_DATA_TYPE_KIND_OPTIONAL: {
+            size_t flag_align = llvmExternABIPrimaryTypeAlignment(AST_PRIMARY_DATA_TYPE_BOOL);
+            size_t child_align = llvmExternABITypeAlignment(data_type->child);
+            return flag_align > child_align ? flag_align : child_align;
+        }
         case AST_DATA_TYPE_KIND_ENUM:
             return 4;
         case AST_DATA_TYPE_KIND_ARRAY:
@@ -322,6 +337,20 @@ static void llvmEmitStructRuntimeType(FILE *stream, ASTDataType *data_type, bool
     fprintf(stream, " }");
 }
 
+static void llvmEmitOptionalRuntimeType(FILE *stream, ASTDataType *data_type, bool storage_mode)
+{
+    fprintf(stream, "{ ");
+    if(storage_mode)
+        fprintf(stream, "i8, ");
+    else
+        fprintf(stream, "i1, ");
+    if(storage_mode)
+        llvmEmitStorageType(stream, data_type->child);
+    else
+        llvmEmitType(stream, data_type->child);
+    fprintf(stream, " }");
+}
+
 static void llvmEmitType(FILE *stream, ASTDataType *data_type)
 {
     if(data_type == NULL)
@@ -365,6 +394,9 @@ static void llvmEmitType(FILE *stream, ASTDataType *data_type)
             fprintf(stream, "[%lld x ", data_type->array_length);
             llvmEmitStorageType(stream, data_type->child);
             fprintf(stream, "]");
+            return;
+        case AST_DATA_TYPE_KIND_OPTIONAL:
+            llvmEmitOptionalRuntimeType(stream, data_type, true);
             return;
         case AST_DATA_TYPE_KIND_ENUM:
             fprintf(stream, "i32");
@@ -422,6 +454,9 @@ static void llvmEmitStorageType(FILE *stream, ASTDataType *data_type)
             fprintf(stream, "[%lld x ", data_type->array_length);
             llvmEmitStorageType(stream, data_type->child);
             fprintf(stream, "]");
+            return;
+        case AST_DATA_TYPE_KIND_OPTIONAL:
+            llvmEmitOptionalRuntimeType(stream, data_type, true);
             return;
         case AST_DATA_TYPE_KIND_ENUM:
             fprintf(stream, "i32");
@@ -905,10 +940,37 @@ static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context
     for(int i = 0; i < field_count; i++)
     {
         MirFieldValue *field = &(inst->data.struct_literal.fields.items[i]);
-        ASTStructMember *member = findStructMember(inst->result_type, field->identifier);
-        if(member == NULL)
+        ASTDataType *field_type = NULL;
+        int field_index = -1;
+        if(inst->result_type != NULL && inst->result_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
+        {
+            if(i == 0)
+            {
+                field_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL);
+                field_index = 0;
+            }
+            else if(i == 1)
+            {
+                field_type = inst->result_type->child;
+                field_index = 1;
+            }
+        }
+        else
+        {
+            ASTStructMember *member = findStructMember(inst->result_type, field->identifier);
+            if(member != NULL)
+            {
+                field_type = member->data_type;
+                field_index = findStructDataFieldIndex(inst->result_type, field->identifier);
+            }
+        }
+
+        if(field_type == NULL || field_index < 0)
             llvmBackendError("unknown struct literal field in LLVM backend", inst->filename, inst->line_number, inst->column_number);
 
+        char stored_field_name[32];
+        const char *stored_field_ref = llvmPrepareStoredValueRef(stream, context, field->value,
+                                                                 stored_field_name, sizeof(stored_field_name));
         char next_name[32];
         if(i + 1 == field_count)
             llvmEmitInstructionPrefix(stream, inst->result);
@@ -917,20 +979,16 @@ static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context
             llvmMakeTempName(context, next_name, sizeof(next_name));
             llvmEmitTempAssignPrefix(stream, next_name);
         }
-
-        char stored_field_name[32];
-        const char *stored_field_ref = llvmPrepareStoredValueRef(stream, context, field->value,
-                                                                 stored_field_name, sizeof(stored_field_name));
         fprintf(stream, "insertvalue ");
         llvmEmitStorageType(stream, inst->result_type);
         if(!has_current)
             fprintf(stream, " zeroinitializer, ");
         else
             fprintf(stream, " %s, ", current_name);
-        llvmEmitStorageType(stream, member->data_type);
+        llvmEmitStorageType(stream, field_type);
         fprintf(stream, " ");
         fprintf(stream, "%s", stored_field_ref);
-        fprintf(stream, ", %d\n", findStructDataFieldIndex(inst->result_type, field->identifier));
+        fprintf(stream, ", %d\n", field_index);
         if(i + 1 != field_count)
             strcpy(current_name, next_name);
         has_current = true;

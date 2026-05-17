@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 void *mote_stderr_handle(void)
 {
@@ -30,4 +31,10 @@ double mote_fabs(double x)
 float mote_fminf(float a, float b)
 {
     return fminf(a, b);
+}
+
+void mote_unwrap_null_panic(void)
+{
+    fputs("runtime panic: @unwrap(null)\n", stderr);
+    abort();
 }

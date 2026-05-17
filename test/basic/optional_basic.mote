@@ -1,0 +1,10 @@
+maybe_num: ?i32 = null;
+other_num: ?i32 = 42;
+
+is_null: bool = maybe_num == null;
+is_not_null: bool = other_num != null;
+
+value: i32 = @unwrap(other_num);
+
+maybe_ptr: ?*char = null;
+ptr_is_null: bool = maybe_ptr == null;

@@ -151,6 +151,12 @@ ASTDataType* parsePrimaryDataType(Token **token)
 
 ASTDataType* parseDataType(Token **token)
 {
+    if((*token)->kind == TK_QUESTION)
+    {
+        (*token) = (*token)->next;
+        return newWrappedDataType(AST_DATA_TYPE_KIND_OPTIONAL, false, parseDataType(token));
+    }
+
     if((*token)->kind == TK_STAR)
     {
         (*token) = (*token)->next;
@@ -236,7 +242,7 @@ static bool tokenStartsDataType(Token *token)
     if(token == NULL)
         return false;
 
-    if(token->kind == TK_STAR || token->kind == TK_AMPERSAND)
+    if(token->kind == TK_STAR || token->kind == TK_AMPERSAND || token->kind == TK_QUESTION)
         return true;
 
     if(token->kind != TK_IDENTIFIER)
@@ -330,6 +336,11 @@ ASTNode* parseLiteralValue(Token **token)
     {
         node->kind = AST_EXPR_LITERAL_BOOL;
         node->literal_bool = false;
+        (*token) = (*token)->next;
+    }
+    else if((*token)->kind == TK_NULL)
+    {
+        node->kind = AST_EXPR_LITERAL_NULL;
         (*token) = (*token)->next;
     }
     else if((*token)->kind == TK_LITERAL_CHAR)

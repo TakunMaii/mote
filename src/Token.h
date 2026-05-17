@@ -27,6 +27,7 @@ typedef enum {
     TK_VOID,
     TK_TRUE,
     TK_FALSE,
+    TK_NULL,
 
     TK_PLUS,
     TK_MINUS,
@@ -42,6 +43,7 @@ typedef enum {
     TK_DOUBLE_PIPE,
     TK_DOUBLE_EQUAL,
     TK_EXCLAMATION_EQUAL,
+    TK_QUESTION,
     TK_ELLIPSIS,
     TK_LESS,
     TK_LESS_EQUAL,
@@ -165,6 +167,7 @@ const char* tokenKindToString(TokenKind kind)
         case TK_VOID: return "TK_VOID";
         case TK_TRUE: return "TK_TRUE";
         case TK_FALSE: return "TK_FALSE";
+        case TK_NULL: return "TK_NULL";
         case TK_PLUS: return "TK_PLUS";
         case TK_MINUS: return "TK_MINUS";
         case TK_STAR: return "TK_STAR";
@@ -179,6 +182,7 @@ const char* tokenKindToString(TokenKind kind)
         case TK_DOUBLE_PIPE: return "TK_DOUBLE_PIPE";
         case TK_DOUBLE_EQUAL: return "TK_DOUBLE_EQUAL";
         case TK_EXCLAMATION_EQUAL: return "TK_EXCLAMATION_EQUAL";
+        case TK_QUESTION: return "TK_QUESTION";
         case TK_ELLIPSIS: return "TK_ELLIPSIS";
         case TK_LESS: return "TK_LESS";
         case TK_LESS_EQUAL: return "TK_LESS_EQUAL";
@@ -232,6 +236,7 @@ const char* tokenKindToDiagnosticString(TokenKind kind)
         case TK_VOID: return "`void`";
         case TK_TRUE: return "`true`";
         case TK_FALSE: return "`false`";
+        case TK_NULL: return "`null`";
         case TK_PLUS: return "`+`";
         case TK_MINUS: return "`-`";
         case TK_STAR: return "`*`";
@@ -246,6 +251,7 @@ const char* tokenKindToDiagnosticString(TokenKind kind)
         case TK_DOUBLE_PIPE: return "`||`";
         case TK_DOUBLE_EQUAL: return "`==`";
         case TK_EXCLAMATION_EQUAL: return "`!=`";
+        case TK_QUESTION: return "`?`";
         case TK_ELLIPSIS: return "`...`";
         case TK_LESS: return "`<`";
         case TK_LESS_EQUAL: return "`<=`";
@@ -299,6 +305,7 @@ void printToken(Token token)
         case TK_VOID: {printf("TK_VOID\n");}break;
         case TK_TRUE: {printf("TK_TRUE\n");}break;
         case TK_FALSE: {printf("TK_FALSE\n");}break;
+        case TK_NULL: {printf("TK_NULL\n");}break;
         case TK_EQUAL: {printf("TK_EQUAL\n");}break;
         case TK_PLUS: {printf("TK_PLUS\n");}break;
         case TK_MINUS: {printf("TK_MINUS\n");}break;
@@ -314,6 +321,7 @@ void printToken(Token token)
         case TK_DOUBLE_PIPE: {printf("TK_DOUBLE_PIPE\n");}break;
         case TK_DOUBLE_EQUAL: {printf("TK_DOUBLE_EQUAL\n");}break;
         case TK_EXCLAMATION_EQUAL: {printf("TK_EXCLAMATION_EQUAL\n");}break;
+        case TK_QUESTION: {printf("TK_QUESTION\n");}break;
         case TK_ELLIPSIS: {printf("TK_ELLIPSIS\n");}break;
         case TK_LESS: {printf("TK_LESS\n");}break;
         case TK_LESS_EQUAL: {printf("TK_LESS_EQUAL\n");}break;

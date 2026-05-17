@@ -290,6 +290,15 @@ Token* tokenize(char *code, const char* filename)
             column += 5;
             setTokenEnd(token, line, column);
         }
+        else if(expectStr("null", 4, code)) {
+            if(isIdentifier(code[4]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_NULL, filename, line, column);
+            token = token->next;
+            code += 4;
+            column += 4;
+            setTokenEnd(token, line, column);
+        }
         else if(expectStr("&&", 2, code)) {
             token->next = newToken(TK_DOUBLE_AMPERSAND, filename, line, column);
             token = token->next;
@@ -316,6 +325,13 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 2;
             column += 2;
+            setTokenEnd(token, line, column);
+        }
+        else if(expectStr("?", 1, code)) {
+            token->next = newToken(TK_QUESTION, filename, line, column);
+            token = token->next;
+            code += 1;
+            column += 1;
             setTokenEnd(token, line, column);
         }
         else if(expectStr("...", 3, code)) {

@@ -62,6 +62,7 @@ typedef enum ASTNodeKind {
     AST_EXPR_BUILTIN,
     AST_EXPR_TYPE_LITERAL,
     AST_EXPR_LITERAL_BOOL,
+    AST_EXPR_LITERAL_NULL,
     AST_EXPR_LITERAL_CHAR,
     AST_EXPR_LITERAL_STRING,
     AST_EXPR_LITERAL_INTEGER,
@@ -92,6 +93,7 @@ typedef enum ASTDataTypeKind {
     AST_DATA_TYPE_KIND_PRIMARY,
     AST_DATA_TYPE_KIND_POINTER,
     AST_DATA_TYPE_KIND_REFERENCE,
+    AST_DATA_TYPE_KIND_OPTIONAL,
     AST_DATA_TYPE_KIND_FUNCTION,
     AST_DATA_TYPE_KIND_NAMED,
     AST_DATA_TYPE_KIND_ARRAY,
@@ -640,6 +642,7 @@ const char* astNodeKindToString(ASTNodeKind kind)
         case AST_EXPR_BUILTIN: return "AST_EXPR_BUILTIN";
         case AST_EXPR_TYPE_LITERAL: return "AST_EXPR_TYPE_LITERAL";
         case AST_EXPR_LITERAL_BOOL: return "AST_EXPR_LITERAL_BOOL";
+        case AST_EXPR_LITERAL_NULL: return "AST_EXPR_LITERAL_NULL";
         case AST_EXPR_LITERAL_CHAR: return "AST_EXPR_LITERAL_CHAR";
         case AST_EXPR_LITERAL_STRING: return "AST_EXPR_LITERAL_STRING";
         case AST_EXPR_LITERAL_INTEGER: return "AST_EXPR_LITERAL_INTEGER";
@@ -771,6 +774,10 @@ void printASTDataType(ASTDataType *data_type)
             printf("&");
             if(data_type->mutable)
                 printf("mut ");
+            printASTDataType(data_type->child);
+        } break;
+        case AST_DATA_TYPE_KIND_OPTIONAL: {
+            printf("?");
             printASTDataType(data_type->child);
         } break;
         case AST_DATA_TYPE_KIND_FUNCTION: {
@@ -925,6 +932,10 @@ void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer
             appendStringFragment(buffer, buffer_size, "&");
             if(data_type->mutable)
                 appendStringFragment(buffer, buffer_size, "mut ");
+            appendASTDataTypeString(data_type->child, buffer, buffer_size);
+            break;
+        case AST_DATA_TYPE_KIND_OPTIONAL:
+            appendStringFragment(buffer, buffer_size, "?");
             appendASTDataTypeString(data_type->child, buffer, buffer_size);
             break;
         case AST_DATA_TYPE_KIND_FUNCTION:
@@ -1366,6 +1377,9 @@ void printASTNode(ASTNode node)
         } break;
         case AST_EXPR_LITERAL_BOOL: {
             printf("AST_EXPR_LITERAL_BOOL(%s)", node.literal_bool ? "true" : "false");
+        } break;
+        case AST_EXPR_LITERAL_NULL: {
+            printf("AST_EXPR_LITERAL_NULL");
         } break;
         case AST_EXPR_LITERAL_CHAR: {
             printf("AST_EXPR_LITERAL_CHAR(");

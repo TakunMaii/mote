@@ -1,0 +1,2 @@
+maybe_num: ?i32 = null;
+value: i32 = @unwrap(maybe_num);

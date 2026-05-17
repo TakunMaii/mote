@@ -10,6 +10,7 @@
 typedef enum TypeSystemExprTypeKind {
     TYPE_SYSTEM_EXPR_TYPE_VALUE,
     TYPE_SYSTEM_EXPR_TYPE_TYPE,
+    TYPE_SYSTEM_EXPR_TYPE_NULL,
     TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER,
     TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT,
 } TypeSystemExprTypeKind;
@@ -51,6 +52,13 @@ TypeSystemExprType newLiteralIntegerExprType()
 {
     TypeSystemExprType expr_type = {0};
     expr_type.kind = TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER;
+    return expr_type;
+}
+
+TypeSystemExprType newNullExprType()
+{
+    TypeSystemExprType expr_type = {0};
+    expr_type.kind = TYPE_SYSTEM_EXPR_TYPE_NULL;
     return expr_type;
 }
 
@@ -101,6 +109,11 @@ void typeSystemDescribeExprType(TypeSystemExprType expr_type, char *buffer, size
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
     {
         diagnosticFormat(buffer, buffer_size, "type");
+        return;
+    }
+    if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL)
+    {
+        diagnosticFormat(buffer, buffer_size, "`null`");
         return;
     }
     if(expr_type.data_type == NULL)
@@ -212,6 +225,11 @@ bool isEnumDataType(ASTDataType *data_type)
 bool isArrayDataType(ASTDataType *data_type)
 {
     return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_ARRAY;
+}
+
+bool isOptionalDataType(ASTDataType *data_type)
+{
+    return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL;
 }
 
 ASTStructMember* findStructMember(ASTDataType *struct_type, const char *identifier)
@@ -375,6 +393,8 @@ bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
             return lhs->mutable == rhs->mutable && isSameDataType(lhs->child, rhs->child);
+        case AST_DATA_TYPE_KIND_OPTIONAL:
+            return isSameDataType(lhs->child, rhs->child);
         case AST_DATA_TYPE_KIND_FUNCTION:
             return isSameFunctionSignature(lhs, rhs);
         case AST_DATA_TYPE_KIND_NAMED:
@@ -437,6 +457,7 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
         }
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
+        case AST_DATA_TYPE_KIND_OPTIONAL:
             return newWrappedDataType(data_type->kind, data_type->mutable,
                                       resolveNamedDataType(data_type->child, scope, self_data_type));
         case AST_DATA_TYPE_KIND_ARRAY:
@@ -773,6 +794,9 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
 
     if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
     {
+        if(isOptionalDataType(target_type))
+            return canExplicitConvertDataType(source_type, source_node, target_type->child);
+
         if(target_type->kind == AST_DATA_TYPE_KIND_POINTER)
             return source_node != NULL && source_node->kind == AST_EXPR_LITERAL_INTEGER && source_node->literal_integer == 0;
 
@@ -788,6 +812,9 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
         return target_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
                (isFloatPrimary(target_type->primary) || isIntegerPrimary(target_type->primary));
 
+    if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL)
+        return isOptionalDataType(target_type);
+
     if(source_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
         return false;
 
@@ -797,6 +824,13 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
 
     if(isSameDataType(source_data_type, target_type))
         return true;
+
+    if(isOptionalDataType(target_type))
+    {
+        if(isOptionalDataType(source_data_type))
+            return isSameDataType(source_data_type->child, target_type->child);
+        return canExplicitConvertDataType(newValueExprType(source_data_type), source_node, target_type->child);
+    }
 
     if(source_data_type->kind == AST_DATA_TYPE_KIND_PRIMARY && target_type->kind == AST_DATA_TYPE_KIND_PRIMARY)
     {
@@ -895,13 +929,35 @@ ASTDataType* inferAsBuiltinValueType(ASTNode *node, ScopeFrame *scope)
     return target_type;
 }
 
+ASTDataType* inferUnwrapBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    if(node->lhs == NULL || node->lhs->next != NULL)
+        typeSystemAbortNode("T1220", node,
+                            "@unwrap expects exactly one argument",
+                            "expected `@unwrap(optional_value)`");
+
+    TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
+    if(operand_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || !isOptionalDataType(operand_type.data_type))
+        typeSystemAbortNode("T1221", node->lhs,
+                            "@unwrap expects an optional value",
+                            "argument must have type `?T`");
+
+    return cloneDataType(operand_type.data_type->child);
+}
+
 bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_node, ASTDataType *target_type)
 {
     if(target_type == NULL || isInferDataType(target_type))
         return false;
 
+    if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL)
+        return isOptionalDataType(target_type);
+
     if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
     {
+        if(isOptionalDataType(target_type))
+            return canImplicitConvertDataType(source_type, source_node, target_type->child);
+
         if(target_type->kind == AST_DATA_TYPE_KIND_POINTER)
             return source_node != NULL && source_node->kind == AST_EXPR_LITERAL_INTEGER && source_node->literal_integer == 0;
 
@@ -916,7 +972,11 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     }
 
     if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
+    {
+        if(isOptionalDataType(target_type))
+            return canImplicitConvertDataType(source_type, source_node, target_type->child);
         return target_type->kind == AST_DATA_TYPE_KIND_PRIMARY && isFloatPrimary(target_type->primary);
+    }
 
     if(source_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
     {
@@ -925,8 +985,18 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     }
 
     ASTDataType *source_data_type = source_type.data_type;
+    if(source_data_type == NULL)
+        return false;
+
     if(isSameDataType(source_data_type, target_type))
         return true;
+
+    if(isOptionalDataType(target_type))
+    {
+        if(isOptionalDataType(source_data_type))
+            return isSameDataType(source_data_type->child, target_type->child);
+        return canImplicitConvertDataType(newValueExprType(source_data_type), source_node, target_type->child);
+    }
 
     if(source_data_type->kind == AST_DATA_TYPE_KIND_PRIMARY && target_type->kind == AST_DATA_TYPE_KIND_PRIMARY)
     {
@@ -1341,6 +1411,8 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
     {
         case AST_EXPR_LITERAL_BOOL:
             return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
+        case AST_EXPR_LITERAL_NULL:
+            return newNullExprType();
         case AST_EXPR_LITERAL_CHAR:
             return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR));
         case AST_EXPR_LITERAL_STRING:
@@ -1361,6 +1433,8 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 return newValueExprType(inferZeroBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "as") == 0)
                 return newValueExprType(inferAsBuiltinValueType(node, scope));
+            if(strcmp(node->identifier, "unwrap") == 0)
+                return newValueExprType(inferUnwrapBuiltinValueType(node, scope));
             typeSystemAbortFormatted("T1227", node,
                                      "unknown builtin",
                                      "unknown builtin `@%s`",
@@ -1715,6 +1789,21 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         case AST_EXPR_NOT_EQUAL: {
             TypeSystemExprType lhs_type = inferExprType(node->lhs, scope);
             TypeSystemExprType rhs_type = inferExprType(node->rhs, scope);
+            if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL && rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL)
+                return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
+            if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL &&
+               rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+               isOptionalDataType(rhs_type.data_type))
+                return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
+            if(rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL &&
+               lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+               isOptionalDataType(lhs_type.data_type))
+                return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
+            if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+               (isOptionalDataType(lhs_type.data_type) || isOptionalDataType(rhs_type.data_type)))
+                typeSystemAbortNode("T1248", node,
+                                    "optional values currently only support comparison with `null`",
+                                    "compare `?T` values using `== null` or `!= null`");
             if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
                isSameDataType(lhs_type.data_type, rhs_type.data_type))
                 return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
@@ -1745,6 +1834,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
 ASTDataType* inferDeclaredTypeFromExpr(ASTNode *expr, ScopeFrame *scope)
 {
     TypeSystemExprType expr_type = inferExprType(expr, scope);
+    if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL)
+        typeSystemAbortNode("T1247", expr,
+                            "cannot infer a type from `null` alone",
+                            "add an explicit optional type like `?T`");
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
         return defaultIntegerDataType();
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
