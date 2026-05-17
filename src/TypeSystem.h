@@ -472,10 +472,63 @@ bool isSameFunctionSignature(ASTDataType *lhs, ASTDataType *rhs)
     return isSameDataType(lhs->return_data_type, rhs->return_data_type);
 }
 
-bool isSameStructType(ASTDataType *lhs, ASTDataType *rhs)
+typedef struct ASTDataTypeCompareEntry {
+    ASTDataType *lhs;
+    ASTDataType *rhs;
+    struct ASTDataTypeCompareEntry *next;
+} ASTDataTypeCompareEntry;
+
+bool isSameDataTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompareEntry **memo);
+
+bool hasComparedDataTypePair(ASTDataTypeCompareEntry *memo, ASTDataType *lhs, ASTDataType *rhs)
+{
+    while(memo)
+    {
+        if(memo->lhs == lhs && memo->rhs == rhs)
+            return true;
+        memo = memo->next;
+    }
+    return false;
+}
+
+void rememberComparedDataTypePair(ASTDataTypeCompareEntry **memo, ASTDataType *lhs, ASTDataType *rhs)
+{
+    ASTDataTypeCompareEntry *entry = (ASTDataTypeCompareEntry*) malloc(sizeof(ASTDataTypeCompareEntry));
+    entry->lhs = lhs;
+    entry->rhs = rhs;
+    entry->next = *memo;
+    *memo = entry;
+}
+
+bool isSameFunctionSignatureInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompareEntry **memo)
+{
+    if(lhs->is_variadic != rhs->is_variadic)
+        return false;
+
+    ASTFunctionParameter *lhs_parameter = lhs->parameters;
+    ASTFunctionParameter *rhs_parameter = rhs->parameters;
+    while(lhs_parameter && rhs_parameter)
+    {
+        if(!isSameDataTypeInternal(lhs_parameter->data_type, rhs_parameter->data_type, memo))
+            return false;
+        lhs_parameter = lhs_parameter->next;
+        rhs_parameter = rhs_parameter->next;
+    }
+
+    if(lhs_parameter != NULL || rhs_parameter != NULL)
+        return false;
+
+    return isSameDataTypeInternal(lhs->return_data_type, rhs->return_data_type, memo);
+}
+
+bool isSameStructTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompareEntry **memo)
 {
     if(lhs->identifier[0] != '\0' || rhs->identifier[0] != '\0')
         return strcmp(lhs->identifier, rhs->identifier) == 0;
+
+    if(hasComparedDataTypePair(*memo, lhs, rhs))
+        return true;
+    rememberComparedDataTypePair(memo, lhs, rhs);
 
     ASTStructMember *lhs_member = lhs->members;
     ASTStructMember *rhs_member = rhs->members;
@@ -488,7 +541,7 @@ bool isSameStructType(ASTDataType *lhs, ASTDataType *rhs)
         bool rhs_is_method = rhs_member->value != NULL;
         if(lhs_is_method != rhs_is_method)
             return false;
-        if(!lhs_is_method && !isSameDataType(lhs_member->data_type, rhs_member->data_type))
+        if(!lhs_is_method && !isSameDataTypeInternal(lhs_member->data_type, rhs_member->data_type, memo))
             return false;
 
         lhs_member = lhs_member->next;
@@ -498,10 +551,20 @@ bool isSameStructType(ASTDataType *lhs, ASTDataType *rhs)
     return lhs_member == NULL && rhs_member == NULL;
 }
 
-bool isSameEnumType(ASTDataType *lhs, ASTDataType *rhs)
+bool isSameStructType(ASTDataType *lhs, ASTDataType *rhs)
+{
+    ASTDataTypeCompareEntry *memo = NULL;
+    return isSameStructTypeInternal(lhs, rhs, &memo);
+}
+
+bool isSameEnumTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompareEntry **memo)
 {
     if(lhs->identifier[0] != '\0' || rhs->identifier[0] != '\0')
         return strcmp(lhs->identifier, rhs->identifier) == 0;
+
+    if(hasComparedDataTypePair(*memo, lhs, rhs))
+        return true;
+    rememberComparedDataTypePair(memo, lhs, rhs);
 
     ASTEnumVariant *lhs_variant = lhs->variants;
     ASTEnumVariant *rhs_variant = rhs->variants;
@@ -516,16 +579,31 @@ bool isSameEnumType(ASTDataType *lhs, ASTDataType *rhs)
     return lhs_variant == NULL && rhs_variant == NULL;
 }
 
-bool isSameArrayType(ASTDataType *lhs, ASTDataType *rhs)
+bool isSameEnumType(ASTDataType *lhs, ASTDataType *rhs)
 {
-    return lhs->array_length == rhs->array_length &&
-           isSameDataType(lhs->child, rhs->child);
+    ASTDataTypeCompareEntry *memo = NULL;
+    return isSameEnumTypeInternal(lhs, rhs, &memo);
 }
 
-bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
+bool isSameArrayTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompareEntry **memo)
+{
+    return lhs->array_length == rhs->array_length &&
+           isSameDataTypeInternal(lhs->child, rhs->child, memo);
+}
+
+bool isSameArrayType(ASTDataType *lhs, ASTDataType *rhs)
+{
+    ASTDataTypeCompareEntry *memo = NULL;
+    return isSameArrayTypeInternal(lhs, rhs, &memo);
+}
+
+bool isSameDataTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompareEntry **memo)
 {
     if(lhs == NULL || rhs == NULL)
         return lhs == rhs;
+
+    if(lhs == rhs)
+        return true;
 
     if(lhs->kind != rhs->kind)
         return false;
@@ -538,22 +616,42 @@ bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
             return lhs->primary == rhs->primary;
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
-            return lhs->mutable == rhs->mutable && isSameDataType(lhs->child, rhs->child);
+            if(lhs->mutable != rhs->mutable)
+                return false;
+            if(hasComparedDataTypePair(*memo, lhs, rhs))
+                return true;
+            rememberComparedDataTypePair(memo, lhs, rhs);
+            return isSameDataTypeInternal(lhs->child, rhs->child, memo);
         case AST_DATA_TYPE_KIND_OPTIONAL:
-            return isSameDataType(lhs->child, rhs->child);
+            if(hasComparedDataTypePair(*memo, lhs, rhs))
+                return true;
+            rememberComparedDataTypePair(memo, lhs, rhs);
+            return isSameDataTypeInternal(lhs->child, rhs->child, memo);
         case AST_DATA_TYPE_KIND_FUNCTION:
-            return isSameFunctionSignature(lhs, rhs);
+            if(hasComparedDataTypePair(*memo, lhs, rhs))
+                return true;
+            rememberComparedDataTypePair(memo, lhs, rhs);
+            return isSameFunctionSignatureInternal(lhs, rhs, memo);
         case AST_DATA_TYPE_KIND_NAMED:
             return strcmp(lhs->identifier, rhs->identifier) == 0;
         case AST_DATA_TYPE_KIND_ARRAY:
-            return isSameArrayType(lhs, rhs);
+            if(hasComparedDataTypePair(*memo, lhs, rhs))
+                return true;
+            rememberComparedDataTypePair(memo, lhs, rhs);
+            return isSameArrayTypeInternal(lhs, rhs, memo);
         case AST_DATA_TYPE_KIND_ENUM:
-            return isSameEnumType(lhs, rhs);
+            return isSameEnumTypeInternal(lhs, rhs, memo);
         case AST_DATA_TYPE_KIND_STRUCT:
-            return isSameStructType(lhs, rhs);
+            return isSameStructTypeInternal(lhs, rhs, memo);
         default:
             return false;
     }
+}
+
+bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
+{
+    ASTDataTypeCompareEntry *memo = NULL;
+    return isSameDataTypeInternal(lhs, rhs, &memo);
 }
 
 ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, ASTDataType *self_data_type)
@@ -583,7 +681,7 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
                     typeSystemAbortNoSpan("T1201",
                                           "`Self` is only allowed inside a struct method",
                                           NULL);
-                return cloneDataType(self_data_type);
+                return self_data_type;
             }
 
             TypeInfo *type_info = findTypeInfo(scope, data_type->identifier);

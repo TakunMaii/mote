@@ -1,0 +1,13 @@
+List = fn(T: Type) {
+    return struct {
+        p: ?*mut Self,
+    };
+};
+
+mut a = List(i32){
+    .p = null,
+};
+
+mut b = List(i32){
+    .p = &a,
+};

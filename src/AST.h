@@ -369,7 +369,18 @@ ASTEnumVariant* cloneEnumVariants(ASTEnumVariant *variant);
 ASTTypeArgument* cloneTypeArguments(ASTTypeArgument *argument);
 ASTFunctionCapture* cloneFunctionCaptures(ASTFunctionCapture *capture);
 
-ASTFunctionParameter* cloneFunctionParameters(ASTFunctionParameter *parameter)
+typedef struct ASTDataTypeCloneEntry {
+    ASTDataType *source;
+    ASTDataType *clone;
+    struct ASTDataTypeCloneEntry *next;
+} ASTDataTypeCloneEntry;
+
+ASTDataType* cloneDataTypeInternal(ASTDataType *data_type, ASTDataTypeCloneEntry **memo);
+ASTStructMember* cloneStructMembersInternal(ASTStructMember *member, ASTDataTypeCloneEntry **memo);
+ASTTypeArgument* cloneTypeArgumentsInternal(ASTTypeArgument *argument, ASTDataTypeCloneEntry **memo);
+ASTFunctionParameter* cloneFunctionParametersInternal(ASTFunctionParameter *parameter, ASTDataTypeCloneEntry **memo);
+
+ASTFunctionParameter* cloneFunctionParametersInternal(ASTFunctionParameter *parameter, ASTDataTypeCloneEntry **memo)
 {
     if(parameter == NULL)
         return NULL;
@@ -380,11 +391,17 @@ ASTFunctionParameter* cloneFunctionParameters(ASTFunctionParameter *parameter)
     new_parameter->next = NULL;
 
     if(parameter->data_type)
-        new_parameter->data_type = cloneDataType(parameter->data_type);
+        new_parameter->data_type = cloneDataTypeInternal(parameter->data_type, memo);
     if(parameter->next)
-        new_parameter->next = cloneFunctionParameters(parameter->next);
+        new_parameter->next = cloneFunctionParametersInternal(parameter->next, memo);
 
     return new_parameter;
+}
+
+ASTFunctionParameter* cloneFunctionParameters(ASTFunctionParameter *parameter)
+{
+    ASTDataTypeCloneEntry *memo = NULL;
+    return cloneFunctionParametersInternal(parameter, &memo);
 }
 
 ASTStructMember* newASTStructMemberFromToken(Token *token)
@@ -498,10 +515,18 @@ SourceSpan astEnumVariantSourceSpan(ASTEnumVariant *variant)
                           variant->end_line_number, variant->end_column_number);
 }
 
-ASTDataType* cloneDataType(ASTDataType *data_type)
+ASTDataType* cloneDataTypeInternal(ASTDataType *data_type, ASTDataTypeCloneEntry **memo)
 {
     if(data_type == NULL)
         return NULL;
+
+    ASTDataTypeCloneEntry *entry = *memo;
+    while(entry)
+    {
+        if(entry->source == data_type)
+            return entry->clone;
+        entry = entry->next;
+    }
 
     ASTDataType *new_data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
     *new_data_type = *data_type;
@@ -513,24 +538,36 @@ ASTDataType* cloneDataType(ASTDataType *data_type)
     new_data_type->members = NULL;
     new_data_type->variants = NULL;
 
+    ASTDataTypeCloneEntry *new_entry = (ASTDataTypeCloneEntry*) malloc(sizeof(ASTDataTypeCloneEntry));
+    new_entry->source = data_type;
+    new_entry->clone = new_data_type;
+    new_entry->next = *memo;
+    *memo = new_entry;
+
     if(data_type->child)
-        new_data_type->child = cloneDataType(data_type->child);
+        new_data_type->child = cloneDataTypeInternal(data_type->child, memo);
     if(data_type->callee)
-        new_data_type->callee = cloneDataType(data_type->callee);
+        new_data_type->callee = cloneDataTypeInternal(data_type->callee, memo);
     if(data_type->arguments)
-        new_data_type->arguments = cloneTypeArguments(data_type->arguments);
+        new_data_type->arguments = cloneTypeArgumentsInternal(data_type->arguments, memo);
     if(data_type->parameters)
-        new_data_type->parameters = cloneFunctionParameters(data_type->parameters);
+        new_data_type->parameters = cloneFunctionParametersInternal(data_type->parameters, memo);
     if(data_type->return_data_type)
-        new_data_type->return_data_type = cloneDataType(data_type->return_data_type);
+        new_data_type->return_data_type = cloneDataTypeInternal(data_type->return_data_type, memo);
     if(data_type->members)
-        new_data_type->members = cloneStructMembers(data_type->members);
+        new_data_type->members = cloneStructMembersInternal(data_type->members, memo);
     if(data_type->variants)
         new_data_type->variants = cloneEnumVariants(data_type->variants);
     return new_data_type;
 }
 
-ASTTypeArgument* cloneTypeArguments(ASTTypeArgument *argument)
+ASTDataType* cloneDataType(ASTDataType *data_type)
+{
+    ASTDataTypeCloneEntry *memo = NULL;
+    return cloneDataTypeInternal(data_type, &memo);
+}
+
+ASTTypeArgument* cloneTypeArgumentsInternal(ASTTypeArgument *argument, ASTDataTypeCloneEntry **memo)
 {
     if(argument == NULL)
         return NULL;
@@ -538,13 +575,19 @@ ASTTypeArgument* cloneTypeArguments(ASTTypeArgument *argument)
     ASTTypeArgument *new_argument = (ASTTypeArgument*) malloc(sizeof(ASTTypeArgument));
     memset(new_argument, 0, sizeof(ASTTypeArgument));
     if(argument->data_type)
-        new_argument->data_type = cloneDataType(argument->data_type);
+        new_argument->data_type = cloneDataTypeInternal(argument->data_type, memo);
     if(argument->next)
-        new_argument->next = cloneTypeArguments(argument->next);
+        new_argument->next = cloneTypeArgumentsInternal(argument->next, memo);
     return new_argument;
 }
 
-ASTStructMember* cloneStructMembers(ASTStructMember *member)
+ASTTypeArgument* cloneTypeArguments(ASTTypeArgument *argument)
+{
+    ASTDataTypeCloneEntry *memo = NULL;
+    return cloneTypeArgumentsInternal(argument, &memo);
+}
+
+ASTStructMember* cloneStructMembersInternal(ASTStructMember *member, ASTDataTypeCloneEntry **memo)
 {
     if(member == NULL)
         return NULL;
@@ -555,10 +598,16 @@ ASTStructMember* cloneStructMembers(ASTStructMember *member)
     new_member->data_type = NULL;
 
     if(member->data_type)
-        new_member->data_type = cloneDataType(member->data_type);
+        new_member->data_type = cloneDataTypeInternal(member->data_type, memo);
     if(member->next)
-        new_member->next = cloneStructMembers(member->next);
+        new_member->next = cloneStructMembersInternal(member->next, memo);
     return new_member;
+}
+
+ASTStructMember* cloneStructMembers(ASTStructMember *member)
+{
+    ASTDataTypeCloneEntry *memo = NULL;
+    return cloneStructMembersInternal(member, &memo);
 }
 
 ASTEnumVariant* cloneEnumVariants(ASTEnumVariant *variant)
