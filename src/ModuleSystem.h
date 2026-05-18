@@ -45,6 +45,8 @@ struct ModuleSourceFile {
     int visit_state;
     ModuleImportBinding imports[MODULE_MAX_IMPORTS];
     int import_count;
+    ModuleSourceFile *expression_imports[MODULE_MAX_IMPORTS];
+    int expression_import_count;
     ModuleTopLevelBinding top_level_bindings[MODULE_MAX_TOP_LEVEL_BINDINGS];
     int top_level_binding_count;
     bool rewritten;
@@ -77,6 +79,8 @@ typedef struct RewriteScope {
     RewriteTypeBinding type_bindings[MODULE_MAX_SCOPE_TYPE_BINDINGS];
     int type_count;
 } RewriteScope;
+
+static ModuleCompileContext *moduleRewriteContext = NULL;
 
 static void moduleSystemError(const char *message, const char *filename, int line, int column)
 {
@@ -410,11 +414,61 @@ static ModuleSourceFile* moduleAppend(ModuleCompileContext *context)
 
 static ModuleSourceFile* moduleLoadRecursive(ModuleCompileContext *context, const char *path);
 
+static void moduleRecordExpressionImport(ModuleSourceFile *module, ModuleSourceFile *imported_module)
+{
+    if(imported_module == NULL)
+        return;
+
+    for(int i = 0; i < module->expression_import_count; i++)
+    {
+        if(module->expression_imports[i] == imported_module)
+            return;
+    }
+
+    if(module->expression_import_count >= MODULE_MAX_IMPORTS)
+        moduleSystemError("too many expression imports in one module",
+                          module->canonical_path, 0, 0);
+
+    module->expression_imports[module->expression_import_count++] = imported_module;
+}
+
+static void moduleScanImportExpressions(ModuleCompileContext *context, ModuleSourceFile *module, ASTNode *node)
+{
+    if(node == NULL)
+        return;
+
+    if(node->kind == AST_EXPR_BUILTIN && strcmp(node->identifier, "import") == 0)
+    {
+        char resolved_path[MODULE_MAX_PATH_LENGTH] = {0};
+        moduleResolveImportPath(context, module->canonical_path, node, resolved_path);
+        moduleRecordExpressionImport(module, moduleLoadRecursive(context, resolved_path));
+    }
+
+    moduleScanImportExpressions(context, module, node->lhs);
+    moduleScanImportExpressions(context, module, node->rhs);
+    moduleScanImportExpressions(context, module, node->extra);
+    moduleScanImportExpressions(context, module, node->body);
+
+    if(node->kind == AST_EXPR_STRUCT)
+    {
+        for(ASTStructMember *member = node->members; member != NULL; member = member->next)
+            moduleScanImportExpressions(context, module, member->value);
+    }
+
+    if(node->kind == AST_EXPR_STRUCT_LITERAL)
+    {
+        for(ASTStructLiteralField *field = node->struct_literal_fields; field != NULL; field = field->next)
+            moduleScanImportExpressions(context, module, field->value);
+    }
+}
+
 static void moduleScanImports(ModuleCompileContext *context, ModuleSourceFile *module)
 {
     ASTNode *statement = moduleStatements(module->ast_root);
     while(statement)
     {
+        moduleScanImportExpressions(context, module, statement);
+
         if(moduleIsImportDecl(statement))
         {
             if(statement->modifier.mutable || statement->modifier.explicit_type)
@@ -437,6 +491,7 @@ static void moduleScanImports(ModuleCompileContext *context, ModuleSourceFile *m
             char resolved_path[MODULE_MAX_PATH_LENGTH] = {0};
             moduleResolveImportPath(context, module->canonical_path, statement->rhs, resolved_path);
             ModuleSourceFile *imported = moduleLoadRecursive(context, resolved_path);
+            moduleRecordExpressionImport(module, imported);
             ModuleImportBinding *binding = &(module->imports[module->import_count++]);
             strcpy(binding->alias, statement->identifier);
             binding->module = imported;
@@ -789,6 +844,9 @@ static void rewriteExpr(ModuleSourceFile *module, RewriteScope *scope, ASTNode *
             return;
         }
         case AST_EXPR_BUILTIN:
+            if(strcmp(node->identifier, "import") == 0)
+                moduleSystemError("module imports must be used through member access or import bindings",
+                                  node->filename, node->line_number, node->column_number);
             rewriteExprList(module, scope, node->lhs);
             return;
         case AST_EXPR_MEMBER: {
@@ -810,6 +868,29 @@ static void rewriteExpr(ModuleSourceFile *module, RewriteScope *scope, ASTNode *
                     strcpy(node->identifier, binding->mangled);
                     return;
                 }
+            }
+            else if(node->lhs != NULL && node->lhs->kind == AST_EXPR_BUILTIN &&
+                    strcmp(node->lhs->identifier, "import") == 0)
+            {
+                if(moduleRewriteContext == NULL)
+                    moduleSystemError("internal module rewrite context unavailable",
+                                      node->filename, node->line_number, node->column_number);
+
+                char resolved_path[MODULE_MAX_PATH_LENGTH] = {0};
+                moduleResolveImportPath(moduleRewriteContext, module->canonical_path, node->lhs, resolved_path);
+                ModuleSourceFile *imported_module = moduleLoadRecursive(moduleRewriteContext, resolved_path);
+                ModuleTopLevelBinding *binding = moduleFindTopLevelBinding(imported_module, node->identifier);
+                if(binding == NULL || !binding->is_pub)
+                    moduleSystemError("imported module does not export the requested member",
+                                      node->filename, node->line_number, node->column_number);
+
+                node->kind = AST_EXPR_VARIABLE;
+                node->lhs = NULL;
+                node->rhs = NULL;
+                node->extra = NULL;
+                node->body = NULL;
+                strcpy(node->identifier, binding->mangled);
+                return;
             }
 
             rewriteExpr(module, scope, node->lhs);
@@ -1046,6 +1127,9 @@ static void moduleAppendStatementsDepthFirst(ModuleSourceFile *module, bool *vis
     for(int i = 0; i < module->import_count; i++)
         moduleAppendStatementsDepthFirst(module->imports[i].module, visited, head, tail);
 
+    for(int i = 0; i < module->expression_import_count; i++)
+        moduleAppendStatementsDepthFirst(module->expression_imports[i], visited, head, tail);
+
     ASTNode *statement = moduleStatements(module->ast_root);
     while(statement)
     {
@@ -1073,11 +1157,14 @@ static ASTNode* buildModuleProgramAST(const char *input_path, ModulePackage *pac
     context.package_count = package_count;
     ModuleSourceFile *root_module = moduleLoadRecursive(&context, input_path);
 
+    ModuleCompileContext *previous_rewrite_context = moduleRewriteContext;
+    moduleRewriteContext = &context;
     moduleAssignPrefixes(&context);
     for(int i = 0; i < context.module_count; i++)
         moduleCollectTopLevelBindings(&(context.modules[i]));
     for(int i = 0; i < context.module_count; i++)
         moduleRewrite(&(context.modules[i]));
+    moduleRewriteContext = previous_rewrite_context;
 
     ASTNode *root = newASTNode(AST_START_OF_CODE);
     ASTNode *top_level_block = newASTNode(AST_BLOCK);
