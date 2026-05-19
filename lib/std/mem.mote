@@ -1,0 +1,10 @@
+c = @import("std/internal/c");
+
+pub alloc = c.malloc;
+pub alloc_zeroed = c.calloc;
+pub realloc = c.realloc;
+pub free = c.free;
+pub copy = c.memcpy;
+pub move = c.memmove;
+pub set = c.memset;
+pub compare = c.memcmp;

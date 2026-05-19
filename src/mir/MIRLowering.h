@@ -1030,6 +1030,33 @@ static void mirEmitRetValue(MirFunctionState *state, MirValueId value)
 static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *node, ASTDataType *expected_type);
 static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *scope, ASTNode *node);
 static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNode *node);
+static const char* mirEnsureStringLiteralGlobal(MirLowering *lowering, const char *value);
+
+static bool mirIsCharPointerTarget(ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        return false;
+    if(data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
+        data_type = data_type->child;
+    return data_type != NULL &&
+           data_type->kind == AST_DATA_TYPE_KIND_POINTER &&
+           data_type->child != NULL &&
+           data_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           data_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR;
+}
+
+static MirValueId lowerStringLiteralAsPointer(MirFunctionState *state, ASTNode *node, ASTDataType *target_type)
+{
+    const char *global_name = mirEnsureStringLiteralGlobal(state->lowering, node->literal_string);
+    ASTDataType *global_type = newArrayDataType(
+        newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR),
+        strlen(node->literal_string) + 1
+    );
+    MirValueId global_addr = mirEmitGlobalAddr(state, global_name, global_type,
+                                               node->filename, node->line_number, node->column_number);
+    return mirEmitConvert(state, global_addr, target_type,
+                          node->filename, node->line_number, node->column_number);
+}
 
 static MirValueId mirMaybeConvertValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
                                        MirValueId value, ASTDataType *target_type)
@@ -1734,23 +1761,10 @@ static MirValueId lowerAsBuiltinExpr(MirFunctionState *state, MirLowerScope *sco
 
     if(value_expr != NULL &&
        value_expr->kind == AST_EXPR_LITERAL_STRING &&
-       target_type != NULL &&
-       target_type->kind == AST_DATA_TYPE_KIND_POINTER &&
-       target_type->child != NULL &&
-       target_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
-       target_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR)
-    {
-        const char *global_name = mirEnsureStringLiteralGlobal(state->lowering, value_expr->literal_string);
-        ASTDataType *global_type = newArrayDataType(
-            newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR),
-            strlen(value_expr->literal_string) + 1
-        );
-        MirValueId global_addr = mirEmitGlobalAddr(state, global_name, global_type,
-                                                   node->filename, node->line_number, node->column_number);
-        MirValueId ptr_value = mirEmitConvert(state, global_addr, target_type,
-                                              node->filename, node->line_number, node->column_number);
-        return mirMaybeConvertValue(state, scope, node, ptr_value, expected_type);
-    }
+       mirIsCharPointerTarget(target_type))
+        return mirMaybeConvertValue(state, scope, node,
+                                    lowerStringLiteralAsPointer(state, value_expr, target_type),
+                                    expected_type);
 
     MirValueId value = lowerExprAsValue(state, scope, value_expr, NULL);
     value = mirEmitConvert(state, value, target_type,
@@ -2110,6 +2124,10 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                                         expected_type);
         }
         case AST_EXPR_LITERAL_STRING: {
+            if(mirIsCharPointerTarget(expected_type))
+                return mirMaybeConvertValue(state, scope, node,
+                                            lowerStringLiteralAsPointer(state, node, expected_type),
+                                            expected_type);
             ASTDataType *string_type = expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE
                 ? cloneDataType(expr_type.data_type)
                 : newArrayDataType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR), strlen(node->literal_string));

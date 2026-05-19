@@ -1,0 +1,14 @@
+take_ptr = fn(text: *char) char {
+    return *text;
+};
+
+make_ptr = fn() *char {
+    return "world";
+};
+
+direct: *char = "hello";
+via_call: char = take_ptr("mote");
+via_return: *char = make_ptr();
+
+d0: char = *direct;
+r0: char = *via_return;

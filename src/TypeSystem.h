@@ -1326,6 +1326,18 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
         return false;
     }
 
+    if(source_node != NULL &&
+       source_node->kind == AST_EXPR_LITERAL_STRING &&
+       source_data_type->kind == AST_DATA_TYPE_KIND_ARRAY &&
+       source_data_type->child != NULL &&
+       source_data_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       source_data_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR &&
+       target_type->kind == AST_DATA_TYPE_KIND_POINTER &&
+       target_type->child != NULL &&
+       target_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       target_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR)
+        return true;
+
     if(source_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && target_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
     {
         if(source_data_type->mutable && !target_type->mutable && isSameDataType(source_data_type->child, target_type->child))
@@ -1998,6 +2010,16 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         } break;
         case AST_EXPR_ADDRESS_OF:
         case AST_EXPR_ADDRESS_OF_MUT: {
+            TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
+            if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+            {
+                return newTypeExprType(newWrappedDataType(
+                    AST_DATA_TYPE_KIND_REFERENCE,
+                    node->kind == AST_EXPR_ADDRESS_OF_MUT,
+                    cloneDataType(operand_type.data_type)
+                ));
+            }
+
             if(!isAddressableExpr(node->lhs))
                 typeSystemAbortNode("T1244", node,
                                     "cannot take address of non-addressable expression",
@@ -2008,7 +2030,6 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                                     "cannot take mutable address of immutable expression",
                                     "the target expression is not mutable");
 
-            TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
             if(operand_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
                 typeSystemAbortNode("T1246", node,
                                     "cannot take address of literal",
@@ -2024,6 +2045,15 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         } break;
         case AST_EXPR_DEREF: {
             TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
+            if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+            {
+                return newTypeExprType(newWrappedDataType(
+                    AST_DATA_TYPE_KIND_POINTER,
+                    false,
+                    cloneDataType(operand_type.data_type)
+                ));
+            }
+
             if(operand_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
                (operand_type.data_type->kind != AST_DATA_TYPE_KIND_POINTER &&
                 operand_type.data_type->kind != AST_DATA_TYPE_KIND_REFERENCE))

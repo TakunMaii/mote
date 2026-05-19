@@ -87,6 +87,46 @@ bool isEnumDeclAssign(ASTNode *node)
            node->rhs->kind == AST_EXPR_ENUM;
 }
 
+bool exprLooksLikeTypeDeclValue(ASTNode *node, ScopeFrame *scope)
+{
+    if(node == NULL)
+        return false;
+
+    switch(node->kind)
+    {
+        case AST_EXPR_TYPE_LITERAL:
+        case AST_EXPR_STRUCT:
+        case AST_EXPR_ENUM:
+            return true;
+        case AST_EXPR_PARENTHESIS:
+        case AST_EXPR_DEREF:
+        case AST_EXPR_ADDRESS_OF:
+        case AST_EXPR_ADDRESS_OF_MUT:
+            return exprLooksLikeTypeDeclValue(node->lhs, scope);
+        case AST_EXPR_VARIABLE:
+            return strcmp(node->identifier, "Self") == 0 ||
+                   builtinIdentifierToDataType(node->identifier) != NULL ||
+                   findTypeInfo(scope, node->identifier) != NULL;
+        default:
+            return false;
+    }
+}
+
+bool isTypeDeclAssign(ASTNode *node, ScopeFrame *scope)
+{
+    if(node == NULL ||
+       node->kind != AST_ASSIGN ||
+       node->lhs == NULL ||
+       node->lhs->kind != AST_EXPR_VARIABLE ||
+       node->rhs == NULL)
+        return false;
+
+    if(isStructDeclAssign(node) || isEnumDeclAssign(node))
+        return true;
+
+    return exprLooksLikeTypeDeclValue(node->rhs, scope);
+}
+
 void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope);
 void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context);
 void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context);
@@ -289,7 +329,7 @@ void checkDeferredAssignmentSemantics(ASTNode *node, ScopeFrame *scope)
     if(node == NULL || node->kind != AST_ASSIGN)
         return;
 
-    if(isStructDeclAssign(node) || isEnumDeclAssign(node))
+    if(isTypeDeclAssign(node, scope))
     {
         semanticAbortNode("S1006", node,
                           "defer cannot declare a type",
@@ -316,7 +356,7 @@ void checkDeferredAssignmentSemantics(ASTNode *node, ScopeFrame *scope)
 
 void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
 {
-    if(isStructDeclAssign(node) || isEnumDeclAssign(node))
+    if(isTypeDeclAssign(node, scope))
     {
         if(findTypeInfoInScope(scope, node->identifier) >= 0)
         {
@@ -327,7 +367,8 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
         }
 
         TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
-        type_info->data_type = cloneDataType(node->rhs->data_type);
+        TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
+        type_info->data_type = cloneDataType(expr_type.data_type);
         strcpy(type_info->data_type->identifier, node->identifier);
         node->data_type = cloneDataType(type_info->data_type);
         if(node->rhs->kind == AST_EXPR_STRUCT)
@@ -964,30 +1005,44 @@ void checkConditionType(ASTNode *condition, ScopeFrame *scope)
 
 void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *function_context)
 {
-    if(isStructDeclAssign(node))
+    if(isTypeDeclAssign(node, scope))
     {
-        if(findTypeInfoInScope(scope, node->identifier) >= 0)
+        if(isStructDeclAssign(node))
         {
-            semanticAbortTypeFormatted("T1108", node,
-                                       "duplicate type declaration",
-                                       "type `%s` has already been declared in this scope",
-                                       node->identifier);
+            if(findTypeInfoInScope(scope, node->identifier) >= 0)
+            {
+                semanticAbortTypeFormatted("T1108", node,
+                                           "duplicate type declaration",
+                                           "type `%s` has already been declared in this scope",
+                                           node->identifier);
+            }
+
+            ASTDataType *struct_type = declareStructType(node, scope);
+            ASTStructMember *member = node->rhs->members;
+            while(member)
+            {
+                if(member->value)
+                    checkFunctionExprTypes(member->value, scope, struct_type);
+                member = member->next;
+            }
+
+            return;
         }
 
-        ASTDataType *struct_type = declareStructType(node, scope);
-        ASTStructMember *member = node->rhs->members;
-        while(member)
+        if(isEnumDeclAssign(node))
         {
-            if(member->value)
-                checkFunctionExprTypes(member->value, scope, struct_type);
-            member = member->next;
+            if(findTypeInfoInScope(scope, node->identifier) >= 0)
+            {
+                semanticAbortTypeFormatted("T1109", node,
+                                           "duplicate type declaration",
+                                           "type `%s` has already been declared in this scope",
+                                           node->identifier);
+            }
+
+            declareEnumType(node, scope);
+            return;
         }
 
-        return;
-    }
-
-    if(isEnumDeclAssign(node))
-    {
         if(findTypeInfoInScope(scope, node->identifier) >= 0)
         {
             semanticAbortTypeFormatted("T1109", node,
@@ -996,7 +1051,12 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
                                        node->identifier);
         }
 
-        declareEnumType(node, scope);
+        TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
+        TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
+        type_info->data_type = resolveNamedDataType(expr_type.data_type, scope,
+                                                    function_context == NULL ? NULL : function_context->self_data_type);
+        strcpy(type_info->data_type->identifier, node->identifier);
+        node->data_type = cloneDataType(type_info->data_type);
         return;
     }
 

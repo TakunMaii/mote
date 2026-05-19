@@ -413,6 +413,7 @@ static ModuleSourceFile* moduleAppend(ModuleCompileContext *context)
 }
 
 static ModuleSourceFile* moduleLoadRecursive(ModuleCompileContext *context, const char *path);
+static bool rewriteExprLooksLikeTypeValue(ModuleSourceFile *module, RewriteScope *scope, ASTNode *node);
 
 static void moduleRecordExpressionImport(ModuleSourceFile *module, ModuleSourceFile *imported_module)
 {
@@ -574,7 +575,9 @@ static void moduleCollectTopLevelBindings(ModuleSourceFile *module)
                 memset(binding, 0, sizeof(ModuleTopLevelBinding));
                 strcpy(binding->original, statement->identifier);
                 snprintf(binding->mangled, sizeof(binding->mangled), "%s%s", module->symbol_prefix, statement->identifier);
-                binding->is_type_decl = moduleIsStructDeclAssign(statement) || moduleIsEnumDeclAssign(statement);
+                binding->is_type_decl = moduleIsStructDeclAssign(statement) ||
+                                        moduleIsEnumDeclAssign(statement) ||
+                                        rewriteExprLooksLikeTypeValue(module, NULL, statement->rhs);
                 binding->decl = statement;
                 binding->is_pub = statement->is_pub;
             }
@@ -678,6 +681,49 @@ static bool moduleDataTypeIsPrimaryTypeKeyword(ASTDataType *data_type)
     return data_type != NULL &&
            data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
            data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE;
+}
+
+static bool moduleFindTypeAliasBinding(RewriteScope *scope, const char *identifier)
+{
+    return identifier != NULL &&
+           (builtinIdentifierToDataType(identifier) != NULL ||
+            strcmp(identifier, "Self") == 0 ||
+            findRewriteTypeBinding(scope, identifier) != NULL);
+}
+
+static bool rewriteExprLooksLikeTypeValue(ModuleSourceFile *module, RewriteScope *scope, ASTNode *node)
+{
+    if(node == NULL)
+        return false;
+
+    switch(node->kind)
+    {
+        case AST_EXPR_TYPE_LITERAL:
+        case AST_EXPR_STRUCT:
+        case AST_EXPR_ENUM:
+            return true;
+        case AST_EXPR_PARENTHESIS:
+            return rewriteExprLooksLikeTypeValue(module, scope, node->lhs);
+        case AST_EXPR_DEREF:
+        case AST_EXPR_ADDRESS_OF:
+        case AST_EXPR_ADDRESS_OF_MUT:
+            return rewriteExprLooksLikeTypeValue(module, scope, node->lhs);
+        case AST_EXPR_VARIABLE:
+            return moduleFindTypeAliasBinding(scope, node->identifier);
+        case AST_EXPR_MEMBER:
+            if(node->lhs != NULL && node->lhs->kind == AST_EXPR_VARIABLE)
+            {
+                RewriteValueBinding *import_binding = findRewriteValueBinding(scope, node->lhs->identifier);
+                if(import_binding != NULL && import_binding->is_import_alias)
+                {
+                    ModuleTopLevelBinding *binding = moduleFindTopLevelBinding(import_binding->imported_module, node->identifier);
+                    return binding != NULL && binding->is_pub && binding->is_type_decl;
+                }
+            }
+            return false;
+        default:
+            return false;
+    }
 }
 
 static void rewriteDataType(ModuleSourceFile *module, RewriteScope *scope, ASTDataType *data_type);
@@ -1007,7 +1053,8 @@ static void rewriteStatement(ModuleSourceFile *module, RewriteScope *scope, ASTN
             ModuleTopLevelBinding *top_level_binding = moduleFindTopLevelBinding(module, node->identifier);
             bool is_top_level_binding = top_level_binding != NULL && scope->parent == NULL;
 
-            if(moduleIsStructDeclAssign(node) || moduleIsEnumDeclAssign(node))
+            if(moduleIsStructDeclAssign(node) || moduleIsEnumDeclAssign(node) ||
+               rewriteExprLooksLikeTypeValue(module, scope, node->rhs))
             {
                 char original_identifier[MAX_IDENTIFIER_LENGTH] = {0};
                 strcpy(original_identifier, node->identifier);
@@ -1045,13 +1092,13 @@ static void rewriteStatement(ModuleSourceFile *module, RewriteScope *scope, ASTN
                     strcpy(node->identifier, top_level_binding->mangled);
                     strcpy(node->lhs->identifier, top_level_binding->mangled);
                     declareRewriteValueBinding(scope, top_level_binding->original, top_level_binding->mangled);
-                    if(node->rhs != NULL && node->rhs->kind == AST_EXPR_TYPE_LITERAL)
+                    if(rewriteExprLooksLikeTypeValue(module, scope, node->rhs))
                         declareRewriteTypeBinding(scope, top_level_binding->original, top_level_binding->mangled);
                 }
                 else if(rewriteWouldDeclareNewVariable(scope, node))
                 {
                     declareRewriteValueBinding(scope, node->identifier, node->identifier);
-                    if(node->rhs != NULL && node->rhs->kind == AST_EXPR_TYPE_LITERAL)
+                    if(rewriteExprLooksLikeTypeValue(module, scope, node->rhs))
                         declareRewriteTypeBinding(scope, node->identifier, node->identifier);
                 }
                 return;

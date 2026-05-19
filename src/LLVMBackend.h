@@ -1261,6 +1261,26 @@ static void llvmEmitConvertInst(FILE *stream, LLVMFunctionEmitContext *context, 
     ASTDataType *source_type = llvmResolvedValueType(context, inst->data.convert.operand);
     ASTDataType *target_type = inst->data.convert.target_type;
 
+    if(source_type->kind == AST_DATA_TYPE_KIND_POINTER &&
+       source_type->child != NULL &&
+       source_type->child->kind == AST_DATA_TYPE_KIND_ARRAY &&
+       source_type->child->child != NULL &&
+       source_type->child->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       source_type->child->child->primary == AST_PRIMARY_DATA_TYPE_CHAR &&
+       target_type->kind == AST_DATA_TYPE_KIND_POINTER &&
+       target_type->child != NULL &&
+       target_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       target_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR)
+    {
+        llvmEmitInstructionPrefix(stream, inst->result);
+        fprintf(stream, "getelementptr ");
+        llvmEmitStorageType(stream, source_type->child);
+        fprintf(stream, ", ptr ");
+        llvmEmitValueRef(stream, context, inst->data.convert.operand);
+        fprintf(stream, ", i32 0, i32 0\n");
+        return;
+    }
+
     if(source_type->kind == AST_DATA_TYPE_KIND_POINTER || source_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
     {
         context->aliases[inst->result] = llvmResolveAlias(context, inst->data.convert.operand);

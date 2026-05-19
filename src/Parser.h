@@ -585,6 +585,13 @@ ASTNode* parsePrimary(Token **token)
     if((*token)->kind == TK_FN)
         return parseFunctionExpr(token);
 
+    if((*token)->kind == TK_QUESTION)
+    {
+        ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
+        node->data_type = parseDataType(token);
+        return node;
+    }
+
     if((*token)->kind == TK_TYPE)
     {
         ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
@@ -592,7 +599,8 @@ ASTNode* parsePrimary(Token **token)
         return node;
     }
 
-    if((*token)->kind == TK_IDENTIFIER && strcmp((*token)->identifier, "Function") == 0)
+    if((*token)->kind == TK_IDENTIFIER &&
+       (strcmp((*token)->identifier, "Function") == 0 || strcmp((*token)->identifier, "Array") == 0))
     {
         ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
         node->data_type = parseTypeExpr(token);
@@ -811,6 +819,12 @@ ASTNode* parseUnary(Token **token)
         kind = AST_EXPR_UNARY_LOGICAL_NOT;
     else if((*token)->kind == TK_TILDE)
         kind = AST_EXPR_UNARY_BIT_NOT;
+    else if((*token)->kind == TK_STAR && (*token)->next != NULL && (*token)->next->kind == TK_MUT)
+    {
+        ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
+        node->data_type = parseDataType(token);
+        return node;
+    }
     else if((*token)->kind == TK_STAR)
         kind = AST_EXPR_DEREF;
     else if((*token)->kind == TK_AMPERSAND)

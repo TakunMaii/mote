@@ -19,6 +19,68 @@
       "input": "test\\basic\\function_return_infer.mote"
     },
     {
+      "name": "string-ptr-context-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\string_ptr_context.mote"
+    },
+    {
+      "name": "std-smoke-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_smoke.mote",
+      "args": [
+        "-I",
+        "lib"
+      ]
+    },
+    {
+      "name": "std-string-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_string_api.mote",
+      "args": [
+        "-I",
+        "lib"
+      ]
+    },
+    {
+      "name": "std-mem-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_mem_api.mote",
+      "args": [
+        "-I",
+        "lib"
+      ]
+    },
+    {
+      "name": "std-math-ctype-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_math_ctype_api.mote",
+      "args": [
+        "-I",
+        "lib"
+      ]
+    },
+    {
+      "name": "std-fs-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_fs_api.mote",
+      "args": [
+        "-I",
+        "lib"
+      ]
+    },
+    {
+      "name": "type-alias-boundaries-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\type_alias_boundaries.mote"
+    },
+    {
       "name": "diagnostic-type-error",
       "expect": "failure",
       "input": "test\\diagnostic\\bad_type.mote",

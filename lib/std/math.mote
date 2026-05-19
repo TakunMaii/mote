@@ -1,0 +1,8 @@
+c = @import("std/internal/c");
+
+pub sin_f32 = c.sinf;
+pub cos_f32 = c.cosf;
+pub sqrt_f32 = c.sqrtf;
+pub abs_f64 = c.fabs;
+pub abs_f32 = c.fabsf;
+pub min_f32 = c.fminf;

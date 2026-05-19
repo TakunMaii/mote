@@ -1,0 +1,48 @@
+c = @import("c");
+
+pub size_t = c.size_t;
+pub SEEK_SET = c.SEEK_SET;
+pub SEEK_CUR = c.SEEK_CUR;
+pub SEEK_END = c.SEEK_END;
+
+pub malloc = c.malloc;
+pub calloc = c.calloc;
+pub realloc = c.realloc;
+pub free = c.free;
+pub memcpy = c.memcpy;
+pub memmove = c.memmove;
+pub memset = c.memset;
+pub memcmp = c.memcmp;
+
+pub fopen = c.fopen;
+pub fclose = c.fclose;
+pub fread = c.fread;
+pub fwrite = c.fwrite;
+pub fflush = c.fflush;
+pub rewind = c.rewind;
+pub fgetc = c.fgetc;
+pub fputc = c.fputc;
+pub fgets = c.fgets;
+pub fputs = c.fputs;
+pub feof = c.feof;
+pub ferror = c.ferror;
+pub remove = c.remove;
+pub rename = c.rename;
+
+pub putchar = c.putchar;
+pub puts = c.puts;
+pub stderr_handle = c.stderr_handle;
+
+pub strlen = c.strlen;
+pub strcmp = c.strcmp;
+pub strncmp = c.strncmp;
+pub atoi = c.atoi;
+
+pub isdigit = c.isdigit;
+
+pub sinf = c.sinf;
+pub cosf = c.cosf;
+pub sqrtf = c.sqrtf;
+pub fabs = c.fabs;
+pub fabsf = c.fabsf;
+pub fminf = c.fminf;

@@ -1,0 +1,15 @@
+PtrChar = *char;
+MutPtrChar = *mut char;
+OptI32 = ?i32;
+I32x4 = Array(i32, 4);
+
+ptr: PtrChar = "hi";
+mut backing: char = 'x';
+mut_ptr: MutPtrChar = &mut backing;
+opt: OptI32 = null;
+arr: I32x4 = [1, 2, 3, 4];
+
+sink_ptr: PtrChar = ptr;
+sink_mut_ptr: MutPtrChar = mut_ptr;
+sink_opt: OptI32 = opt;
+sink_arr: I32x4 = arr;

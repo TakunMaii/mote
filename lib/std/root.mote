@@ -1,0 +1,15 @@
+types = @import("std/types");
+string = @import("std/string");
+io = @import("std/io");
+
+pub byte = types.byte;
+pub size_t = types.size_t;
+
+pub string_len = string.len;
+pub string_compare = string.compare;
+pub string_compare_n = string.compare_n;
+pub string_to_int = string.to_int;
+
+pub io_put_char = io.put_char;
+pub io_put_str = io.put_str;
+pub io_stderr_handle = io.stderr_handle;

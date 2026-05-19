@@ -1,0 +1,13 @@
+ctype = @import("std/ctype");
+math = @import("std/math");
+
+main = fn() void {
+    digit_ok = ctype.is_digit(@as(i32, '7')) != 0;
+    sqrt_ok = math.sqrt_f32(9.0) == 3.0;
+    min_ok = math.min_f32(2.0, 5.0) == 2.0;
+    abs_ok = math.abs_f32(@as(f32, -3.5)) == @as(f32, 3.5);
+
+    if(digit_ok && sqrt_ok && min_ok && abs_ok) {
+        sink = 1;
+    }
+};
