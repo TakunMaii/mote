@@ -1054,10 +1054,9 @@ static void llvmEmitNativeExternCallTarget(FILE *stream, const char *symbol_name
     fprintf(stream, " @%s", symbol_name);
 }
 
-static void llvmEmitDynamicExternCallTarget(FILE *stream, ASTDataType *function_type)
+static void llvmEmitDynamicFunctionPointerSignature(FILE *stream, ASTDataType *function_type)
 {
-    llvmEmitNativeExternReturnType(stream, function_type->return_data_type);
-    fprintf(stream, " (");
+    fprintf(stream, "(");
 
     ASTFunctionParameter *parameter = function_type->parameters;
     bool need_comma = false;
@@ -1065,7 +1064,7 @@ static void llvmEmitDynamicExternCallTarget(FILE *stream, ASTDataType *function_
     {
         if(need_comma)
             fprintf(stream, ", ");
-        llvmEmitNativeExternParameterType(stream, parameter->data_type);
+        llvmEmitType(stream, parameter->data_type);
         need_comma = true;
         parameter = parameter->next;
     }
@@ -1168,7 +1167,7 @@ static void llvmEmitExternWrapperDefinition(FILE *stream, MirExternFunction *ext
     if(extern_function->kind == MIR_EXTERN_FUNCTION_DYNAMIC_POINTER)
     {
         fprintf(stream, " ");
-        llvmEmitDynamicExternCallTarget(stream, function_type);
+        llvmEmitDynamicFunctionPointerSignature(stream, function_type);
         fprintf(stream, " %%fn_ptr");
     }
     else
@@ -1420,10 +1419,19 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 return;
             }
 
+            if(inst->result_type != NULL &&
+               inst->result_type->kind == AST_DATA_TYPE_KIND_FUNCTION &&
+               inst->kind == MIR_INST_CONST_INT &&
+               inst->data.const_int.value == 0)
+            {
+                llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type);
+                return;
+            }
+
             if(llvmIsFloatDataType(inst->result_type))
             {
                 llvmEmitFloatConstantInst(stream, inst->result, inst->result_type,
-                                          inst->kind == MIR_INST_CONST_CHAR
+                                         inst->kind == MIR_INST_CONST_CHAR
                                               ? (long double)(unsigned char)inst->data.const_char.value
                                               : (long double)inst->data.const_int.value);
                 return;

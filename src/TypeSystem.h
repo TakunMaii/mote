@@ -1456,6 +1456,71 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     return false;
 }
 
+bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType *target_type)
+{
+    if(expr == NULL || target_type == NULL || isInferDataType(target_type))
+        return false;
+
+    if(expr->kind == AST_EXPR_PARENTHESIS)
+        return canImplicitConvertExprToType(expr->lhs, scope, target_type);
+
+    if(expr->kind == AST_EXPR_ARRAY_LITERAL)
+    {
+        if(target_type->kind != AST_DATA_TYPE_KIND_ARRAY)
+            return false;
+
+        long long int length = 0;
+        ASTNode *element = expr->lhs;
+        while(element)
+        {
+            if(!canImplicitConvertExprToType(element, scope, target_type->child))
+                return false;
+            length++;
+            element = element->next;
+        }
+
+        return length == target_type->array_length;
+    }
+
+    if(expr->kind == AST_EXPR_STRUCT_LITERAL)
+    {
+        TypeSystemExprType type_expr = inferExprType(expr->lhs, scope);
+        if(type_expr.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE || !isStructDataType(type_expr.data_type))
+            return false;
+        if(!isSameDataType(type_expr.data_type, target_type))
+            return false;
+
+        ASTStructMember *member = target_type->members;
+        while(member)
+        {
+            if(member->value == NULL)
+            {
+                ASTStructLiteralField *field = expr->struct_literal_fields;
+                while(field && strcmp(field->identifier, member->identifier) != 0)
+                    field = field->next;
+                if(field == NULL)
+                    return false;
+                if(!canImplicitConvertExprToType(field->value, scope, member->data_type))
+                    return false;
+            }
+            member = member->next;
+        }
+
+        ASTStructLiteralField *field = expr->struct_literal_fields;
+        while(field)
+        {
+            ASTStructMember *declared_member = findStructMember(target_type, field->identifier);
+            if(declared_member == NULL || declared_member->value != NULL)
+                return false;
+            field = field->next;
+        }
+
+        return true;
+    }
+
+    return canImplicitConvertDataType(inferExprType(expr, scope), expr, target_type);
+}
+
 MOTE_NORETURN void typeErrorBinaryOperator(ASTNode *node, const char *operator_name,
                                            TypeSystemExprType lhs_type, TypeSystemExprType rhs_type)
 {
@@ -1538,6 +1603,20 @@ TypeSystemExprType getCommonNumericType(ASTNode *node, TypeSystemExprType lhs_ty
     {
         return newValueExprType(lhs_type.data_type);
     }
+
+    if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT &&
+       rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+       rhs_type.data_type != NULL &&
+       rhs_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       isFloatPrimary(rhs_type.data_type->primary))
+        return newValueExprType(rhs_type.data_type);
+
+    if(rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT &&
+       lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+       lhs_type.data_type != NULL &&
+       lhs_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       isFloatPrimary(lhs_type.data_type->primary))
+        return newValueExprType(lhs_type.data_type);
 
     ASTDataType *lhs = normalizeNumericDataType(lhs_type);
     ASTDataType *rhs = normalizeNumericDataType(rhs_type);
@@ -1731,7 +1810,7 @@ void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argume
                                     "function reference argument type mismatch",
                                     "argument cannot bind to the reference parameter");
         }
-        else if(!canImplicitConvertDataType(argument_type, argument, parameter->data_type))
+        else if(!canImplicitConvertExprToType(argument, scope, parameter->data_type))
             typeSystemAbortNode("T1221", argument,
                                 "function argument type mismatch",
                                 "argument cannot be implicitly converted to the parameter type");
@@ -1926,8 +2005,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                                                  "missing field `%s` in struct literal",
                                                  member->identifier);
 
-                    TypeSystemExprType field_type = inferExprType(field->value, scope);
-                    if(!canImplicitConvertDataType(field_type, field->value, member->data_type))
+                    if(!canImplicitConvertExprToType(field->value, scope, member->data_type))
                         typeSystemAbortFormatted("T1233", field->value,
                                                  "struct field type mismatch",
                                                  "struct field `%s` has an incompatible value",
@@ -2085,9 +2163,9 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         case AST_EXPR_UNARY_MINUS: {
             TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
             if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER)
-                return newValueExprType(defaultIntegerDataType());
+                return newLiteralIntegerExprType();
             if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
-                return newValueExprType(defaultFloatDataType());
+                return newLiteralFloatExprType();
             if(operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
                operand_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
                (isIntegerPrimary(operand_type.data_type->primary) || isFloatPrimary(operand_type.data_type->primary)))

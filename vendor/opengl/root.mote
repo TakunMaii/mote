@@ -20,21 +20,32 @@ pub LINK_STATUS: u32 = 35714;
 pub INFO_LOG_LENGTH: u32 = 35716;
 pub TEXTURE_2D: u32 = 3553;
 pub TEXTURE0: u32 = 33984;
+pub TEXTURE_BORDER_COLOR: u32 = 4100;
 pub TEXTURE_MIN_FILTER: u32 = 10241;
 pub TEXTURE_MAG_FILTER: u32 = 10240;
 pub TEXTURE_WRAP_S: u32 = 10242;
 pub TEXTURE_WRAP_T: u32 = 10243;
 pub LINEAR: u32 = 9729;
 pub NEAREST: u32 = 9728;
+pub NONE: u32 = 0;
 pub CLAMP_TO_EDGE: u32 = 33071;
+pub CLAMP_TO_BORDER: u32 = 33069;
 pub REPEAT: u32 = 10497;
 pub RGBA: u32 = 6408;
 pub RGB: u32 = 6407;
+pub DEPTH_COMPONENT: u32 = 6402;
+pub DEPTH_COMPONENT24: u32 = 33190;
 pub BLEND: u32 = 3042;
+pub CULL_FACE: u32 = 2884;
 pub SRC_ALPHA: u32 = 770;
 pub ONE_MINUS_SRC_ALPHA: u32 = 771;
 pub DEPTH_TEST: u32 = 2929;
 pub LEQUAL: u32 = 515;
+pub FRONT: u32 = 1028;
+pub BACK: u32 = 1029;
+pub FRAMEBUFFER: u32 = 36160;
+pub DEPTH_ATTACHMENT: u32 = 36096;
+pub FRAMEBUFFER_COMPLETE: u32 = 36053;
 
 Loader = Function([*char], *void);
 
@@ -74,6 +85,7 @@ FnGetProgramiv = Function([u32, u32, *mut i32], void);
 FnGetProgramInfoLog = Function([u32, i32, *mut i32, *mut char], void);
 FnUseProgram = Function([u32], void);
 FnDeleteProgram = Function([u32], void);
+FnGetAttribLocation = Function([u32, *char], i32);
 
 FnGetUniformLocation = Function([u32, *char], i32);
 FnUniform1i = Function([i32, i32], void);
@@ -87,9 +99,17 @@ FnActiveTexture = Function([u32], void);
 FnGenTextures = Function([i32, *mut u32], void);
 FnBindTexture = Function([u32, u32], void);
 FnTexParameteri = Function([u32, u32, i32], void);
+FnTexParameterfv = Function([u32, u32, *f32], void);
 FnTexImage2D = Function([u32, i32, i32, i32, i32, i32, u32, u32, *void], void);
 FnGenerateMipmap = Function([u32], void);
 FnDeleteTextures = Function([i32, *u32], void);
+
+FnGenFramebuffers = Function([i32, *mut u32], void);
+FnBindFramebuffer = Function([u32, u32], void);
+FnFramebufferTexture2D = Function([u32, u32, u32, u32, i32], void);
+FnCheckFramebufferStatus = Function([u32], u32);
+FnDeleteFramebuffers = Function([i32, *u32], void);
+FnCullFace = Function([u32], void);
 
 FnDrawArrays = Function([u32, i32, i32], void);
 FnDrawElements = Function([u32, i32, u32, *void], void);
@@ -130,6 +150,7 @@ pub mut GetProgramiv: FnGetProgramiv = 0;
 pub mut GetProgramInfoLog: FnGetProgramInfoLog = 0;
 pub mut UseProgram: FnUseProgram = 0;
 pub mut DeleteProgram: FnDeleteProgram = 0;
+pub mut GetAttribLocation: FnGetAttribLocation = 0;
 
 pub mut GetUniformLocation: FnGetUniformLocation = 0;
 pub mut Uniform1i: FnUniform1i = 0;
@@ -143,9 +164,17 @@ pub mut ActiveTexture: FnActiveTexture = 0;
 pub mut GenTextures: FnGenTextures = 0;
 pub mut BindTexture: FnBindTexture = 0;
 pub mut TexParameteri: FnTexParameteri = 0;
+pub mut TexParameterfv: FnTexParameterfv = 0;
 pub mut TexImage2D: FnTexImage2D = 0;
 pub mut GenerateMipmap: FnGenerateMipmap = 0;
 pub mut DeleteTextures: FnDeleteTextures = 0;
+
+pub mut GenFramebuffers: FnGenFramebuffers = 0;
+pub mut BindFramebuffer: FnBindFramebuffer = 0;
+pub mut FramebufferTexture2D: FnFramebufferTexture2D = 0;
+pub mut CheckFramebufferStatus: FnCheckFramebufferStatus = 0;
+pub mut DeleteFramebuffers: FnDeleteFramebuffers = 0;
+pub mut CullFace: FnCullFace = 0;
 
 pub mut DrawArrays: FnDrawArrays = 0;
 pub mut DrawElements: FnDrawElements = 0;
@@ -191,6 +220,7 @@ pub LoadWith = fn(loader: Loader) void {
     GetProgramInfoLog = @as(FnGetProgramInfoLog, load_fn(loader, @as(*char, "glGetProgramInfoLog")));
     UseProgram = @as(FnUseProgram, load_fn(loader, @as(*char, "glUseProgram")));
     DeleteProgram = @as(FnDeleteProgram, load_fn(loader, @as(*char, "glDeleteProgram")));
+    GetAttribLocation = @as(FnGetAttribLocation, load_fn(loader, @as(*char, "glGetAttribLocation")));
 
     GetUniformLocation = @as(FnGetUniformLocation, load_fn(loader, @as(*char, "glGetUniformLocation")));
     Uniform1i = @as(FnUniform1i, load_fn(loader, @as(*char, "glUniform1i")));
@@ -204,9 +234,17 @@ pub LoadWith = fn(loader: Loader) void {
     GenTextures = @as(FnGenTextures, load_fn(loader, @as(*char, "glGenTextures")));
     BindTexture = @as(FnBindTexture, load_fn(loader, @as(*char, "glBindTexture")));
     TexParameteri = @as(FnTexParameteri, load_fn(loader, @as(*char, "glTexParameteri")));
+    TexParameterfv = @as(FnTexParameterfv, load_fn(loader, @as(*char, "glTexParameterfv")));
     TexImage2D = @as(FnTexImage2D, load_fn(loader, @as(*char, "glTexImage2D")));
     GenerateMipmap = @as(FnGenerateMipmap, load_fn(loader, @as(*char, "glGenerateMipmap")));
     DeleteTextures = @as(FnDeleteTextures, load_fn(loader, @as(*char, "glDeleteTextures")));
+
+    GenFramebuffers = @as(FnGenFramebuffers, load_fn(loader, @as(*char, "glGenFramebuffers")));
+    BindFramebuffer = @as(FnBindFramebuffer, load_fn(loader, @as(*char, "glBindFramebuffer")));
+    FramebufferTexture2D = @as(FnFramebufferTexture2D, load_fn(loader, @as(*char, "glFramebufferTexture2D")));
+    CheckFramebufferStatus = @as(FnCheckFramebufferStatus, load_fn(loader, @as(*char, "glCheckFramebufferStatus")));
+    DeleteFramebuffers = @as(FnDeleteFramebuffers, load_fn(loader, @as(*char, "glDeleteFramebuffers")));
+    CullFace = @as(FnCullFace, load_fn(loader, @as(*char, "glCullFace")));
 
     DrawArrays = @as(FnDrawArrays, load_fn(loader, @as(*char, "glDrawArrays")));
     DrawElements = @as(FnDrawElements, load_fn(loader, @as(*char, "glDrawElements")));

@@ -750,8 +750,7 @@ void checkFunctionReturnStatement(ASTNode *node, ScopeFrame *scope, FunctionCont
                               "this function requires a return value");
     }
 
-    TypeSystemExprType return_type = inferExprType(node->lhs, scope);
-    if(!canImplicitConvertDataType(return_type, node->lhs, expected_type))
+    if(!canImplicitConvertExprToType(node->lhs, scope, expected_type))
     {
         semanticAbortTypeNode("T1106", node->lhs,
                               "return type mismatch",
@@ -1130,7 +1129,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         if(target_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
             target_type = target_type->child;
 
-        if(!canImplicitConvertDataType(expr_type, node->rhs, target_type))
+        if(!canImplicitConvertExprToType(node->rhs, scope, target_type))
             typeErrorAssign(node, node->rhs, expr_type, target_type);
 
         node->data_type = cloneDataType(target_type);
@@ -1165,7 +1164,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
                                   "the indexed receiver is immutable");
         }
 
-        if(!canImplicitConvertDataType(expr_type, node->rhs, array_type->child))
+        if(!canImplicitConvertExprToType(node->rhs, scope, array_type->child))
             typeErrorAssign(node, node->rhs, expr_type, array_type->child);
 
         node->data_type = cloneDataType(array_type->child);
@@ -1244,7 +1243,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         }
         else
         {
-            if(!canImplicitConvertDataType(expr_type, node->rhs, declared_type))
+            if(!canImplicitConvertExprToType(node->rhs, scope, declared_type))
                 typeErrorAssign(node, node->rhs, expr_type, declared_type);
         }
 
@@ -1280,7 +1279,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             if(node->rhs->kind == AST_EXPR_BUILTIN && strcmp(node->rhs->identifier, "extern") == 0)
                 new_variable_info->extern_value = node->rhs;
 
-            if(!canImplicitConvertDataType(expr_type, node->rhs, declared_type))
+            if(!canImplicitConvertExprToType(node->rhs, scope, declared_type))
                 typeErrorAssign(node, node->rhs, expr_type, declared_type);
         }
         else
@@ -1292,7 +1291,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             if(assign_through_reference)
                 target_type = target_type->child;
 
-            if(!canImplicitConvertDataType(expr_type, node->rhs, target_type))
+            if(!canImplicitConvertExprToType(node->rhs, scope, target_type))
                 typeErrorAssign(node, node->rhs, expr_type, target_type);
 
             if(assign_through_reference)

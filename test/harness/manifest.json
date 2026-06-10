@@ -43,6 +43,12 @@
       "input": "test\\basic\\opaque_handle.mote"
     },
     {
+      "name": "float-literal-context-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\float_literal_context.mote"
+    },
+    {
       "name": "std-smoke-llvm",
       "expect": "success",
       "mode": "llvm",

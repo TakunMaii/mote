@@ -568,6 +568,21 @@ static ASTDataType* mirResolvedExprValueType(ASTNode *node, ScopeFrame *scope)
     return cloneDataType(expr_type.data_type);
 }
 
+static ASTDataType* mirPreferredExprValueType(ASTNode *node, ScopeFrame *scope, ASTDataType *expected_type)
+{
+    if(expected_type == NULL)
+        return mirResolvedExprValueType(node, scope);
+
+    TypeSystemExprType expr_type = inferExprType(node, scope);
+    if((expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER ||
+        expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT) &&
+       expected_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       (isIntegerPrimary(expected_type->primary) || isFloatPrimary(expected_type->primary)))
+        return cloneDataType(expected_type);
+
+    return mirResolvedExprValueType(node, scope);
+}
+
 static ASTDataType* mirRuntimeParameterType(ASTDataType *source_type)
 {
     if(source_type != NULL && source_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
@@ -2126,8 +2141,14 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
 
     if(node->kind == AST_EXPR_STRUCT_LITERAL)
     {
-        TypeSystemExprType type_expr = inferExprType(node->lhs, &(scope->type_scope));
-        ASTDataType *struct_type = resolveNamedDataType(type_expr.data_type, &(scope->type_scope), scope->self_data_type);
+        ASTDataType *struct_type = NULL;
+        if(expected_type != NULL && expected_type->kind == AST_DATA_TYPE_KIND_STRUCT)
+            struct_type = cloneDataType(expected_type);
+        else
+        {
+            TypeSystemExprType type_expr = inferExprType(node->lhs, &(scope->type_scope));
+            struct_type = resolveNamedDataType(type_expr.data_type, &(scope->type_scope), scope->self_data_type);
+        }
         int field_count = countStructDataFields(struct_type);
         MirFieldValueList fields = newMirFieldValueList(field_count);
         ASTStructMember *member = struct_type->members;
@@ -2226,7 +2247,8 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
         case AST_EXPR_FUNCTION:
             return lowerFunctionExprAsValue(state, scope, node, NULL, scope->self_data_type);
         case AST_EXPR_ARRAY_LITERAL: {
-            ASTDataType *array_type = mirResolvedExprValueType(node, &(scope->type_scope));
+            ASTDataType *array_type = expected_type != NULL ? cloneDataType(expected_type)
+                                                            : mirResolvedExprValueType(node, &(scope->type_scope));
             int count = countASTNodes(node->lhs);
             MirOperandList elements = newMirOperandList(count);
             ASTNode *element = node->lhs;
@@ -2290,7 +2312,7 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
             }
             return lowerExprAsValue(state, scope, node->lhs, expected_type);
         case AST_EXPR_UNARY_MINUS: {
-            ASTDataType *result_type = mirResolvedExprValueType(node, &(scope->type_scope));
+            ASTDataType *result_type = mirPreferredExprValueType(node, &(scope->type_scope), expected_type);
             TypeSystemExprType operand_type = inferExprType(node->lhs, &(scope->type_scope));
             if(expected_type != NULL &&
                expected_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
@@ -2298,6 +2320,16 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                (operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER ||
                 operand_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT))
                 result_type = expected_type;
+            if(node->lhs->kind == AST_EXPR_LITERAL_INTEGER)
+                return mirMaybeConvertValue(state, scope, node,
+                                            mirEmitConstInt(state, -(node->lhs->literal_integer), result_type,
+                                                            node->filename, node->line_number, node->column_number),
+                                            expected_type);
+            if(node->lhs->kind == AST_EXPR_LITERAL_FLOAT)
+                return mirMaybeConvertValue(state, scope, node,
+                                            mirEmitConstFloat(state, -(node->lhs->literal_float), result_type,
+                                                              node->filename, node->line_number, node->column_number),
+                                            expected_type);
             MirValueId operand = lowerExprAsValue(state, scope, node->lhs, result_type);
             MirValueId value = mirEmitUnary(state, MIR_INST_NEG, operand, result_type,
                                             node->filename, node->line_number, node->column_number);
@@ -2341,6 +2373,13 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
         case AST_EXPR_BIT_OR:
         case AST_EXPR_BIT_XOR: {
             ASTDataType *result_type = mirResolvedExprValueType(node, &(scope->type_scope));
+            if(expected_type != NULL &&
+               result_type != NULL &&
+               result_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+               expected_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+               ((isFloatPrimary(result_type->primary) && isFloatPrimary(expected_type->primary)) ||
+                (isIntegerPrimary(result_type->primary) && isIntegerPrimary(expected_type->primary))))
+                result_type = cloneDataType(expected_type);
             MirValueId lhs = lowerExprAsValue(state, scope, node->lhs, result_type);
             MirValueId rhs = lowerExprAsValue(state, scope, node->rhs, result_type);
             MirInstKind kind = MIR_INST_ADD;
