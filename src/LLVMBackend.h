@@ -1519,7 +1519,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 fprintf(stream, "\n");
             }
             return;
-        case MIR_INST_STORE:
+        case MIR_INST_STORE: {
             MirInst *stored_value_inst = llvmFindValueProducer(context, inst->data.store.value);
             ASTDataType *stored_value_type = llvmResolvedValueType(context, inst->data.store.value);
             char stored_value_name[32];
@@ -1538,6 +1538,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitValueRef(stream, context, inst->data.store.address);
             fprintf(stream, "\n");
             return;
+        }
         case MIR_INST_GLOBAL_ADDR:
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "getelementptr ");

@@ -69,12 +69,12 @@ TypeSystemExprType newLiteralFloatExprType()
     return expr_type;
 }
 
-void typeSystemAbortNode(const char *code, ASTNode *node, const char *message, const char *label)
+MOTE_NORETURN void typeSystemAbortNode(const char *code, ASTNode *node, const char *message, const char *label)
 {
     diagnosticAbortSimple(code, message, astNodeSourceSpan(node), label);
 }
 
-void typeSystemAbortFormatted(const char *code, ASTNode *node, const char *label, const char *format, ...)
+MOTE_NORETURN void typeSystemAbortFormatted(const char *code, ASTNode *node, const char *label, const char *format, ...)
 {
     Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code, astNodeSourceSpan(node), "");
     va_list args;
@@ -86,7 +86,7 @@ void typeSystemAbortFormatted(const char *code, ASTNode *node, const char *label
     diagnosticAbort(diagnostic);
 }
 
-void typeSystemAbortNoSpan(const char *code, const char *message, const char *detail)
+MOTE_NORETURN void typeSystemAbortNoSpan(const char *code, const char *message, const char *detail)
 {
     diagnosticAbortSimple(code, message, makeSourceSpan(NULL, 0, 0, 0, 0), detail);
 }
@@ -1348,8 +1348,8 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     return false;
 }
 
-void typeErrorBinaryOperator(ASTNode *node, const char *operator_name,
-                             TypeSystemExprType lhs_type, TypeSystemExprType rhs_type)
+MOTE_NORETURN void typeErrorBinaryOperator(ASTNode *node, const char *operator_name,
+                                           TypeSystemExprType lhs_type, TypeSystemExprType rhs_type)
 {
     char lhs_buffer[256] = {0};
     char rhs_buffer[256] = {0};
@@ -1366,7 +1366,7 @@ void typeErrorBinaryOperator(ASTNode *node, const char *operator_name,
     diagnosticAbort(diagnostic);
 }
 
-void typeErrorUnaryOperator(ASTNode *node, const char *operator_name, TypeSystemExprType operand_type)
+MOTE_NORETURN void typeErrorUnaryOperator(ASTNode *node, const char *operator_name, TypeSystemExprType operand_type)
 {
     char operand_buffer[256] = {0};
     typeSystemDescribeExprType(operand_type, operand_buffer, sizeof(operand_buffer));
@@ -1381,7 +1381,7 @@ void typeErrorUnaryOperator(ASTNode *node, const char *operator_name, TypeSystem
     diagnosticAbort(diagnostic);
 }
 
-void typeErrorAssign(ASTNode *node, ASTNode *source_node, TypeSystemExprType source_type, ASTDataType *target_type)
+MOTE_NORETURN void typeErrorAssign(ASTNode *node, ASTNode *source_node, TypeSystemExprType source_type, ASTDataType *target_type)
 {
     char source_buffer[256] = {0};
     char target_buffer[256] = {0};

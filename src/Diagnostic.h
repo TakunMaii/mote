@@ -333,13 +333,19 @@ static void diagnosticEmit(const Diagnostic *diagnostic)
         printf("note: %s\n", diagnostic->notes[i]);
 }
 
-static void diagnosticAbort(Diagnostic diagnostic)
+#if defined(__GNUC__) || defined(__clang__)
+#define MOTE_NORETURN __attribute__((noreturn))
+#else
+#define MOTE_NORETURN
+#endif
+
+static MOTE_NORETURN void diagnosticAbort(Diagnostic diagnostic)
 {
     diagnosticEmit(&diagnostic);
     exit(1);
 }
 
-static void diagnosticAbortSimple(const char *code, const char *message, SourceSpan span, const char *label)
+static MOTE_NORETURN void diagnosticAbortSimple(const char *code, const char *message, SourceSpan span, const char *label)
 {
     Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code, span, message);
     if(label != NULL)
@@ -347,7 +353,7 @@ static void diagnosticAbortSimple(const char *code, const char *message, SourceS
     diagnosticAbort(diagnostic);
 }
 
-static void diagnosticAbortFormatted(const char *code, SourceSpan span, const char *label, const char *format, ...)
+static MOTE_NORETURN void diagnosticAbortFormatted(const char *code, SourceSpan span, const char *label, const char *format, ...)
 {
     Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code, span, "");
 
@@ -361,7 +367,7 @@ static void diagnosticAbortFormatted(const char *code, SourceSpan span, const ch
     diagnosticAbort(diagnostic);
 }
 
-static void diagnosticAbortInternal(const char *context, const char *detail)
+static MOTE_NORETURN void diagnosticAbortInternal(const char *context, const char *detail)
 {
     SourceSpan span = {0};
     Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, "ICE0001", span, "compiler internal error");

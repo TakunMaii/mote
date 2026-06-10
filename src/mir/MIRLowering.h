@@ -12,12 +12,12 @@
 typedef int MirValueId;
 typedef int MirBlockId;
 
-static void mirLoweringAbortNode(const char *code, ASTNode *node, const char *message, const char *label)
+static MOTE_NORETURN void mirLoweringAbortNode(const char *code, ASTNode *node, const char *message, const char *label)
 {
     diagnosticAbortSimple(code, message, astNodeSourceSpan(node), label);
 }
 
-static void mirLoweringAbortNodeFormatted(const char *code, ASTNode *node, const char *label, const char *format, ...)
+static MOTE_NORETURN void mirLoweringAbortNodeFormatted(const char *code, ASTNode *node, const char *label, const char *format, ...)
 {
     Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code, astNodeSourceSpan(node), "");
     va_list args;
@@ -29,8 +29,8 @@ static void mirLoweringAbortNodeFormatted(const char *code, ASTNode *node, const
     diagnosticAbort(diagnostic);
 }
 
-static void mirLoweringAbortPointFormatted(const char *code, const char *filename, int line, int column,
-                                           const char *label, const char *format, ...)
+static MOTE_NORETURN void mirLoweringAbortPointFormatted(const char *code, const char *filename, int line, int column,
+                                                         const char *label, const char *format, ...)
 {
     Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code,
                                            makePointSourceSpan(filename, line, column), "");
@@ -43,7 +43,7 @@ static void mirLoweringAbortPointFormatted(const char *code, const char *filenam
     diagnosticAbort(diagnostic);
 }
 
-static void mirLoweringAbortInternal(const char *code, const char *context, const char *detail)
+static MOTE_NORETURN void mirLoweringAbortInternal(const char *code, const char *context, const char *detail)
 {
     Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, code,
                                            makeSourceSpan(NULL, 0, 0, 0, 0),

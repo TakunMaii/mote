@@ -9,4 +9,4 @@ build: $(SRC)
 	gcc $(SRC) -o mote	
 
 test:
-	pwsh -File $(TEST_SCRIPT) -Build
+	python3 scripts/test.py --build
