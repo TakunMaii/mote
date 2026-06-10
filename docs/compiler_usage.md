@@ -112,14 +112,22 @@ Compile a package-based multi-file program:
 Compile the `notgate` test package:
 
 ```powershell
-.\mote.exe test\game\notgate_main.mote -I lib -I test\game -L test\game\notgate\build -lraylib -lopengl32 -lgdi32 -lwinmm -luser32 -lshell32 -o test\artifacts\notgate.exe
+.\mote.exe test\game\notgate_main.mote -I . -I lib -I test\game -L test\game\notgate\build -lraylib -lopengl32 -lgdi32 -lwinmm -luser32 -lshell32 -o test\artifacts\notgate.exe
 ```
 
 ## Import Resolution
 
 - Relative imports like `@import("./foo")` are resolved from the importing file's directory.
 - Search-root imports like `@import("c/io")` require `-I <dir>` where `<dir>` contains `c\root.mote` or `c\io.mote`.
+- Vendor imports like `@import("vendor/raylib")` or `@import("vendor/opengl")` typically use the repository root as a search root, for example `-I .`.
 - Search roots may point to either a module file tree or a directory containing nested packages with `root.mote`.
+
+## Vendor Packages
+
+- `lib/` is reserved for the built-in standard library and core packages such as `std` and `c`.
+- Third-party bindings live under `vendor/`.
+- Current vendor packages include `vendor/raylib`, `vendor/glfw`, and `vendor/opengl`.
+- `vendor/opengl` uses an explicit runtime loading model. After creating a GL context, load common APIs with `gl.LoadWith(glfw.GetProcAddress)`.
 
 ## Multi-file Execution Order
 

@@ -25,15 +25,25 @@ pub Texture = struct {
     format: i32,
 };
 
-pub Texture2D = Texture;
+pub Texture2D = struct {
+    id: u32,
+    width: i32,
+    height: i32,
+    mipmaps: i32,
+    format: i32,
+};
 
 pub RenderTexture = struct {
     id: u32,
-    texture: Texture,
-    depth: Texture,
+    texture: Texture2D,
+    depth: Texture2D,
 };
 
-pub RenderTexture2D = RenderTexture;
+pub RenderTexture2D = struct {
+    id: u32,
+    texture: Texture2D,
+    depth: Texture2D,
+};
 
 pub Shader = struct {
     id: u32,

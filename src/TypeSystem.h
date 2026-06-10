@@ -209,12 +209,70 @@ ASTDataType* builtinIdentifierToDataType(const char *identifier)
     if(strcmp(identifier, "bool") == 0) return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL);
     if(strcmp(identifier, "void") == 0) return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
     if(strcmp(identifier, "Type") == 0) return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
+    if(strcmp(identifier, "opaque") == 0) return newOpaqueDataType("");
     return NULL;
 }
 
 bool isStructDataType(ASTDataType *data_type)
 {
     return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_STRUCT;
+}
+
+bool isOpaqueDataType(ASTDataType *data_type)
+{
+    return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_OPAQUE;
+}
+
+bool isRuntimeOpaqueDataType(ASTDataType *data_type)
+{
+    return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_OPAQUE;
+}
+
+void typeSystemEnsureNoBareOpaque(ASTDataType *data_type, ASTNode *node, const char *code, const char *context)
+{
+    if(data_type == NULL)
+        return;
+
+    switch(data_type->kind)
+    {
+        case AST_DATA_TYPE_KIND_OPAQUE:
+            typeSystemAbortFormatted(code, node,
+                                     "opaque types do not have a first-class runtime value representation",
+                                     "%s cannot use bare opaque type `%s`; use a pointer like `*%s` instead",
+                                     context,
+                                     data_type->identifier[0] != '\0' ? data_type->identifier : "opaque",
+                                     data_type->identifier[0] != '\0' ? data_type->identifier : "opaque");
+            return;
+        case AST_DATA_TYPE_KIND_POINTER:
+        case AST_DATA_TYPE_KIND_REFERENCE:
+            return;
+        case AST_DATA_TYPE_KIND_OPTIONAL:
+        case AST_DATA_TYPE_KIND_ARRAY:
+            typeSystemEnsureNoBareOpaque(data_type->child, node, code, context);
+            return;
+        case AST_DATA_TYPE_KIND_FUNCTION: {
+            ASTFunctionParameter *parameter = data_type->parameters;
+            while(parameter)
+            {
+                typeSystemEnsureNoBareOpaque(parameter->data_type, node, code, context);
+                parameter = parameter->next;
+            }
+            typeSystemEnsureNoBareOpaque(data_type->return_data_type, node, code, context);
+            return;
+        }
+        case AST_DATA_TYPE_KIND_STRUCT: {
+            ASTStructMember *member = data_type->members;
+            while(member)
+            {
+                if(member->value == NULL)
+                    typeSystemEnsureNoBareOpaque(member->data_type, node, code, context);
+                member = member->next;
+            }
+            return;
+        }
+        default:
+            return;
+    }
 }
 
 bool isEnumDataType(ASTDataType *data_type)
@@ -272,6 +330,10 @@ static size_t moteTypeLayoutSize(ASTDataType *data_type)
                 case AST_PRIMARY_DATA_TYPE_TYPE: return sizeof(void*);
             }
             return 0;
+        case AST_DATA_TYPE_KIND_OPAQUE:
+            typeSystemAbortNoSpan("T1252",
+                                  "opaque types do not have a concrete layout",
+                                  "use a pointer to the opaque type instead");
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
         case AST_DATA_TYPE_KIND_FUNCTION:
@@ -345,6 +407,10 @@ static size_t moteTypeLayoutAlignment(ASTDataType *data_type)
                     return sizeof(void*) > 8 ? sizeof(void*) : 8;
             }
             return 1;
+        case AST_DATA_TYPE_KIND_OPAQUE:
+            typeSystemAbortNoSpan("T1253",
+                                  "opaque types do not have a concrete alignment",
+                                  "use a pointer to the opaque type instead");
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
         case AST_DATA_TYPE_KIND_FUNCTION:
@@ -523,7 +589,8 @@ bool isSameFunctionSignatureInternal(ASTDataType *lhs, ASTDataType *rhs, ASTData
 
 bool isSameStructTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompareEntry **memo)
 {
-    if(lhs->identifier[0] != '\0' || rhs->identifier[0] != '\0')
+    if((lhs->identifier[0] != '\0' || rhs->identifier[0] != '\0') &&
+       lhs->kind == AST_DATA_TYPE_KIND_STRUCT && rhs->kind == AST_DATA_TYPE_KIND_STRUCT)
         return strcmp(lhs->identifier, rhs->identifier) == 0;
 
     if(hasComparedDataTypePair(*memo, lhs, rhs))
@@ -559,7 +626,8 @@ bool isSameStructType(ASTDataType *lhs, ASTDataType *rhs)
 
 bool isSameEnumTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompareEntry **memo)
 {
-    if(lhs->identifier[0] != '\0' || rhs->identifier[0] != '\0')
+    if((lhs->identifier[0] != '\0' || rhs->identifier[0] != '\0') &&
+       lhs->kind == AST_DATA_TYPE_KIND_ENUM && rhs->kind == AST_DATA_TYPE_KIND_ENUM)
         return strcmp(lhs->identifier, rhs->identifier) == 0;
 
     if(hasComparedDataTypePair(*memo, lhs, rhs))
@@ -643,6 +711,8 @@ bool isSameDataTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompa
             return isSameEnumTypeInternal(lhs, rhs, memo);
         case AST_DATA_TYPE_KIND_STRUCT:
             return isSameStructTypeInternal(lhs, rhs, memo);
+        case AST_DATA_TYPE_KIND_OPAQUE:
+            return strcmp(lhs->identifier, rhs->identifier) == 0;
         default:
             return false;
     }
@@ -664,6 +734,7 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
         case AST_DATA_TYPE_KIND_INFER:
         case AST_DATA_TYPE_KIND_PRIMARY:
         case AST_DATA_TYPE_KIND_ENUM:
+        case AST_DATA_TYPE_KIND_OPAQUE:
             return cloneDataType(data_type);
         case AST_DATA_TYPE_KIND_STRUCT: {
             ASTDataType *resolved_struct = newStructDataType(data_type->identifier, NULL);
@@ -978,6 +1049,25 @@ bool canLiteralIntegerFitPrimary(long long int literal_integer, ASTPrimaryDataTy
     }
 }
 
+bool isLiteralIntegerZero(ASTNode *source_node)
+{
+    return source_node != NULL &&
+           source_node->kind == AST_EXPR_LITERAL_INTEGER &&
+           source_node->literal_integer == 0;
+}
+
+bool isZeroComparablePointerOrFunction(TypeSystemExprType value_type, TypeSystemExprType other_type, ASTNode *other_node)
+{
+    if(value_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || value_type.data_type == NULL)
+        return false;
+
+    if(other_type.kind != TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER || !isLiteralIntegerZero(other_node))
+        return false;
+
+    return value_type.data_type->kind == AST_DATA_TYPE_KIND_POINTER ||
+           value_type.data_type->kind == AST_DATA_TYPE_KIND_FUNCTION;
+}
+
 ASTDataType* defaultIntegerDataType()
 {
     return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I32);
@@ -1042,7 +1132,10 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
             return canExplicitConvertDataType(source_type, source_node, target_type->child);
 
         if(target_type->kind == AST_DATA_TYPE_KIND_POINTER)
-            return source_node != NULL && source_node->kind == AST_EXPR_LITERAL_INTEGER && source_node->literal_integer == 0;
+            return isLiteralIntegerZero(source_node);
+
+        if(target_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+            return isLiteralIntegerZero(source_node);
 
         if(target_type->kind != AST_DATA_TYPE_KIND_PRIMARY)
             return false;
@@ -1094,6 +1187,15 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     }
 
     if(source_data_type->kind == AST_DATA_TYPE_KIND_POINTER && target_type->kind == AST_DATA_TYPE_KIND_POINTER)
+        return true;
+
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_POINTER &&
+       target_type->kind == AST_DATA_TYPE_KIND_FUNCTION &&
+       !target_type->is_variadic)
+        return true;
+
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_FUNCTION &&
+       target_type->kind == AST_DATA_TYPE_KIND_POINTER)
         return true;
 
     if(source_node != NULL &&
@@ -1243,12 +1345,15 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
             return canImplicitConvertDataType(source_type, source_node, target_type->child);
 
         if(target_type->kind == AST_DATA_TYPE_KIND_POINTER)
-            return source_node != NULL && source_node->kind == AST_EXPR_LITERAL_INTEGER && source_node->literal_integer == 0;
+            return isLiteralIntegerZero(source_node);
+
+        if(target_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+            return isLiteralIntegerZero(source_node);
 
         if(target_type->kind != AST_DATA_TYPE_KIND_PRIMARY)
             return false;
 
-        if(isIntegerPrimary(target_type->primary))
+        if(isIntegerPrimary(target_type->primary) || isBoolPrimary(target_type->primary))
             return canLiteralIntegerFitPrimary(source_node->literal_integer, target_type->primary);
         if(isFloatPrimary(target_type->primary))
             return true;
@@ -1325,6 +1430,9 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
 
         return false;
     }
+
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_FUNCTION && target_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+        return isSameFunctionSignature(source_data_type, target_type);
 
     if(source_node != NULL &&
        source_node->kind == AST_EXPR_LITERAL_STRING &&
@@ -2122,6 +2230,9 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 typeSystemAbortNode("T1248", node,
                                     "optional values currently only support comparison with `null`",
                                     "compare `?T` values using `== null` or `!= null`");
+            if(isZeroComparablePointerOrFunction(lhs_type, rhs_type, node->rhs) ||
+               isZeroComparablePointerOrFunction(rhs_type, lhs_type, node->lhs))
+                return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
             if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
                isSameDataType(lhs_type.data_type, rhs_type.data_type))
                 return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));

@@ -25,6 +25,7 @@ typedef enum {
     TK_CONTINUE,
     TK_DEFER,
     TK_VOID,
+    TK_OPAQUE,
     TK_TRUE,
     TK_FALSE,
     TK_NULL,
@@ -165,6 +166,7 @@ const char* tokenKindToString(TokenKind kind)
         case TK_CONTINUE: return "TK_CONTINUE";
         case TK_DEFER: return "TK_DEFER";
         case TK_VOID: return "TK_VOID";
+        case TK_OPAQUE: return "TK_OPAQUE";
         case TK_TRUE: return "TK_TRUE";
         case TK_FALSE: return "TK_FALSE";
         case TK_NULL: return "TK_NULL";
@@ -234,6 +236,7 @@ const char* tokenKindToDiagnosticString(TokenKind kind)
         case TK_CONTINUE: return "`continue`";
         case TK_DEFER: return "`defer`";
         case TK_VOID: return "`void`";
+        case TK_OPAQUE: return "`opaque`";
         case TK_TRUE: return "`true`";
         case TK_FALSE: return "`false`";
         case TK_NULL: return "`null`";
@@ -355,4 +358,3 @@ void printToken(Token token)
 }
 
 #endif /* TOKEN_H */
-

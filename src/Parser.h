@@ -78,6 +78,12 @@ ASTDataType* parsePrimaryDataType(Token **token)
         return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
     }
 
+    if((*token)->kind == TK_OPAQUE)
+    {
+        (*token) = (*token)->next;
+        return newOpaqueDataType("");
+    }
+
     char identifier[MAX_IDENTIFIER_LENGTH] = {0};
     parseQualifiedIdentifier(token, identifier);
 
@@ -242,7 +248,8 @@ static bool tokenStartsDataType(Token *token)
     if(token == NULL)
         return false;
 
-    if(token->kind == TK_STAR || token->kind == TK_AMPERSAND || token->kind == TK_QUESTION)
+    if(token->kind == TK_STAR || token->kind == TK_AMPERSAND || token->kind == TK_QUESTION ||
+       token->kind == TK_TYPE || token->kind == TK_VOID || token->kind == TK_OPAQUE)
         return true;
 
     if(token->kind != TK_IDENTIFIER)
@@ -251,7 +258,8 @@ static bool tokenStartsDataType(Token *token)
     if(strcmp(token->identifier, "Function") == 0 || strcmp(token->identifier, "Array") == 0)
         return true;
 
-    if(strcmp(token->identifier, "void") == 0 || strcmp(token->identifier, "Type") == 0)
+    if(strcmp(token->identifier, "void") == 0 || strcmp(token->identifier, "Type") == 0 ||
+       strcmp(token->identifier, "opaque") == 0)
         return true;
 
     if(strcmp(token->identifier, "bool") == 0 || strcmp(token->identifier, "char") == 0)
@@ -592,7 +600,7 @@ ASTNode* parsePrimary(Token **token)
         return node;
     }
 
-    if((*token)->kind == TK_TYPE)
+    if((*token)->kind == TK_TYPE || (*token)->kind == TK_VOID || (*token)->kind == TK_OPAQUE)
     {
         ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
         node->data_type = parseTypeExpr(token);

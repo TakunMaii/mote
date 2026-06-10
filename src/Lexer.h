@@ -272,6 +272,15 @@ Token* tokenize(char *code, const char* filename)
             column += 4;
             setTokenEnd(token, line, column);
         }
+        else if(expectStr("opaque", 6, code)) {
+            if(isIdentifier(code[6]))
+                goto tokenize_identifier;
+            token->next = newToken(TK_OPAQUE, filename, line, column);
+            token = token->next;
+            code += 6;
+            column += 6;
+            setTokenEnd(token, line, column);
+        }
         else if(expectStr("true", 4, code)) {
             if(isIdentifier(code[4]))
                 goto tokenize_identifier;
@@ -653,6 +662,44 @@ Token* tokenize(char *code, const char* filename)
             token->next = newToken(TK_LITERAL_INTEGER, filename, line, column);
             token = token->next;
 
+            if(*code == '0' && (code[1] == 'x' || code[1] == 'X'))
+            {
+                code += 2;
+                column += 2;
+
+                bool saw_digit = false;
+                long long int literal_integer = 0;
+                while(true)
+                {
+                    int digit = -1;
+                    if(*code >= '0' && *code <= '9')
+                        digit = *code - '0';
+                    else if(*code >= 'a' && *code <= 'f')
+                        digit = 10 + (*code - 'a');
+                    else if(*code >= 'A' && *code <= 'F')
+                        digit = 10 + (*code - 'A');
+                    else
+                        break;
+
+                    saw_digit = true;
+                    literal_integer = literal_integer * 16 + digit;
+                    code ++;
+                    column ++;
+                }
+
+                if(!saw_digit)
+                {
+                    diagnosticAbortSimple("L1009",
+                                          "invalid hexadecimal integer literal",
+                                          makePointSourceSpan(filename, line, column),
+                                          "expected at least one hexadecimal digit after `0x`");
+                }
+
+                token->literal_integer = literal_integer;
+                setTokenEnd(token, line, column);
+                continue;
+            }
+
             bool float_mode = false;
             long long int literal_integer = 0;
             long double literal_float = 0;
@@ -734,4 +781,3 @@ tokenize_identifier:
 }
 
 #endif /* LEXER_H */
-

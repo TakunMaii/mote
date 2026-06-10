@@ -1,4 +1,4 @@
-rl = @import("raylib");
+rl = @import("vendor/raylib");
 
 mut pulse: f64 = 0.0;
 mut frames: i32 = 0;

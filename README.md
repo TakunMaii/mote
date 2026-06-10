@@ -35,7 +35,8 @@ c.printf(@as(*char, "1 + 2 = %d\n"), add(1, 2));
 
 - `src/`：编译器实现
 - `runtime/`：链接生成可执行文件时使用的运行时支持代码
-- `lib/`：内置包，目前主要是 `c` 和 `raylib`
+- `lib/`：内置标准库与基础包，目前主要是 `std` 和 `c`
+- `vendor/`：第三方绑定包，目前包括 `raylib`、`glfw`、`opengl`
 - `test/`：语言样例、错误样例、FFI、多文件、raylib、`notgate`
 - `docs/`：编译器用法、语法教程、运行时 ABI
 
@@ -85,7 +86,7 @@ mote [options] <input.mote>
 
 - `-o <file>`：指定输出路径
 - `-S`：输出 `.ll`，不链接
-- `-I <dir>`：添加模块搜索根，供 `@import("c")`、`@import("raylib")` 这类导入使用
+- `-I <dir>`：添加模块搜索根，供 `@import("c")`、`@import("std")`、`@import("vendor/raylib")` 这类导入使用
 - `-L <dir>`：添加链接库搜索目录
 - `-l<name>`：链接库
 - `-Wl,<args>`：把参数直接转发给 linker
@@ -119,7 +120,7 @@ mote [options] <input.mote>
 编译：
 
 ```powershell
-.\mote.exe test\game\notgate_main.mote -I lib -I test\game -L test\game\notgate\build -lraylib -lopengl32 -lgdi32 -lwinmm -luser32 -lshell32 -o test\artifacts\notgate.exe
+.\mote.exe test\game\notgate_main.mote -I . -I lib -I test\game -L test\game\notgate\build -lraylib -lopengl32 -lgdi32 -lwinmm -luser32 -lshell32 -o test\artifacts\notgate.exe
 ```
 
 运行：
@@ -131,6 +132,7 @@ mote [options] <input.mote>
 说明：
 
 - 这个命令默认会把可执行文件输出到 `test\artifacts\notgate.exe`
+- `-I .` 让 `@import("vendor/...")` 能从仓库根目录解析第三方 vendor 包
 - 从仓库根目录运行最稳妥，因为 `notgate` 的资源路径优先按仓库内布局查找
 - `raylib.lib` 已经放在 `test\game\notgate\build\raylib.lib`
 
@@ -147,7 +149,9 @@ Mote 当前已经稳定可用的一批语法包括：
 - 结构体 / 枚举：`struct { ... }`、`enum { ... }`
 - 泛型：通过 `Type` 普通函数表达
 - 模块系统：`pub`、`@import`
+- vendor 绑定：`@import("vendor/raylib")`、`@import("vendor/glfw")`、`@import("vendor/opengl")`
 - 内建：`@extern`、`@zero`、`@as`
+- FFI 句柄类型：`Name = opaque;`，通常配合 `*Name` 使用
 
 例如：
 
@@ -170,6 +174,25 @@ a.add(b);
 完整语法教程见：
 
 - [docs/language_tutorial_zh.md](docs/language_tutorial_zh.md)
+
+## Vendor 说明
+
+- 标准库与基础包放在 `lib/`，当前主要是 `std` 和 `c`
+- 第三方绑定统一放在 `vendor/`
+- `raylib`、`glfw`、`opengl` 现在都应通过显式 vendor 路径导入
+
+例如：
+
+```mote
+glfw = @import("vendor/glfw");
+gl = @import("vendor/opengl");
+```
+
+其中 `vendor/opengl` 当前采用显式加载路线，需要在创建 OpenGL 上下文之后调用：
+
+```mote
+gl.LoadWith(glfw.GetProcAddress);
+```
 
 ## 当前执行模型
 
@@ -215,9 +238,11 @@ pwsh -File scripts/test.ps1 -Build
 make test
 ```
 
-当前 manifest 位于 `test/harness/manifest.json`，第一版只覆盖：
+当前 manifest 位于 `test/harness/manifest.json`，当前最小回归覆盖：
 
 - 基础 LLVM 生成
+- `std` 包 smoke / API
+- `vendor/raylib`、`vendor/glfw`、`vendor/opengl` 的基础导入 smoke
 - 多文件模块 LLVM 生成
 - 类型错误诊断
 - `break` 越界语义诊断

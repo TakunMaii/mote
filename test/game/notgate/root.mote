@@ -1,4 +1,4 @@
-rl = @import("raylib");
+rl = @import("vendor/raylib");
 c = @import("c");
 
 pub WINDOW_WIDTH = 1200;

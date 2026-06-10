@@ -1,0 +1,213 @@
+pub FALSE = 0;
+pub TRUE = 1;
+
+pub COLOR_BUFFER_BIT: u32 = 16384;
+pub DEPTH_BUFFER_BIT: u32 = 256;
+pub STENCIL_BUFFER_BIT: u32 = 1024;
+pub TRIANGLES: u32 = 4;
+pub LINES: u32 = 1;
+pub FLOAT: u32 = 5126;
+pub UNSIGNED_INT: u32 = 5125;
+pub UNSIGNED_BYTE: u32 = 5121;
+pub ARRAY_BUFFER: u32 = 34962;
+pub ELEMENT_ARRAY_BUFFER: u32 = 34963;
+pub STATIC_DRAW: u32 = 35044;
+pub DYNAMIC_DRAW: u32 = 35048;
+pub VERTEX_SHADER: u32 = 35633;
+pub FRAGMENT_SHADER: u32 = 35632;
+pub COMPILE_STATUS: u32 = 35713;
+pub LINK_STATUS: u32 = 35714;
+pub INFO_LOG_LENGTH: u32 = 35716;
+pub TEXTURE_2D: u32 = 3553;
+pub TEXTURE0: u32 = 33984;
+pub TEXTURE_MIN_FILTER: u32 = 10241;
+pub TEXTURE_MAG_FILTER: u32 = 10240;
+pub TEXTURE_WRAP_S: u32 = 10242;
+pub TEXTURE_WRAP_T: u32 = 10243;
+pub LINEAR: u32 = 9729;
+pub NEAREST: u32 = 9728;
+pub CLAMP_TO_EDGE: u32 = 33071;
+pub REPEAT: u32 = 10497;
+pub RGBA: u32 = 6408;
+pub RGB: u32 = 6407;
+pub BLEND: u32 = 3042;
+pub SRC_ALPHA: u32 = 770;
+pub ONE_MINUS_SRC_ALPHA: u32 = 771;
+pub DEPTH_TEST: u32 = 2929;
+pub LEQUAL: u32 = 515;
+
+Loader = Function([*char], *void);
+
+FnClearColor = Function([f32, f32, f32, f32], void);
+FnClear = Function([u32], void);
+FnViewport = Function([i32, i32, i32, i32], void);
+FnEnable = Function([u32], void);
+FnDisable = Function([u32], void);
+FnBlendFunc = Function([u32, u32], void);
+FnDepthFunc = Function([u32], void);
+
+FnGenVertexArrays = Function([i32, *mut u32], void);
+FnBindVertexArray = Function([u32], void);
+FnDeleteVertexArrays = Function([i32, *u32], void);
+
+FnGenBuffers = Function([i32, *mut u32], void);
+FnBindBuffer = Function([u32, u32], void);
+FnBufferData = Function([u32, i64, *void, u32], void);
+FnBufferSubData = Function([u32, i64, i64, *void], void);
+FnDeleteBuffers = Function([i32, *u32], void);
+
+FnVertexAttribPointer = Function([u32, i32, u32, bool, i32, *void], void);
+FnEnableVertexAttribArray = Function([u32], void);
+FnDisableVertexAttribArray = Function([u32], void);
+
+FnCreateShader = Function([u32], u32);
+FnShaderSource = Function([u32, i32, *mut *char, *i32], void);
+FnCompileShader = Function([u32], void);
+FnGetShaderiv = Function([u32, u32, *mut i32], void);
+FnGetShaderInfoLog = Function([u32, i32, *mut i32, *mut char], void);
+FnDeleteShader = Function([u32], void);
+
+FnCreateProgram = Function([], u32);
+FnAttachShader = Function([u32, u32], void);
+FnLinkProgram = Function([u32], void);
+FnGetProgramiv = Function([u32, u32, *mut i32], void);
+FnGetProgramInfoLog = Function([u32, i32, *mut i32, *mut char], void);
+FnUseProgram = Function([u32], void);
+FnDeleteProgram = Function([u32], void);
+
+FnGetUniformLocation = Function([u32, *char], i32);
+FnUniform1i = Function([i32, i32], void);
+FnUniform1f = Function([i32, f32], void);
+FnUniform2f = Function([i32, f32, f32], void);
+FnUniform3f = Function([i32, f32, f32, f32], void);
+FnUniform4f = Function([i32, f32, f32, f32, f32], void);
+FnUniformMatrix4fv = Function([i32, i32, bool, *f32], void);
+
+FnActiveTexture = Function([u32], void);
+FnGenTextures = Function([i32, *mut u32], void);
+FnBindTexture = Function([u32, u32], void);
+FnTexParameteri = Function([u32, u32, i32], void);
+FnTexImage2D = Function([u32, i32, i32, i32, i32, i32, u32, u32, *void], void);
+FnGenerateMipmap = Function([u32], void);
+FnDeleteTextures = Function([i32, *u32], void);
+
+FnDrawArrays = Function([u32, i32, i32], void);
+FnDrawElements = Function([u32, i32, u32, *void], void);
+
+pub mut ClearColor: FnClearColor = 0;
+pub mut Clear: FnClear = 0;
+pub mut Viewport: FnViewport = 0;
+pub mut Enable: FnEnable = 0;
+pub mut Disable: FnDisable = 0;
+pub mut BlendFunc: FnBlendFunc = 0;
+pub mut DepthFunc: FnDepthFunc = 0;
+
+pub mut GenVertexArrays: FnGenVertexArrays = 0;
+pub mut BindVertexArray: FnBindVertexArray = 0;
+pub mut DeleteVertexArrays: FnDeleteVertexArrays = 0;
+
+pub mut GenBuffers: FnGenBuffers = 0;
+pub mut BindBuffer: FnBindBuffer = 0;
+pub mut BufferData: FnBufferData = 0;
+pub mut BufferSubData: FnBufferSubData = 0;
+pub mut DeleteBuffers: FnDeleteBuffers = 0;
+
+pub mut VertexAttribPointer: FnVertexAttribPointer = 0;
+pub mut EnableVertexAttribArray: FnEnableVertexAttribArray = 0;
+pub mut DisableVertexAttribArray: FnDisableVertexAttribArray = 0;
+
+pub mut CreateShader: FnCreateShader = 0;
+pub mut ShaderSource: FnShaderSource = 0;
+pub mut CompileShader: FnCompileShader = 0;
+pub mut GetShaderiv: FnGetShaderiv = 0;
+pub mut GetShaderInfoLog: FnGetShaderInfoLog = 0;
+pub mut DeleteShader: FnDeleteShader = 0;
+
+pub mut CreateProgram: FnCreateProgram = 0;
+pub mut AttachShader: FnAttachShader = 0;
+pub mut LinkProgram: FnLinkProgram = 0;
+pub mut GetProgramiv: FnGetProgramiv = 0;
+pub mut GetProgramInfoLog: FnGetProgramInfoLog = 0;
+pub mut UseProgram: FnUseProgram = 0;
+pub mut DeleteProgram: FnDeleteProgram = 0;
+
+pub mut GetUniformLocation: FnGetUniformLocation = 0;
+pub mut Uniform1i: FnUniform1i = 0;
+pub mut Uniform1f: FnUniform1f = 0;
+pub mut Uniform2f: FnUniform2f = 0;
+pub mut Uniform3f: FnUniform3f = 0;
+pub mut Uniform4f: FnUniform4f = 0;
+pub mut UniformMatrix4fv: FnUniformMatrix4fv = 0;
+
+pub mut ActiveTexture: FnActiveTexture = 0;
+pub mut GenTextures: FnGenTextures = 0;
+pub mut BindTexture: FnBindTexture = 0;
+pub mut TexParameteri: FnTexParameteri = 0;
+pub mut TexImage2D: FnTexImage2D = 0;
+pub mut GenerateMipmap: FnGenerateMipmap = 0;
+pub mut DeleteTextures: FnDeleteTextures = 0;
+
+pub mut DrawArrays: FnDrawArrays = 0;
+pub mut DrawElements: FnDrawElements = 0;
+
+load_fn = fn(loader: Loader, name: *char) *void {
+    return loader(name);
+};
+
+pub LoadWith = fn(loader: Loader) void {
+    ClearColor = @as(FnClearColor, load_fn(loader, @as(*char, "glClearColor")));
+    Clear = @as(FnClear, load_fn(loader, @as(*char, "glClear")));
+    Viewport = @as(FnViewport, load_fn(loader, @as(*char, "glViewport")));
+    Enable = @as(FnEnable, load_fn(loader, @as(*char, "glEnable")));
+    Disable = @as(FnDisable, load_fn(loader, @as(*char, "glDisable")));
+    BlendFunc = @as(FnBlendFunc, load_fn(loader, @as(*char, "glBlendFunc")));
+    DepthFunc = @as(FnDepthFunc, load_fn(loader, @as(*char, "glDepthFunc")));
+
+    GenVertexArrays = @as(FnGenVertexArrays, load_fn(loader, @as(*char, "glGenVertexArrays")));
+    BindVertexArray = @as(FnBindVertexArray, load_fn(loader, @as(*char, "glBindVertexArray")));
+    DeleteVertexArrays = @as(FnDeleteVertexArrays, load_fn(loader, @as(*char, "glDeleteVertexArrays")));
+
+    GenBuffers = @as(FnGenBuffers, load_fn(loader, @as(*char, "glGenBuffers")));
+    BindBuffer = @as(FnBindBuffer, load_fn(loader, @as(*char, "glBindBuffer")));
+    BufferData = @as(FnBufferData, load_fn(loader, @as(*char, "glBufferData")));
+    BufferSubData = @as(FnBufferSubData, load_fn(loader, @as(*char, "glBufferSubData")));
+    DeleteBuffers = @as(FnDeleteBuffers, load_fn(loader, @as(*char, "glDeleteBuffers")));
+
+    VertexAttribPointer = @as(FnVertexAttribPointer, load_fn(loader, @as(*char, "glVertexAttribPointer")));
+    EnableVertexAttribArray = @as(FnEnableVertexAttribArray, load_fn(loader, @as(*char, "glEnableVertexAttribArray")));
+    DisableVertexAttribArray = @as(FnDisableVertexAttribArray, load_fn(loader, @as(*char, "glDisableVertexAttribArray")));
+
+    CreateShader = @as(FnCreateShader, load_fn(loader, @as(*char, "glCreateShader")));
+    ShaderSource = @as(FnShaderSource, load_fn(loader, @as(*char, "glShaderSource")));
+    CompileShader = @as(FnCompileShader, load_fn(loader, @as(*char, "glCompileShader")));
+    GetShaderiv = @as(FnGetShaderiv, load_fn(loader, @as(*char, "glGetShaderiv")));
+    GetShaderInfoLog = @as(FnGetShaderInfoLog, load_fn(loader, @as(*char, "glGetShaderInfoLog")));
+    DeleteShader = @as(FnDeleteShader, load_fn(loader, @as(*char, "glDeleteShader")));
+
+    CreateProgram = @as(FnCreateProgram, load_fn(loader, @as(*char, "glCreateProgram")));
+    AttachShader = @as(FnAttachShader, load_fn(loader, @as(*char, "glAttachShader")));
+    LinkProgram = @as(FnLinkProgram, load_fn(loader, @as(*char, "glLinkProgram")));
+    GetProgramiv = @as(FnGetProgramiv, load_fn(loader, @as(*char, "glGetProgramiv")));
+    GetProgramInfoLog = @as(FnGetProgramInfoLog, load_fn(loader, @as(*char, "glGetProgramInfoLog")));
+    UseProgram = @as(FnUseProgram, load_fn(loader, @as(*char, "glUseProgram")));
+    DeleteProgram = @as(FnDeleteProgram, load_fn(loader, @as(*char, "glDeleteProgram")));
+
+    GetUniformLocation = @as(FnGetUniformLocation, load_fn(loader, @as(*char, "glGetUniformLocation")));
+    Uniform1i = @as(FnUniform1i, load_fn(loader, @as(*char, "glUniform1i")));
+    Uniform1f = @as(FnUniform1f, load_fn(loader, @as(*char, "glUniform1f")));
+    Uniform2f = @as(FnUniform2f, load_fn(loader, @as(*char, "glUniform2f")));
+    Uniform3f = @as(FnUniform3f, load_fn(loader, @as(*char, "glUniform3f")));
+    Uniform4f = @as(FnUniform4f, load_fn(loader, @as(*char, "glUniform4f")));
+    UniformMatrix4fv = @as(FnUniformMatrix4fv, load_fn(loader, @as(*char, "glUniformMatrix4fv")));
+
+    ActiveTexture = @as(FnActiveTexture, load_fn(loader, @as(*char, "glActiveTexture")));
+    GenTextures = @as(FnGenTextures, load_fn(loader, @as(*char, "glGenTextures")));
+    BindTexture = @as(FnBindTexture, load_fn(loader, @as(*char, "glBindTexture")));
+    TexParameteri = @as(FnTexParameteri, load_fn(loader, @as(*char, "glTexParameteri")));
+    TexImage2D = @as(FnTexImage2D, load_fn(loader, @as(*char, "glTexImage2D")));
+    GenerateMipmap = @as(FnGenerateMipmap, load_fn(loader, @as(*char, "glGenerateMipmap")));
+    DeleteTextures = @as(FnDeleteTextures, load_fn(loader, @as(*char, "glDeleteTextures")));
+
+    DrawArrays = @as(FnDrawArrays, load_fn(loader, @as(*char, "glDrawArrays")));
+    DrawElements = @as(FnDrawElements, load_fn(loader, @as(*char, "glDrawElements")));
+};

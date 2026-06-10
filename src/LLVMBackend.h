@@ -1054,6 +1054,25 @@ static void llvmEmitNativeExternCallTarget(FILE *stream, const char *symbol_name
     fprintf(stream, " @%s", symbol_name);
 }
 
+static void llvmEmitDynamicExternCallTarget(FILE *stream, ASTDataType *function_type)
+{
+    llvmEmitNativeExternReturnType(stream, function_type->return_data_type);
+    fprintf(stream, " (");
+
+    ASTFunctionParameter *parameter = function_type->parameters;
+    bool need_comma = false;
+    while(parameter)
+    {
+        if(need_comma)
+            fprintf(stream, ", ");
+        llvmEmitNativeExternParameterType(stream, parameter->data_type);
+        need_comma = true;
+        parameter = parameter->next;
+    }
+
+    fprintf(stream, ")");
+}
+
 static bool llvmProgramHasExternSymbol(MirProgram *program, const char *symbol_name)
 {
     for(int i = 0; i < program->extern_function_count; i++)
@@ -1069,6 +1088,8 @@ static void llvmEmitExternDeclarations(FILE *stream, MirProgram *program)
     for(int i = 0; i < program->extern_function_count; i++)
     {
         MirExternFunction *extern_function = &(program->extern_functions[i]);
+        if(extern_function->kind != MIR_EXTERN_FUNCTION_NATIVE)
+            continue;
         fprintf(stream, "declare ");
         llvmEmitNativeExternSignature(stream, extern_function->symbol_name, extern_function->function_type);
         fprintf(stream, "\n");
@@ -1132,13 +1153,26 @@ static void llvmEmitExternWrapperDefinition(FILE *stream, MirExternFunction *ext
         parameter = parameter->next;
     }
 
+    if(extern_function->kind == MIR_EXTERN_FUNCTION_DYNAMIC_POINTER)
+    {
+        fprintf(stream, "    %%fn_ptr_slot = getelementptr { ptr }, ptr %%env, i32 0, i32 0\n");
+        fprintf(stream, "    %%fn_ptr = load ptr, ptr %%fn_ptr_slot\n");
+    }
+
     if(llvmIsVoidDataType(function_type->return_data_type) || return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
         fprintf(stream, "    call ");
     else
         fprintf(stream, "    %%ret = call ");
 
     llvmEmitNativeExternReturnType(stream, function_type->return_data_type);
-    llvmEmitNativeExternCallTarget(stream, extern_function->symbol_name, function_type);
+    if(extern_function->kind == MIR_EXTERN_FUNCTION_DYNAMIC_POINTER)
+    {
+        fprintf(stream, " ");
+        llvmEmitDynamicExternCallTarget(stream, function_type);
+        fprintf(stream, " %%fn_ptr");
+    }
+    else
+        llvmEmitNativeExternCallTarget(stream, extern_function->symbol_name, function_type);
     fprintf(stream, "(");
 
     bool need_comma = false;

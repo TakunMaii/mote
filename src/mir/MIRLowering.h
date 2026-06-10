@@ -284,10 +284,16 @@ typedef struct MirGlobal {
     char const_string_initializer[MAX_STRING_LITERAL_LENGTH];
 } MirGlobal;
 
+typedef enum MirExternFunctionKind {
+    MIR_EXTERN_FUNCTION_NATIVE,
+    MIR_EXTERN_FUNCTION_DYNAMIC_POINTER,
+} MirExternFunctionKind;
+
 typedef struct MirExternFunction {
     char wrapper_name[MIR_MAX_NAME_LENGTH];
     char symbol_name[MIR_MAX_NAME_LENGTH];
     ASTDataType *function_type;
+    MirExternFunctionKind kind;
     bool is_direct;
 } MirExternFunction;
 
@@ -479,7 +485,8 @@ static const char* mirEnsureExternFunction(MirLowering *lowering, const char *sy
     for(int i = 0; i < lowering->program->extern_function_count; i++)
     {
         MirExternFunction *extern_function = &(lowering->program->extern_functions[i]);
-        if(strcmp(extern_function->symbol_name, symbol_name) == 0)
+        if(extern_function->kind == MIR_EXTERN_FUNCTION_NATIVE &&
+           strcmp(extern_function->symbol_name, symbol_name) == 0)
         {
             if(!isSameDataType(extern_function->function_type, function_type))
                 mirLoweringAbortPointFormatted("M2001", filename, line, column,
@@ -496,8 +503,28 @@ static const char* mirEnsureExternFunction(MirLowering *lowering, const char *sy
                  "__mote_extern_%d", lowering->unique_extern_counter++);
     strcpy(extern_function->symbol_name, symbol_name);
     extern_function->function_type = cloneDataType(function_type);
+    extern_function->kind = MIR_EXTERN_FUNCTION_NATIVE;
     extern_function->is_direct = function_type->is_variadic;
     return extern_function->is_direct ? extern_function->symbol_name : extern_function->wrapper_name;
+}
+
+static const char* mirEnsureDynamicFunctionWrapper(MirLowering *lowering, ASTDataType *function_type)
+{
+    for(int i = 0; i < lowering->program->extern_function_count; i++)
+    {
+        MirExternFunction *extern_function = &(lowering->program->extern_functions[i]);
+        if(extern_function->kind == MIR_EXTERN_FUNCTION_DYNAMIC_POINTER &&
+           isSameDataType(extern_function->function_type, function_type))
+            return extern_function->wrapper_name;
+    }
+
+    MirExternFunction *extern_function = mirAppendExternFunction(lowering->program);
+    snprintf(extern_function->wrapper_name, sizeof(extern_function->wrapper_name),
+             "__mote_dynfn_%d", lowering->unique_extern_counter++);
+    extern_function->function_type = cloneDataType(function_type);
+    extern_function->kind = MIR_EXTERN_FUNCTION_DYNAMIC_POINTER;
+    extern_function->is_direct = false;
+    return extern_function->wrapper_name;
 }
 
 static ASTDataType* mirGetValueType(MirFunctionState *state, MirValueId value)
@@ -646,6 +673,16 @@ static int findEnumVariantOrdinal(ASTDataType *enum_type, const char *identifier
 static ASTDataType* mirClosureEnvPointerType(ASTDataType *env_type)
 {
     return newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false, cloneDataType(env_type));
+}
+
+static ASTDataType* mirDynamicFunctionEnvType(void)
+{
+    ASTStructMember *member = (ASTStructMember*) malloc(sizeof(ASTStructMember));
+    memset(member, 0, sizeof(ASTStructMember));
+    strcpy(member->identifier, "fn_ptr");
+    member->data_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false,
+                                           newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID));
+    return newStructDataType("", member);
 }
 
 static ASTDataType* mirBuildClosureEnvType(MirCaptureDesc *captures, int capture_count)
@@ -1765,6 +1802,37 @@ static MirValueId lowerAsBuiltinExpr(MirFunctionState *state, MirLowerScope *sco
         return mirMaybeConvertValue(state, scope, node,
                                     lowerStringLiteralAsPointer(state, value_expr, target_type),
                                     expected_type);
+
+    if(value_expr != NULL &&
+       isLiteralIntegerZero(value_expr) &&
+       (target_type->kind == AST_DATA_TYPE_KIND_POINTER ||
+        target_type->kind == AST_DATA_TYPE_KIND_FUNCTION))
+    {
+        return mirMaybeConvertValue(state, scope, node,
+                                    mirEmitZero(state, target_type,
+                                                node->filename, node->line_number, node->column_number),
+                                    expected_type);
+    }
+
+    if(value_expr != NULL && target_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+    {
+        ASTDataType *pointer_target = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false,
+                                                         newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID));
+        if(target_type->is_variadic)
+            mirLoweringAbortNode("M2014", node,
+                                 "cannot convert a raw function address into a variadic function value",
+                                 "variadic function pointers are not supported by this closure bridge");
+
+        MirValueId raw_ptr = lowerExprAsValue(state, scope, value_expr, pointer_target);
+        MirOperandList captures = newMirOperandList(1);
+        captures.items[0] = raw_ptr;
+        ASTDataType *env_type = mirDynamicFunctionEnvType();
+        const char *wrapper_name = mirEnsureDynamicFunctionWrapper(state->lowering, target_type);
+        return mirMaybeConvertValue(state, scope, node,
+                                    mirEmitMakeClosure(state, wrapper_name, target_type, env_type, captures,
+                                                       node->filename, node->line_number, node->column_number),
+                                    expected_type);
+    }
 
     MirValueId value = lowerExprAsValue(state, scope, value_expr, NULL);
     value = mirEmitConvert(state, value, target_type,

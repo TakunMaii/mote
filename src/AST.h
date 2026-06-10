@@ -100,6 +100,7 @@ typedef enum ASTDataTypeKind {
     AST_DATA_TYPE_KIND_APPLY,
     AST_DATA_TYPE_KIND_ENUM,
     AST_DATA_TYPE_KIND_STRUCT,
+    AST_DATA_TYPE_KIND_OPAQUE,
 } ASTDataTypeKind;
 
 typedef struct ASTDataType ASTDataType;
@@ -360,6 +361,16 @@ ASTDataType* newEnumDataType(const char *identifier, ASTEnumVariant *variants)
     if(identifier)
         strcpy(data_type->identifier, identifier);
     data_type->variants = variants;
+    return data_type;
+}
+
+ASTDataType* newOpaqueDataType(const char *identifier)
+{
+    ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    memset(data_type, 0, sizeof(ASTDataType));
+    data_type->kind = AST_DATA_TYPE_KIND_OPAQUE;
+    if(identifier)
+        strcpy(data_type->identifier, identifier);
     return data_type;
 }
 
@@ -879,6 +890,12 @@ void printASTDataType(ASTDataType *data_type)
                 printf("}");
             }
         } break;
+        case AST_DATA_TYPE_KIND_OPAQUE: {
+            if(data_type->identifier[0] != '\0')
+                printf("%s", data_type->identifier);
+            else
+                printf("opaque");
+        } break;
         default:
             diagnosticAbortInternal("printASTDataType", "unknown AST data type kind");
     }
@@ -1036,6 +1053,12 @@ void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer
                 appendStructMembersString(data_type->members, buffer, buffer_size);
                 appendStringFragment(buffer, buffer_size, "}");
             }
+            break;
+        case AST_DATA_TYPE_KIND_OPAQUE:
+            if(data_type->identifier[0] != '\0')
+                appendStringFragment(buffer, buffer_size, data_type->identifier);
+            else
+                appendStringFragment(buffer, buffer_size, "opaque");
             break;
         default:
             diagnosticAbortInternal("appendASTDataTypeString", "unknown AST data type kind");

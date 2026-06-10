@@ -25,6 +25,24 @@
       "input": "test\\basic\\string_ptr_context.mote"
     },
     {
+      "name": "pointer-zero-compare-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\pointer_zero_compare.mote"
+    },
+    {
+      "name": "function-pointer-cast-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\function_pointer_cast.mote"
+    },
+    {
+      "name": "opaque-handle-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\opaque_handle.mote"
+    },
+    {
       "name": "std-smoke-llvm",
       "expect": "success",
       "mode": "llvm",
@@ -72,6 +90,36 @@
       "args": [
         "-I",
         "lib"
+      ]
+    },
+    {
+      "name": "vendor-raylib-smoke-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\raylib\\raylib_smoke.mote",
+      "args": [
+        "-I",
+        "."
+      ]
+    },
+    {
+      "name": "vendor-glfw-smoke-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\glfw\\glfw_smoke.mote",
+      "args": [
+        "-I",
+        "."
+      ]
+    },
+    {
+      "name": "vendor-opengl-api-smoke-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\opengl\\opengl_api_smoke.mote",
+      "args": [
+        "-I",
+        "."
       ]
     },
     {

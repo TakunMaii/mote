@@ -1,0 +1,46 @@
+pub TRUE = 1;
+pub FALSE = 0;
+
+pub Monitor = opaque;
+pub Window = opaque;
+
+pub PRESS = 1;
+pub RELEASE = 0;
+pub REPEAT = 2;
+
+pub KEY_SPACE = 32;
+pub KEY_ESCAPE = 256;
+pub KEY_ENTER = 257;
+pub KEY_TAB = 258;
+pub KEY_BACKSPACE = 259;
+pub KEY_LEFT = 263;
+pub KEY_RIGHT = 262;
+pub KEY_DOWN = 264;
+pub KEY_UP = 265;
+pub KEY_A = 65;
+pub KEY_D = 68;
+pub KEY_S = 83;
+pub KEY_W = 87;
+
+pub CONTEXT_VERSION_MAJOR = 139266;
+pub CONTEXT_VERSION_MINOR = 139267;
+pub OPENGL_PROFILE = 139272;
+pub OPENGL_CORE_PROFILE = 204801;
+pub OPENGL_FORWARD_COMPAT = 139270;
+pub RESIZABLE = 131075;
+
+pub Init = @extern("glfwInit", Function([], i32));
+pub Terminate = @extern("glfwTerminate", Function([], void));
+pub WindowHint = @extern("glfwWindowHint", Function([i32, i32], void));
+pub CreateWindow = @extern("glfwCreateWindow", Function([i32, i32, *char, *Monitor, *Window], *Window));
+pub DestroyWindow = @extern("glfwDestroyWindow", Function([*Window], void));
+pub MakeContextCurrent = @extern("glfwMakeContextCurrent", Function([*Window], void));
+pub SwapBuffers = @extern("glfwSwapBuffers", Function([*Window], void));
+pub PollEvents = @extern("glfwPollEvents", Function([], void));
+pub WindowShouldClose = @extern("glfwWindowShouldClose", Function([*Window], i32));
+pub SetWindowShouldClose = @extern("glfwSetWindowShouldClose", Function([*Window, i32], void));
+pub SwapInterval = @extern("glfwSwapInterval", Function([i32], void));
+pub GetProcAddress = @extern("glfwGetProcAddress", Function([*char], *void));
+pub GetTime = @extern("glfwGetTime", Function([], f64));
+pub GetFramebufferSize = @extern("glfwGetFramebufferSize", Function([*Window, *mut i32, *mut i32], void));
+pub GetKey = @extern("glfwGetKey", Function([*Window, i32], i32));

@@ -105,6 +105,7 @@ bool exprLooksLikeTypeDeclValue(ASTNode *node, ScopeFrame *scope)
             return exprLooksLikeTypeDeclValue(node->lhs, scope);
         case AST_EXPR_VARIABLE:
             return strcmp(node->identifier, "Self") == 0 ||
+                   strcmp(node->identifier, "opaque") == 0 ||
                    builtinIdentifierToDataType(node->identifier) != NULL ||
                    findTypeInfo(scope, node->identifier) != NULL;
         default:
@@ -369,7 +370,6 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
         TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
         TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
         type_info->data_type = cloneDataType(expr_type.data_type);
-        strcpy(type_info->data_type->identifier, node->identifier);
         node->data_type = cloneDataType(type_info->data_type);
         if(node->rhs->kind == AST_EXPR_STRUCT)
             checkStructExprSemantics(node->rhs, scope);
@@ -674,6 +674,7 @@ ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
         strcpy(resolved_member->identifier, member->identifier);
         resolved_member->value = member->value;
         resolved_member->data_type = resolveNamedDataType(member->data_type, scope, struct_type);
+        typeSystemEnsureNoBareOpaque(resolved_member->data_type, node, "T1132", "struct field");
         member->data_type = cloneDataType(resolved_member->data_type);
 
         if(resolved_head == NULL)
@@ -771,6 +772,7 @@ ASTFunctionParameter* resolveFunctionTypeParameters(ASTFunctionParameter *parame
         *resolved_parameter = *parameter;
         resolved_parameter->next = NULL;
         resolved_parameter->data_type = resolveNamedDataType(parameter->data_type, signature_scope, self_data_type);
+        typeSystemEnsureNoBareOpaque(resolved_parameter->data_type, NULL, "T1133", "function parameter");
 
         if(head == NULL)
             head = resolved_parameter;
@@ -921,6 +923,7 @@ ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope,
         resolved_return_type = resolveNamedDataType(node->return_data_type, signature_scope, self_data_type);
     else
         resolved_return_type = inferFunctionExprReturnType(node, outer_scope, self_data_type, resolved_parameters);
+    typeSystemEnsureNoBareOpaque(resolved_return_type, node, "T1134", "function return type");
     deleteScopeFrame(signature_scope);
     return newFunctionDataType(resolved_parameters, node->is_variadic, resolved_return_type);
 }
@@ -1055,7 +1058,10 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
         type_info->data_type = resolveNamedDataType(expr_type.data_type, scope,
                                                     function_context == NULL ? NULL : function_context->self_data_type);
-        strcpy(type_info->data_type->identifier, node->identifier);
+        if(type_info->data_type != NULL &&
+           type_info->data_type->kind == AST_DATA_TYPE_KIND_OPAQUE &&
+           type_info->data_type->identifier[0] == '\0')
+            strcpy(type_info->data_type->identifier, node->identifier);
         node->data_type = cloneDataType(type_info->data_type);
         return;
     }
@@ -1200,6 +1206,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         else
             declared_type = node->data_type = resolveNamedDataType(declared_type, scope,
                                                                    function_context == NULL ? NULL : function_context->self_data_type);
+        typeSystemEnsureNoBareOpaque(declared_type, node, "T1135", "variable declaration");
 
         if(node->rhs->kind == AST_EXPR_ARRAY_LITERAL && node->rhs->lhs == NULL)
         {
