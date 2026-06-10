@@ -6,7 +6,6 @@ import os
 import pathlib
 import subprocess
 import sys
-import tempfile
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
