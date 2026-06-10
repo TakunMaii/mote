@@ -1857,12 +1857,35 @@ static void llvmEmitFunctionDefinition(FILE *stream, MirFunction *function)
     free(context.aliases);
 }
 
-static void llvmEmitEntryPoint(FILE *stream)
+static bool llvmProgramHasGlobal(const MirProgram *program, const char *name)
+{
+    if(program == NULL || name == NULL)
+        return false;
+
+    for(int i = 0; i < program->global_count; i++)
+    {
+        if(strcmp(program->globals[i].name, name) == 0)
+            return true;
+    }
+    return false;
+}
+
+static void llvmEmitEntryPoint(FILE *stream, MirProgram *program)
 {
     fprintf(stream, "define i32 @main() {\n");
     fprintf(stream, "entry:\n");
     fprintf(stream, "    call void @__mote_init(ptr null)\n");
-    fprintf(stream, "    ret i32 0\n");
+    if(llvmProgramHasGlobal(program, "m0__main"))
+    {
+        fprintf(stream, "    %%mote_user_main_slot = getelementptr { ptr, ptr }, ptr @m0__main, i32 0\n");
+        fprintf(stream, "    %%mote_user_main = load { ptr, ptr }, ptr %%mote_user_main_slot\n");
+        fprintf(stream, "    %%mote_user_main_fn = extractvalue { ptr, ptr } %%mote_user_main, 0\n");
+        fprintf(stream, "    %%mote_user_main_env = extractvalue { ptr, ptr } %%mote_user_main, 1\n");
+        fprintf(stream, "    %%mote_user_main_ret = call i32 %%mote_user_main_fn(ptr %%mote_user_main_env)\n");
+        fprintf(stream, "    ret i32 %%mote_user_main_ret\n");
+    }
+    else
+        fprintf(stream, "    ret i32 0\n");
     fprintf(stream, "}\n\n");
 }
 
@@ -1923,7 +1946,7 @@ static void emitLLVMProgramToFile(MirProgram *program, const char *module_name, 
     for(int i = 0; i < program->function_count; i++)
         llvmEmitFunctionDefinition(stream, &(program->functions[i]));
 
-    llvmEmitEntryPoint(stream);
+    llvmEmitEntryPoint(stream, program);
 
     fclose(stream);
 }

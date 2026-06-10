@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #if defined(_WIN32)
 #include <windows.h>
 #elif defined(__APPLE__)
@@ -54,14 +55,15 @@ static void print_usage(const char *argv0)
     printf("  - Default behavior emits an executable.\n");
     printf("  - -S writes LLVM IR instead of linking.\n");
     printf("  - mote requires clang to be available in PATH for executable emission.\n");
+    printf("  - Official module roots are searched automatically relative to the compiler executable.\n");
     printf("  - If -o is omitted, the compiler derives output from the input file name.\n");
     printf("\n");
     printf("Examples:\n");
     printf("  %s test\\\\basic\\\\simple.mote\n", argv0);
     printf("  %s -S test\\\\basic\\\\simple.mote -o test\\\\basic\\\\simple.ll\n", argv0);
-    printf("  %s test.mote -I lib -o test.exe\n", argv0);
+    printf("  %s test.mote -o test.exe\n", argv0);
     printf("  %s app.mote -Lthird_party\\\\lib -lfoo -o app.exe\n", argv0);
-    printf("  %s test\\\\ffi\\\\ffi_main.mote -I lib -o test\\\\ffi\\\\ffi_main.exe\n", argv0);
+    printf("  %s main.mote -o cube_demo\n", argv0);
 }
 
 static void build_output_path(char *buffer, size_t buffer_size, const char *input_path, const char *extension)
@@ -89,6 +91,14 @@ static bool file_exists(const char *path)
         return false;
     fclose(stream);
     return true;
+}
+
+static bool directory_exists(const char *path)
+{
+    struct stat info;
+    if(stat(path, &info) != 0)
+        return false;
+    return S_ISDIR(info.st_mode);
 }
 
 static bool get_executable_path(char *buffer, size_t buffer_size, const char *argv0)
@@ -153,6 +163,135 @@ static bool resolve_runtime_source_path(char *buffer, size_t buffer_size, const 
     if(!trim_to_directory(executable_path))
         return false;
     return join_path(buffer, buffer_size, executable_path, MOTE_RUNTIME_RELATIVE_PATH);
+}
+
+static bool resolve_executable_directory(char *buffer, size_t buffer_size, const char *argv0)
+{
+    if(!get_executable_path(buffer, buffer_size, argv0))
+        return false;
+    return trim_to_directory(buffer);
+}
+
+static void add_search_root(ModulePackage *packages, int *package_count, const char *path)
+{
+    for(int i = 0; i < *package_count; i++)
+    {
+        if(packages[i].is_search_root && strcmp(packages[i].root_path, path) == 0)
+            return;
+    }
+
+    if(*package_count >= CLI_MAX_PACKAGES)
+    {
+        printf("Too many module search roots\n");
+        exit(1);
+    }
+
+    memset(&(packages[*package_count]), 0, sizeof(ModulePackage));
+    strcpy(packages[*package_count].root_path, path);
+    packages[*package_count].is_search_root = true;
+    (*package_count)++;
+}
+
+static void add_search_root_if_exists(ModulePackage *packages, int *package_count, const char *path)
+{
+    if(directory_exists(path))
+        add_search_root(packages, package_count, path);
+}
+
+static void add_driver_arg(const char **driver_args, int *driver_arg_count, const char *value)
+{
+    for(int i = 0; i < *driver_arg_count; i++)
+    {
+        if(strcmp(driver_args[i], value) == 0)
+            return;
+    }
+
+    if(*driver_arg_count >= CLI_MAX_LINK_ARGS)
+    {
+        printf("Too many linker arguments\n");
+        exit(1);
+    }
+
+    driver_args[(*driver_arg_count)++] = value;
+}
+
+static void add_driver_path_arg(const char **driver_args, int *driver_arg_count, const char *prefix, const char *path)
+{
+    char *forwarded = (char*) malloc(MODULE_MAX_PATH_LENGTH);
+    if(forwarded == NULL)
+    {
+        printf("Failed to allocate linker argument\n");
+        exit(1);
+    }
+
+    snprintf(forwarded, MODULE_MAX_PATH_LENGTH, "%s%s", prefix, path);
+    add_driver_arg(driver_args, driver_arg_count, forwarded);
+}
+
+static void add_default_official_search_roots(ModulePackage *packages, int *package_count, const char *argv0)
+{
+    char executable_dir[CLI_PATH_BUFFER_SIZE] = {0};
+    char lib_dir[CLI_PATH_BUFFER_SIZE] = {0};
+
+    if(!resolve_executable_directory(executable_dir, sizeof(executable_dir), argv0))
+        return;
+
+    add_search_root_if_exists(packages, package_count, executable_dir);
+    if(join_path(lib_dir, sizeof(lib_dir), executable_dir, "lib"))
+        add_search_root_if_exists(packages, package_count, lib_dir);
+}
+
+static bool source_uses_import(const char *path, const char *needle)
+{
+    char *source = moduleReadFile(path);
+    if(source == NULL)
+        return false;
+
+    bool found = strstr(source, needle) != NULL;
+    free(source);
+    return found;
+}
+
+static void add_default_official_link_args(const char *input_path,
+                                           const char **driver_args, int *driver_arg_count)
+{
+    bool uses_glfw = source_uses_import(input_path, "@import(\"vendor/glfw\")");
+    bool uses_raylib = source_uses_import(input_path, "@import(\"vendor/raylib\")");
+
+#if defined(__APPLE__)
+    if(directory_exists("/opt/homebrew/lib"))
+    {
+        add_driver_path_arg(driver_args, driver_arg_count, "-L", "/opt/homebrew/lib");
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-rpath,/opt/homebrew/lib");
+    }
+    if(directory_exists("/usr/local/lib"))
+    {
+        add_driver_path_arg(driver_args, driver_arg_count, "-L", "/usr/local/lib");
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-rpath,/usr/local/lib");
+    }
+#endif
+
+    if(uses_glfw)
+    {
+        add_driver_arg(driver_args, driver_arg_count, "-lglfw");
+#if defined(__APPLE__)
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,OpenGL");
+#endif
+    }
+
+    if(uses_raylib)
+    {
+        add_driver_arg(driver_args, driver_arg_count, "-lraylib");
+#if defined(__APPLE__)
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,OpenGL");
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,Cocoa");
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,IOKit");
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,CoreVideo");
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,CoreAudio");
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,AudioToolbox");
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,AudioUnit");
+#endif
+    }
 }
 
 static void append_shell_escaped(char *command, size_t command_size, const char *arg)
@@ -253,6 +392,8 @@ int main(int argn, char** argv)
         exit(1);
     }
 
+    add_default_official_search_roots(packages, &package_count, argv[0]);
+
     for(int i = 1; i < argn; i++)
     {
         if(strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
@@ -298,15 +439,7 @@ int main(int argn, char** argv)
                 print_usage(argv[0]);
                 exit(1);
             }
-            if(package_count >= CLI_MAX_PACKAGES)
-            {
-                printf("Too many -I arguments\n");
-                exit(1);
-            }
-            memset(&(packages[package_count]), 0, sizeof(ModulePackage));
-            strcpy(packages[package_count].root_path, argv[++i]);
-            packages[package_count].is_search_root = true;
-            package_count++;
+            add_search_root(packages, &package_count, argv[++i]);
             continue;
         }
 
@@ -404,6 +537,8 @@ int main(int argn, char** argv)
         print_usage(argv[0]);
         exit(1);
     }
+
+    add_default_official_link_args(input_path, driver_args, &driver_arg_count);
 
     char default_llvm_output_path[1024] = {0};
     char default_exe_output_path[1024] = {0};
