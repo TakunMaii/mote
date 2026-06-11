@@ -454,12 +454,30 @@
       ]
     },
     {
-      "name": "diagnostic-generic-uninstantiated-value-use",
+      "name": "diagnostic-generic-alias-as-function-value",
       "expect": "failure",
-      "input": "test\\diagnostic\\generic_uninstantiated_value_use.mote",
+      "input": "test\\diagnostic\\generic_generic_alias_as_function_value.mote",
       "contains": [
-        "error[T1202]",
-        "unknown data type `T`"
+        "error[T1221]",
+        "function argument type mismatch"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-recursive-type-factory",
+      "expect": "failure",
+      "input": "test\\generic\\boundary_recursive_type_factory.mote",
+      "contains": [
+        "error[T1240]",
+        "recursive generic instantiation is not supported"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-recursive-value-type-factory",
+      "expect": "failure",
+      "input": "test\\generic\\boundary_error_no_crash_recursive.mote",
+      "contains": [
+        "error[T1240]",
+        "recursive generic instantiation is not supported"
       ]
     },
     {

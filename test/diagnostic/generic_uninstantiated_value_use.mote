@@ -1,3 +1,0 @@
-g = @import("../generic/support_factories");
-
-bad = g.id;
