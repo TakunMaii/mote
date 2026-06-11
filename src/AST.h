@@ -935,31 +935,52 @@ void appendFormatFragment(char *buffer, size_t buffer_size, const char *format, 
     va_end(args);
 }
 
-void appendFunctionParametersString(ASTFunctionParameter *parameter, char *buffer, size_t buffer_size)
+typedef struct ASTDataTypePrintStack {
+    ASTDataType *items[256];
+    int count;
+} ASTDataTypePrintStack;
+
+static bool astDataTypePrintStackContains(ASTDataTypePrintStack *stack, ASTDataType *data_type)
+{
+    for(int i = 0; i < stack->count; i++)
+    {
+        if(stack->items[i] == data_type)
+            return true;
+    }
+    return false;
+}
+
+static void appendASTDataTypeStringInternal(ASTDataType *data_type, char *buffer, size_t buffer_size,
+                                            ASTDataTypePrintStack *stack);
+
+void appendFunctionParametersString(ASTFunctionParameter *parameter, char *buffer, size_t buffer_size,
+                                    ASTDataTypePrintStack *stack)
 {
     while(parameter)
     {
         appendStringFragment(buffer, buffer_size, parameter->identifier);
         appendStringFragment(buffer, buffer_size, ": ");
-        appendASTDataTypeString(parameter->data_type, buffer, buffer_size);
+        appendASTDataTypeStringInternal(parameter->data_type, buffer, buffer_size, stack);
         if(parameter->next)
             appendStringFragment(buffer, buffer_size, ", ");
         parameter = parameter->next;
     }
 }
 
-void appendTypeArgumentsString(ASTTypeArgument *argument, char *buffer, size_t buffer_size)
+void appendTypeArgumentsString(ASTTypeArgument *argument, char *buffer, size_t buffer_size,
+                               ASTDataTypePrintStack *stack)
 {
     while(argument)
     {
-        appendASTDataTypeString(argument->data_type, buffer, buffer_size);
+        appendASTDataTypeStringInternal(argument->data_type, buffer, buffer_size, stack);
         if(argument->next)
             appendStringFragment(buffer, buffer_size, ", ");
         argument = argument->next;
     }
 }
 
-void appendStructMembersString(ASTStructMember *member, char *buffer, size_t buffer_size)
+void appendStructMembersString(ASTStructMember *member, char *buffer, size_t buffer_size,
+                               ASTDataTypePrintStack *stack)
 {
     while(member)
     {
@@ -968,7 +989,7 @@ void appendStructMembersString(ASTStructMember *member, char *buffer, size_t buf
         if(member->value)
             appendStringFragment(buffer, buffer_size, "<expr>");
         else
-            appendASTDataTypeString(member->data_type, buffer, buffer_size);
+            appendASTDataTypeStringInternal(member->data_type, buffer, buffer_size, stack);
         if(member->next)
             appendStringFragment(buffer, buffer_size, ", ");
         member = member->next;
@@ -986,12 +1007,35 @@ void appendEnumVariantsString(ASTEnumVariant *variant, char *buffer, size_t buff
     }
 }
 
-void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer_size)
+static void appendASTDataTypeStringInternal(ASTDataType *data_type, char *buffer, size_t buffer_size,
+                                            ASTDataTypePrintStack *stack)
 {
     if(data_type == NULL)
     {
         appendStringFragment(buffer, buffer_size, "<null type>");
         return;
+    }
+
+    if(astDataTypePrintStackContains(stack, data_type))
+    {
+        appendStringFragment(buffer, buffer_size, "<recursive>");
+        return;
+    }
+
+    bool pushed = false;
+    if(stack->count < 256 &&
+       (data_type->kind == AST_DATA_TYPE_KIND_STRUCT ||
+        data_type->kind == AST_DATA_TYPE_KIND_ENUM ||
+        data_type->kind == AST_DATA_TYPE_KIND_FUNCTION ||
+        data_type->kind == AST_DATA_TYPE_KIND_POINTER ||
+        data_type->kind == AST_DATA_TYPE_KIND_REFERENCE ||
+        data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL ||
+        data_type->kind == AST_DATA_TYPE_KIND_ARRAY ||
+        data_type->kind == AST_DATA_TYPE_KIND_SLICE ||
+        data_type->kind == AST_DATA_TYPE_KIND_APPLY))
+    {
+        stack->items[stack->count++] = data_type;
+        pushed = true;
     }
 
     switch(data_type->kind)
@@ -1006,21 +1050,21 @@ void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer
             appendStringFragment(buffer, buffer_size, "*");
             if(data_type->mutable)
                 appendStringFragment(buffer, buffer_size, "mut ");
-            appendASTDataTypeString(data_type->child, buffer, buffer_size);
+            appendASTDataTypeStringInternal(data_type->child, buffer, buffer_size, stack);
             break;
         case AST_DATA_TYPE_KIND_REFERENCE:
             appendStringFragment(buffer, buffer_size, "&");
             if(data_type->mutable)
                 appendStringFragment(buffer, buffer_size, "mut ");
-            appendASTDataTypeString(data_type->child, buffer, buffer_size);
+            appendASTDataTypeStringInternal(data_type->child, buffer, buffer_size, stack);
             break;
         case AST_DATA_TYPE_KIND_OPTIONAL:
             appendStringFragment(buffer, buffer_size, "?");
-            appendASTDataTypeString(data_type->child, buffer, buffer_size);
+            appendASTDataTypeStringInternal(data_type->child, buffer, buffer_size, stack);
             break;
         case AST_DATA_TYPE_KIND_FUNCTION:
             appendStringFragment(buffer, buffer_size, "Function([");
-            appendFunctionParametersString(data_type->parameters, buffer, buffer_size);
+            appendFunctionParametersString(data_type->parameters, buffer, buffer_size, stack);
             if(data_type->is_variadic)
             {
                 if(data_type->parameters != NULL)
@@ -1029,7 +1073,7 @@ void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer
             }
             appendStringFragment(buffer, buffer_size, "], ");
             if(data_type->return_data_type != NULL)
-                appendASTDataTypeString(data_type->return_data_type, buffer, buffer_size);
+                appendASTDataTypeStringInternal(data_type->return_data_type, buffer, buffer_size, stack);
             else
                 appendStringFragment(buffer, buffer_size, "<infer return>");
             appendStringFragment(buffer, buffer_size, ")");
@@ -1039,17 +1083,17 @@ void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer
             break;
         case AST_DATA_TYPE_KIND_ARRAY:
             appendStringFragment(buffer, buffer_size, "Array(");
-            appendASTDataTypeString(data_type->child, buffer, buffer_size);
+            appendASTDataTypeStringInternal(data_type->child, buffer, buffer_size, stack);
             appendFormatFragment(buffer, buffer_size, ", %lld)", data_type->array_length);
             break;
         case AST_DATA_TYPE_KIND_SLICE:
             appendStringFragment(buffer, buffer_size, "[]");
-            appendASTDataTypeString(data_type->child, buffer, buffer_size);
+            appendASTDataTypeStringInternal(data_type->child, buffer, buffer_size, stack);
             break;
         case AST_DATA_TYPE_KIND_APPLY:
-            appendASTDataTypeString(data_type->callee, buffer, buffer_size);
+            appendASTDataTypeStringInternal(data_type->callee, buffer, buffer_size, stack);
             appendStringFragment(buffer, buffer_size, "(");
-            appendTypeArgumentsString(data_type->arguments, buffer, buffer_size);
+            appendTypeArgumentsString(data_type->arguments, buffer, buffer_size, stack);
             appendStringFragment(buffer, buffer_size, ")");
             break;
         case AST_DATA_TYPE_KIND_ENUM:
@@ -1068,7 +1112,7 @@ void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer
             else
             {
                 appendStringFragment(buffer, buffer_size, "struct {");
-                appendStructMembersString(data_type->members, buffer, buffer_size);
+                appendStructMembersString(data_type->members, buffer, buffer_size, stack);
                 appendStringFragment(buffer, buffer_size, "}");
             }
             break;
@@ -1081,6 +1125,15 @@ void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer
         default:
             diagnosticAbortInternal("appendASTDataTypeString", "unknown AST data type kind");
     }
+
+    if(pushed)
+        stack->count--;
+}
+
+void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer_size)
+{
+    ASTDataTypePrintStack stack = {0};
+    appendASTDataTypeStringInternal(data_type, buffer, buffer_size, &stack);
 }
 
 const char* modifierToString(ASTAssignModifier modifier)

@@ -1052,6 +1052,37 @@ ASTDataType* instantiateTypeExprValue(ASTNode *expr, ScopeFrame *inst_scope)
         }
     }
 
+    if(expr->kind == AST_EXPR_CALL && expr->lhs->kind == AST_EXPR_MEMBER)
+    {
+        ASTNode *member_expr = expr->lhs;
+        TypeSystemExprType owner_type = inferExprType(member_expr->lhs, inst_scope);
+        ASTDataType *struct_type = NULL;
+        if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+            struct_type = owner_type.data_type;
+        else if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE)
+        {
+            struct_type = owner_type.data_type;
+            if(struct_type != NULL &&
+               (struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE))
+                struct_type = struct_type->child;
+        }
+        struct_type = resolveNamedDataType(struct_type, inst_scope, NULL);
+
+        if(isStructDataType(struct_type))
+        {
+            ASTStructMember *member = findStructMember(struct_type, member_expr->identifier);
+            if(member != NULL && member->value != NULL && member->value->kind == AST_EXPR_FUNCTION)
+            {
+                ScopeFrame *nested_scope = newScopeFrame(inst_scope);
+                bindCapturedValuesForInstantiation(member->value->captures, nested_scope, inst_scope);
+                bindCallArgumentsForInstantiation(member->value->parameters, expr->rhs, nested_scope, inst_scope);
+                ASTDataType *result = instantiateTypeExprValue(findReturnedExpr(member->value), nested_scope);
+                deleteScopeFrame(nested_scope);
+                return result;
+            }
+        }
+    }
+
     typeSystemAbortNode("T1208", expr,
                         "unsupported type-valued expression",
                         "this expression cannot be evaluated as a type");
@@ -1439,6 +1470,90 @@ ASTDataType* inferLenBuiltinValueType(ASTNode *node, ScopeFrame *scope)
         typeSystemAbortNode("T1255", node->lhs,
                             "@len expects a slice value",
                             "argument must have type `[]T`");
+
+    return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+}
+
+ASTDataType* inferPtrAddBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    if(node->lhs == NULL || node->lhs->next == NULL || node->lhs->next->next == NULL || node->lhs->next->next->next != NULL)
+        typeSystemAbortNode("T1261", node,
+                            "@ptr_add expects exactly three arguments",
+                            "expected `@ptr_add(T, ptr, count)`");
+
+    ASTNode *element_type_expr = node->lhs;
+    ASTNode *pointer_expr = element_type_expr->next;
+    ASTNode *count_expr = pointer_expr->next;
+
+    TypeSystemExprType element_type_value = inferExprType(element_type_expr, scope);
+    if(element_type_value.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
+        typeSystemAbortNode("T1262", element_type_expr,
+                            "@ptr_add expects a type as its first argument",
+                            "first argument must evaluate to a type");
+
+    ASTDataType *element_type = resolveNamedDataType(element_type_value.data_type, scope, NULL);
+    if(element_type == NULL)
+        typeSystemAbortNode("T1263", element_type_expr,
+                            "@ptr_add could not resolve its element type",
+                            "the provided element type could not be resolved");
+
+    TypeSystemExprType pointer_type = inferExprType(pointer_expr, scope);
+    if(pointer_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
+       pointer_type.data_type == NULL ||
+       pointer_type.data_type->kind != AST_DATA_TYPE_KIND_POINTER ||
+       !isSameDataType(pointer_type.data_type->child, element_type))
+        typeSystemAbortNode("T1264", pointer_expr,
+                            "@ptr_add expects a pointer to the given element type",
+                            "second argument must have type `*T` or `*mut T` matching the first argument");
+
+    TypeSystemExprType count_type = inferExprType(count_expr, scope);
+    if(count_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
+       (count_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+        (count_type.data_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
+         !isIntegerPrimary(count_type.data_type->primary))))
+        typeSystemAbortNode("T1265", count_expr,
+                            "@ptr_add expects an integer offset",
+                            "third argument must be an integer value");
+
+    return cloneDataType(pointer_type.data_type);
+}
+
+ASTDataType* inferPtrDiffBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    if(node->lhs == NULL || node->lhs->next == NULL || node->lhs->next->next == NULL || node->lhs->next->next->next != NULL)
+        typeSystemAbortNode("T1266", node,
+                            "@ptr_diff expects exactly three arguments",
+                            "expected `@ptr_diff(T, lhs, rhs)`");
+
+    ASTNode *element_type_expr = node->lhs;
+    ASTNode *lhs_expr = element_type_expr->next;
+    ASTNode *rhs_expr = lhs_expr->next;
+
+    TypeSystemExprType element_type_value = inferExprType(element_type_expr, scope);
+    if(element_type_value.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
+        typeSystemAbortNode("T1267", element_type_expr,
+                            "@ptr_diff expects a type as its first argument",
+                            "first argument must evaluate to a type");
+
+    ASTDataType *element_type = resolveNamedDataType(element_type_value.data_type, scope, NULL);
+    if(element_type == NULL)
+        typeSystemAbortNode("T1268", element_type_expr,
+                            "@ptr_diff could not resolve its element type",
+                            "the provided element type could not be resolved");
+
+    TypeSystemExprType lhs_type = inferExprType(lhs_expr, scope);
+    TypeSystemExprType rhs_type = inferExprType(rhs_expr, scope);
+    if(lhs_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
+       rhs_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
+       lhs_type.data_type == NULL ||
+       rhs_type.data_type == NULL ||
+       lhs_type.data_type->kind != AST_DATA_TYPE_KIND_POINTER ||
+       rhs_type.data_type->kind != AST_DATA_TYPE_KIND_POINTER ||
+       !isSameDataType(lhs_type.data_type->child, element_type) ||
+       !isSameDataType(rhs_type.data_type->child, element_type))
+        typeSystemAbortNode("T1269", lhs_expr,
+                            "@ptr_diff expects two pointers to the given element type",
+                            "second and third arguments must both have type `*T` or `*mut T` matching the first argument");
 
     return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
 }
@@ -2141,6 +2256,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 return newValueExprType(inferZeroBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "len") == 0)
                 return newValueExprType(inferLenBuiltinValueType(node, scope));
+            if(strcmp(node->identifier, "ptr_add") == 0)
+                return newValueExprType(inferPtrAddBuiltinValueType(node, scope));
+            if(strcmp(node->identifier, "ptr_diff") == 0)
+                return newValueExprType(inferPtrDiffBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "sizeof") == 0)
                 return newValueExprType(inferSizeofBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "alignof") == 0)
@@ -2262,7 +2381,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             ASTDataType *owner_data_type = NULL;
 
             if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
-                owner_data_type = owner_type.data_type;
+                owner_data_type = inferDeclaredTypeFromExpr(node->lhs, scope);
             else if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE)
             {
                 owner_data_type = owner_type.data_type;
@@ -2292,7 +2411,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                                          "use `@len(slice)` or `@as(*T, slice)` instead of `.%s`",
                                          node->identifier);
 
-            ASTDataType *struct_type = owner_data_type;
+            ASTDataType *struct_type = resolveNamedDataType(owner_data_type, scope, NULL);
             if(!isStructDataType(struct_type))
                 typeSystemAbortNode("T1237", node,
                                     "member access requires a struct type",
@@ -2355,15 +2474,40 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 ASTNode *member_node = node->lhs;
                 TypeSystemExprType owner_type = inferExprType(member_node->lhs, scope);
                 ASTDataType *struct_type = NULL;
+                if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+                    struct_type = owner_type.data_type;
+                else if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE)
+                {
+                    struct_type = owner_type.data_type;
+                    if(struct_type != NULL &&
+                       (struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE))
+                        struct_type = struct_type->child;
+                }
+                struct_type = resolveNamedDataType(struct_type, scope, NULL);
+
+                if(isStructDataType(struct_type))
+                {
+                    ASTStructMember *member = findStructMember(struct_type, member_node->identifier);
+                    if(member != NULL && member->value != NULL && member->value->kind == AST_EXPR_FUNCTION)
+                        return instantiateFunctionCallExprType(member->value, node->rhs, scope);
+                }
+            }
+
+            if(node->lhs->kind == AST_EXPR_MEMBER)
+            {
+                ASTNode *member_node = node->lhs;
+                TypeSystemExprType owner_type = inferExprType(member_node->lhs, scope);
+                ASTDataType *struct_type = NULL;
                 bool through_type = owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE;
                 if(through_type)
-                    struct_type = owner_type.data_type;
+                    struct_type = inferDeclaredTypeFromExpr(member_node->lhs, scope);
                 else if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE)
                 {
                     struct_type = owner_type.data_type;
                     if(struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
                         struct_type = struct_type->child;
                 }
+                struct_type = resolveNamedDataType(struct_type, scope, NULL);
 
                 if(isStructDataType(struct_type))
                 {
@@ -2585,7 +2729,7 @@ ASTDataType* inferDeclaredTypeFromExpr(ASTNode *expr, ScopeFrame *scope)
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
         return defaultFloatDataType();
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
-        return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
+        return cloneDataType(expr_type.data_type);
     return cloneDataType(expr_type.data_type);
 }
 

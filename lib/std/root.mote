@@ -1,6 +1,7 @@
 types = @import("std/types");
 string = @import("std/string");
 io = @import("std/io");
+hash = @import("std/hash");
 
 pub byte = types.byte;
 pub size_t = types.size_t;
@@ -13,3 +14,16 @@ pub string_to_int = string.to_int;
 pub io_put_char = io.put_char;
 pub io_put_str = io.put_str;
 pub io_stderr_handle = io.stderr_handle;
+pub hash_mix_u64 = hash.mix_u64;
+pub hash_bool = hash.hash_bool;
+pub hash_i32 = hash.hash_i32;
+pub hash_i64 = hash.hash_i64;
+pub hash_u32 = hash.hash_u32;
+pub hash_u64 = hash.hash_u64;
+pub hash_c_string = hash.hash_c_string;
+pub eq_bool = hash.eq_bool;
+pub eq_i32 = hash.eq_i32;
+pub eq_i64 = hash.eq_i64;
+pub eq_u32 = hash.eq_u32;
+pub eq_u64 = hash.eq_u64;
+pub eq_c_string = hash.eq_c_string;

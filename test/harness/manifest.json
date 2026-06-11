@@ -79,6 +79,12 @@
       "input": "test\\basic\\slice_to_ptr_cast.mote"
     },
     {
+      "name": "ptr-builtin-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\ptr_builtin_api.mote"
+    },
+    {
       "name": "std-smoke-llvm",
       "expect": "success",
       "mode": "llvm",
@@ -211,6 +217,15 @@
       "contains": [
         "error[T1130]",
         "conflicting inferred return types"
+      ]
+    },
+    {
+      "name": "diagnostic-recursive-type-member-error",
+      "expect": "failure",
+      "input": "test\\diagnostic\\recursive_type_alias_member_error.mote",
+      "contains": [
+        "error[T1238]",
+        "unknown struct member"
       ]
     },
     {

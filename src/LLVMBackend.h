@@ -1667,6 +1667,29 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             fprintf(stream, "\n");
             return;
         }
+        case MIR_INST_PTR_DIFF: {
+            char lhs_int_name[32];
+            char rhs_int_name[32];
+            llvmMakeTempName(context, lhs_int_name, sizeof(lhs_int_name));
+            llvmMakeTempName(context, rhs_int_name, sizeof(rhs_int_name));
+
+            fprintf(stream, "    %s = ptrtoint ptr ", lhs_int_name);
+            llvmEmitValueRef(stream, context, inst->data.ptr_diff.lhs);
+            fprintf(stream, " to i64\n");
+
+            fprintf(stream, "    %s = ptrtoint ptr ", rhs_int_name);
+            llvmEmitValueRef(stream, context, inst->data.ptr_diff.rhs);
+            fprintf(stream, " to i64\n");
+
+            char byte_diff_name[32];
+            llvmMakeTempName(context, byte_diff_name, sizeof(byte_diff_name));
+            fprintf(stream, "    %s = sub i64 %s, %s\n", byte_diff_name, lhs_int_name, rhs_int_name);
+
+            llvmEmitInstructionPrefix(stream, inst->result);
+            fprintf(stream, "sdiv i64 %s, %d\n", byte_diff_name,
+                    (int) llvmExternABITypeSize(llvmPointeeType(llvmResolvedValueType(context, inst->data.ptr_diff.lhs))));
+            return;
+        }
         case MIR_INST_ARRAY_LITERAL:
             llvmEmitArrayLiteral(stream, context, inst);
             return;

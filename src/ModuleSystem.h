@@ -54,7 +54,7 @@ struct ModuleSourceFile {
 };
 
 typedef struct ModuleCompileContext {
-    ModuleSourceFile *modules;
+    ModuleSourceFile **modules;
     int module_count;
     int module_capacity;
     ModulePackage packages[MODULE_MAX_PACKAGES];
@@ -392,8 +392,8 @@ static ModuleSourceFile* moduleFindByPath(ModuleCompileContext *context, const c
 {
     for(int i = 0; i < context->module_count; i++)
     {
-        if(strcmp(context->modules[i].canonical_path, canonical_path) == 0)
-            return &(context->modules[i]);
+        if(strcmp(context->modules[i]->canonical_path, canonical_path) == 0)
+            return context->modules[i];
     }
     return NULL;
 }
@@ -403,11 +403,12 @@ static ModuleSourceFile* moduleAppend(ModuleCompileContext *context)
     if(context->module_count >= context->module_capacity)
     {
         int new_capacity = context->module_capacity == 0 ? 8 : context->module_capacity * 2;
-        context->modules = (ModuleSourceFile*) realloc(context->modules, sizeof(ModuleSourceFile) * new_capacity);
+        context->modules = (ModuleSourceFile**) realloc(context->modules, sizeof(ModuleSourceFile*) * new_capacity);
         context->module_capacity = new_capacity;
     }
 
-    ModuleSourceFile *module = &(context->modules[context->module_count++]);
+    ModuleSourceFile *module = (ModuleSourceFile*) malloc(sizeof(ModuleSourceFile));
+    context->modules[context->module_count++] = module;
     memset(module, 0, sizeof(ModuleSourceFile));
     return module;
 }
@@ -415,8 +416,14 @@ static ModuleSourceFile* moduleAppend(ModuleCompileContext *context)
 static ModuleSourceFile* moduleLoadRecursive(ModuleCompileContext *context, const char *path);
 static bool rewriteExprLooksLikeTypeValue(ModuleSourceFile *module, RewriteScope *scope, ASTNode *node);
 
-static void moduleRecordExpressionImport(ModuleSourceFile *module, ModuleSourceFile *imported_module)
+static void moduleRecordExpressionImport(ModuleCompileContext *context, const char *module_canonical_path,
+                                         ModuleSourceFile *imported_module)
 {
+    ModuleSourceFile *module = moduleFindByPath(context, module_canonical_path);
+    if(module == NULL)
+        moduleSystemError("internal module lookup failed during import record",
+                          module_canonical_path, 0, 0);
+
     if(imported_module == NULL)
         return;
 
@@ -433,33 +440,38 @@ static void moduleRecordExpressionImport(ModuleSourceFile *module, ModuleSourceF
     module->expression_imports[module->expression_import_count++] = imported_module;
 }
 
-static void moduleScanImportExpressions(ModuleCompileContext *context, ModuleSourceFile *module, ASTNode *node)
+static void moduleScanImportExpressions(ModuleCompileContext *context, const char *module_canonical_path, ASTNode *node)
 {
     if(node == NULL)
         return;
+
+    ModuleSourceFile *module = moduleFindByPath(context, module_canonical_path);
+    if(module == NULL)
+        moduleSystemError("internal module lookup failed during import scan",
+                          module_canonical_path, 0, 0);
 
     if(node->kind == AST_EXPR_BUILTIN && strcmp(node->identifier, "import") == 0)
     {
         char resolved_path[MODULE_MAX_PATH_LENGTH] = {0};
         moduleResolveImportPath(context, module->canonical_path, node, resolved_path);
-        moduleRecordExpressionImport(module, moduleLoadRecursive(context, resolved_path));
+        moduleRecordExpressionImport(context, module_canonical_path, moduleLoadRecursive(context, resolved_path));
     }
 
-    moduleScanImportExpressions(context, module, node->lhs);
-    moduleScanImportExpressions(context, module, node->rhs);
-    moduleScanImportExpressions(context, module, node->extra);
-    moduleScanImportExpressions(context, module, node->body);
+    moduleScanImportExpressions(context, module_canonical_path, node->lhs);
+    moduleScanImportExpressions(context, module_canonical_path, node->rhs);
+    moduleScanImportExpressions(context, module_canonical_path, node->extra);
+    moduleScanImportExpressions(context, module_canonical_path, node->body);
 
     if(node->kind == AST_EXPR_STRUCT)
     {
         for(ASTStructMember *member = node->members; member != NULL; member = member->next)
-            moduleScanImportExpressions(context, module, member->value);
+            moduleScanImportExpressions(context, module_canonical_path, member->value);
     }
 
     if(node->kind == AST_EXPR_STRUCT_LITERAL)
     {
         for(ASTStructLiteralField *field = node->struct_literal_fields; field != NULL; field = field->next)
-            moduleScanImportExpressions(context, module, field->value);
+            moduleScanImportExpressions(context, module_canonical_path, field->value);
     }
 }
 
@@ -468,7 +480,7 @@ static void moduleScanImports(ModuleCompileContext *context, ModuleSourceFile *m
     ASTNode *statement = moduleStatements(module->ast_root);
     while(statement)
     {
-        moduleScanImportExpressions(context, module, statement);
+        moduleScanImportExpressions(context, module->canonical_path, statement);
 
         if(moduleIsImportDecl(statement))
         {
@@ -492,7 +504,7 @@ static void moduleScanImports(ModuleCompileContext *context, ModuleSourceFile *m
             char resolved_path[MODULE_MAX_PATH_LENGTH] = {0};
             moduleResolveImportPath(context, module->canonical_path, statement->rhs, resolved_path);
             ModuleSourceFile *imported = moduleLoadRecursive(context, resolved_path);
-            moduleRecordExpressionImport(module, imported);
+            moduleRecordExpressionImport(context, module->canonical_path, imported);
             ModuleImportBinding *binding = &(module->imports[module->import_count++]);
             strcpy(binding->alias, statement->identifier);
             binding->module = imported;
@@ -536,7 +548,7 @@ static ModuleSourceFile* moduleLoadRecursive(ModuleCompileContext *context, cons
 static void moduleAssignPrefixes(ModuleCompileContext *context)
 {
     for(int i = 0; i < context->module_count; i++)
-        snprintf(context->modules[i].symbol_prefix, sizeof(context->modules[i].symbol_prefix), "m%d__", i);
+        snprintf(context->modules[i]->symbol_prefix, sizeof(context->modules[i]->symbol_prefix), "m%d__", i);
 }
 
 static ModuleTopLevelBinding* moduleFindTopLevelBinding(ModuleSourceFile *module, const char *original)
@@ -702,6 +714,9 @@ static bool rewriteExprLooksLikeTypeValue(ModuleSourceFile *module, RewriteScope
         case AST_EXPR_STRUCT:
         case AST_EXPR_ENUM:
             return true;
+        case AST_EXPR_FUNCTION:
+            return node->return_data_type != NULL &&
+                   moduleDataTypeIsPrimaryTypeKeyword(node->return_data_type);
         case AST_EXPR_PARENTHESIS:
             return rewriteExprLooksLikeTypeValue(module, scope, node->lhs);
         case AST_EXPR_DEREF:
@@ -1231,9 +1246,9 @@ static ASTNode* buildModuleProgramAST(const char *input_path, ModulePackage *pac
     moduleRewriteContext = &context;
     moduleAssignPrefixes(&context);
     for(int i = 0; i < context.module_count; i++)
-        moduleCollectTopLevelBindings(&(context.modules[i]));
+        moduleCollectTopLevelBindings(context.modules[i]);
     for(int i = 0; i < context.module_count; i++)
-        moduleRewrite(&(context.modules[i]));
+        moduleRewrite(context.modules[i]);
     moduleRewriteContext = previous_rewrite_context;
 
     ASTNode *root = newASTNode(AST_START_OF_CODE);
