@@ -42,6 +42,7 @@ typedef struct ScopeFrame {
     int type_count;
     ASTNode *instantiating_function;
     ASTNode *instantiation_site;
+    ASTDataType *instantiating_type_result;
 } ScopeFrame;
 
 void initScopeFrame(ScopeFrame *scope, ScopeFrame *parent)

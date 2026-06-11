@@ -42,24 +42,26 @@ typedef struct ResolveDataTypeEntry {
     struct ResolveDataTypeEntry *next;
 } ResolveDataTypeEntry;
 
-static bool isInstantiatingFunctionInScopeChain(ScopeFrame *scope, ASTNode *function_value)
+static ScopeFrame* findInstantiatingFunctionScope(ScopeFrame *scope, ASTNode *function_value)
 {
     ScopeFrame *current = scope;
     while(current != NULL)
     {
         if(current->instantiating_function == function_value)
-            return true;
+            return current;
         current = current->parent;
     }
-    return false;
+    return NULL;
 }
 
 static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFrame *scope,
                                                  ASTDataType *self_data_type,
-                                                 ResolveDataTypeEntry **memo);
+                                                 ResolveDataTypeEntry **memo,
+                                                 bool allow_recursive_factory_result);
 static ASTStructMember* resolveStructMembersInternal(ASTStructMember *member, ScopeFrame *scope,
                                                      ASTDataType *self_data_type,
-                                                     ResolveDataTypeEntry **memo);
+                                                     ResolveDataTypeEntry **memo,
+                                                     bool allow_recursive_factory_result);
 
 TypeSystemExprType newValueExprType(ASTDataType *data_type)
 {
@@ -257,10 +259,39 @@ bool isRuntimeOpaqueDataType(ASTDataType *data_type)
     return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_OPAQUE;
 }
 
-void typeSystemEnsureNoBareOpaque(ASTDataType *data_type, ASTNode *node, const char *code, const char *context)
+typedef struct TypeSystemVisitedDataTypeEntry {
+    ASTDataType *data_type;
+    struct TypeSystemVisitedDataTypeEntry *next;
+} TypeSystemVisitedDataTypeEntry;
+
+static bool typeSystemVisitedDataTypeContains(TypeSystemVisitedDataTypeEntry *memo, ASTDataType *data_type)
+{
+    while(memo != NULL)
+    {
+        if(memo->data_type == data_type)
+            return true;
+        memo = memo->next;
+    }
+    return false;
+}
+
+static void typeSystemRememberVisitedDataType(TypeSystemVisitedDataTypeEntry **memo, ASTDataType *data_type)
+{
+    TypeSystemVisitedDataTypeEntry *entry = (TypeSystemVisitedDataTypeEntry*) malloc(sizeof(TypeSystemVisitedDataTypeEntry));
+    entry->data_type = data_type;
+    entry->next = *memo;
+    *memo = entry;
+}
+
+static void typeSystemEnsureNoBareOpaqueInternal(ASTDataType *data_type, ASTNode *node, const char *code,
+                                                 const char *context, TypeSystemVisitedDataTypeEntry **memo)
 {
     if(data_type == NULL)
         return;
+
+    if(typeSystemVisitedDataTypeContains(*memo, data_type))
+        return;
+    typeSystemRememberVisitedDataType(memo, data_type);
 
     switch(data_type->kind)
     {
@@ -278,16 +309,16 @@ void typeSystemEnsureNoBareOpaque(ASTDataType *data_type, ASTNode *node, const c
         case AST_DATA_TYPE_KIND_OPTIONAL:
         case AST_DATA_TYPE_KIND_ARRAY:
         case AST_DATA_TYPE_KIND_SLICE:
-            typeSystemEnsureNoBareOpaque(data_type->child, node, code, context);
+            typeSystemEnsureNoBareOpaqueInternal(data_type->child, node, code, context, memo);
             return;
         case AST_DATA_TYPE_KIND_FUNCTION: {
             ASTFunctionParameter *parameter = data_type->parameters;
             while(parameter)
             {
-                typeSystemEnsureNoBareOpaque(parameter->data_type, node, code, context);
+                typeSystemEnsureNoBareOpaqueInternal(parameter->data_type, node, code, context, memo);
                 parameter = parameter->next;
             }
-            typeSystemEnsureNoBareOpaque(data_type->return_data_type, node, code, context);
+            typeSystemEnsureNoBareOpaqueInternal(data_type->return_data_type, node, code, context, memo);
             return;
         }
         case AST_DATA_TYPE_KIND_STRUCT: {
@@ -295,7 +326,7 @@ void typeSystemEnsureNoBareOpaque(ASTDataType *data_type, ASTNode *node, const c
             while(member)
             {
                 if(member->value == NULL)
-                    typeSystemEnsureNoBareOpaque(member->data_type, node, code, context);
+                    typeSystemEnsureNoBareOpaqueInternal(member->data_type, node, code, context, memo);
                 member = member->next;
             }
             return;
@@ -303,6 +334,12 @@ void typeSystemEnsureNoBareOpaque(ASTDataType *data_type, ASTNode *node, const c
         default:
             return;
     }
+}
+
+void typeSystemEnsureNoBareOpaque(ASTDataType *data_type, ASTNode *node, const char *code, const char *context)
+{
+    TypeSystemVisitedDataTypeEntry *memo = NULL;
+    typeSystemEnsureNoBareOpaqueInternal(data_type, node, code, context, &memo);
 }
 
 bool isEnumDataType(ASTDataType *data_type)
@@ -785,7 +822,8 @@ bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
 
 static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFrame *scope,
                                                  ASTDataType *self_data_type,
-                                                 ResolveDataTypeEntry **memo)
+                                                 ResolveDataTypeEntry **memo,
+                                                 bool allow_recursive_factory_result)
 {
     if(data_type == NULL)
         return NULL;
@@ -813,7 +851,7 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
             new_entry->next = memo == NULL ? NULL : *memo;
             if(memo != NULL)
                 *memo = new_entry;
-            resolved_struct->members = resolveStructMembersInternal(data_type->members, scope, resolved_struct, memo);
+            resolved_struct->members = resolveStructMembersInternal(data_type->members, scope, resolved_struct, memo, false);
             return resolved_struct;
         }
         case AST_DATA_TYPE_KIND_NAMED: {
@@ -847,14 +885,16 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
         }
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
+            return newWrappedDataType(data_type->kind, data_type->mutable,
+                                      resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo, true));
         case AST_DATA_TYPE_KIND_OPTIONAL:
             return newWrappedDataType(data_type->kind, data_type->mutable,
-                                      resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo));
+                                      resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo, false));
         case AST_DATA_TYPE_KIND_ARRAY:
-            return newArrayDataType(resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo),
+            return newArrayDataType(resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo, false),
                                     data_type->array_length);
         case AST_DATA_TYPE_KIND_SLICE:
-            return newSliceDataType(resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo));
+            return newSliceDataType(resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo, true));
         case AST_DATA_TYPE_KIND_FUNCTION: {
             ASTFunctionParameter *head = NULL;
             ASTFunctionParameter *tail = NULL;
@@ -864,7 +904,7 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
                 ASTFunctionParameter *new_parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
                 *new_parameter = *parameter;
                 new_parameter->next = NULL;
-                new_parameter->data_type = resolveNamedDataTypeInternal(parameter->data_type, scope, self_data_type, memo);
+                new_parameter->data_type = resolveNamedDataTypeInternal(parameter->data_type, scope, self_data_type, memo, true);
 
                 if(head == NULL)
                     head = new_parameter;
@@ -875,7 +915,7 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
             }
 
             return newFunctionDataType(head, data_type->is_variadic,
-                                       resolveNamedDataTypeInternal(data_type->return_data_type, scope, self_data_type, memo));
+                                       resolveNamedDataTypeInternal(data_type->return_data_type, scope, self_data_type, memo, true));
         }
         case AST_DATA_TYPE_KIND_APPLY: {
             if(data_type->callee != NULL && data_type->callee->kind == AST_DATA_TYPE_KIND_NAMED)
@@ -883,6 +923,18 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
                 VariableInfo *callee_variable = findVariableInfo(scope, data_type->callee->identifier);
                 if(callee_variable != NULL && callee_variable->function_value != NULL)
                 {
+                    ScopeFrame *active_instantiation = findInstantiatingFunctionScope(scope, callee_variable->function_value);
+                    if(active_instantiation != NULL)
+                    {
+                        if(active_instantiation->instantiating_type_result != NULL &&
+                           allow_recursive_factory_result)
+                            return active_instantiation->instantiating_type_result;
+
+                        typeSystemAbortNoSpan("T1240",
+                                              "recursive generic instantiation is not supported",
+                                              "this recursive type use requires an explicit indirection such as `*T`, `&T`, `Function(...)`, or `[]T`");
+                    }
+
                     TypeSystemExprType applied_type = instantiateFunctionCallExprType(
                         callee_variable->function_value,
                         buildTypeLiteralArgumentExprs(data_type->arguments, scope, self_data_type),
@@ -896,13 +948,13 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
                 }
             }
 
-            ASTDataType *resolved_callee = resolveNamedDataTypeInternal(data_type->callee, scope, self_data_type, memo);
+            ASTDataType *resolved_callee = resolveNamedDataTypeInternal(data_type->callee, scope, self_data_type, memo, false);
             ASTTypeArgument *resolved_arguments = NULL;
             ASTTypeArgument *resolved_tail = NULL;
             ASTTypeArgument *argument = data_type->arguments;
             while(argument)
             {
-                ASTTypeArgument *new_argument = newASTTypeArgument(resolveNamedDataTypeInternal(argument->data_type, scope, self_data_type, memo));
+                ASTTypeArgument *new_argument = newASTTypeArgument(resolveNamedDataTypeInternal(argument->data_type, scope, self_data_type, memo, false));
                 if(resolved_arguments == NULL)
                     resolved_arguments = new_argument;
                 else
@@ -922,7 +974,7 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
 ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, ASTDataType *self_data_type)
 {
     ResolveDataTypeEntry *memo = NULL;
-    return resolveNamedDataTypeInternal(data_type, scope, self_data_type, &memo);
+    return resolveNamedDataTypeInternal(data_type, scope, self_data_type, &memo, false);
 }
 
 void bindCapturedValuesForInstantiation(ASTFunctionCapture *capture, ScopeFrame *inst_scope, ScopeFrame *outer_scope)
@@ -1027,6 +1079,7 @@ ASTNode* findReturnedExpr(ASTNode *function_expr)
 ASTDataType* instantiateStructTypeExpr(ASTNode *expr, ScopeFrame *inst_scope)
 {
     ASTDataType *struct_type = newStructDataType("", NULL);
+    inst_scope->instantiating_type_result = struct_type;
     struct_type->members = resolveStructMembers(expr->members, inst_scope, struct_type);
 
     ASTStructMember *resolved_member = struct_type->members;
@@ -1202,14 +1255,6 @@ ASTNode* resolveExternValueExpr(ASTNode *expr, ScopeFrame *scope)
 
 TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTNode *call_arguments, ScopeFrame *outer_scope)
 {
-    if(isInstantiatingFunctionInScopeChain(outer_scope, function_value))
-    {
-        ASTNode *site = call_arguments != NULL ? call_arguments : function_value;
-        typeSystemAbortNode("T1240", site,
-                            "recursive generic instantiation is not supported",
-                            "this generic/type factory instantiation depends on itself");
-    }
-
     ScopeFrame *inst_scope = newScopeFrame(outer_scope);
     inst_scope->instantiating_function = function_value;
     inst_scope->instantiation_site = call_arguments != NULL ? call_arguments : function_value;
@@ -2849,7 +2894,8 @@ ASTDataType* inferDeclaredTypeFromExpr(ASTNode *expr, ScopeFrame *scope)
 
 static ASTStructMember* resolveStructMembersInternal(ASTStructMember *member, ScopeFrame *scope,
                                                      ASTDataType *self_data_type,
-                                                     ResolveDataTypeEntry **memo)
+                                                     ResolveDataTypeEntry **memo,
+                                                     bool allow_recursive_factory_result)
 {
     ASTStructMember *head = NULL;
     ASTStructMember *tail = NULL;
@@ -2864,7 +2910,8 @@ static ASTStructMember* resolveStructMembersInternal(ASTStructMember *member, Sc
         strcpy(new_member->identifier, member->identifier);
         new_member->value = member->value;
         if(member->data_type)
-            new_member->data_type = resolveNamedDataTypeInternal(member->data_type, scope, self_data_type, memo);
+            new_member->data_type = resolveNamedDataTypeInternal(member->data_type, scope, self_data_type, memo,
+                                                                 allow_recursive_factory_result);
 
         if(head == NULL)
             head = new_member;
@@ -2880,7 +2927,7 @@ static ASTStructMember* resolveStructMembersInternal(ASTStructMember *member, Sc
 ASTStructMember* resolveStructMembers(ASTStructMember *member, ScopeFrame *scope, ASTDataType *self_data_type)
 {
     ResolveDataTypeEntry *memo = NULL;
-    return resolveStructMembersInternal(member, scope, self_data_type, &memo);
+    return resolveStructMembersInternal(member, scope, self_data_type, &memo, false);
 }
 
 #endif /* TYPE_SYSTEM_H */

@@ -287,6 +287,24 @@
       "input": "test\\generic\\pass_type_factory_nested.mote"
     },
     {
+      "name": "generic-pass-recursive-pointer-type-factory-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_recursive_pointer_type_factory.mote"
+    },
+    {
+      "name": "generic-pass-recursive-slice-type-factory-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_recursive_slice_type_factory.mote"
+    },
+    {
+      "name": "generic-pass-recursive-function-type-factory-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_recursive_function_type_factory.mote"
+    },
+    {
       "name": "generic-runtime-arena-llvm",
       "expect": "success",
       "mode": "llvm",
@@ -465,7 +483,7 @@
     {
       "name": "diagnostic-generic-recursive-type-factory",
       "expect": "failure",
-      "input": "test\\generic\\boundary_recursive_type_factory.mote",
+      "input": "test\\diagnostic\\generic_recursive_optional_type_factory.mote",
       "contains": [
         "error[T1240]",
         "recursive generic instantiation is not supported"
