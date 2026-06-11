@@ -372,7 +372,24 @@ x = +1 + -2 * ~3;
 x = x & 3 | 4 ^ 5;
 ```
 
-对于跨类型转换，当前应优先假设需要显式 `@as(...)`，不要依赖隐式数值转换。
+对于跨类型转换，当前应按下面的原则理解：
+
+- 安全、可预期的上下文驱动转换通常允许隐式进行
+- 可能丢信息或改变底层表示的转换，仍应显式写 `@as(...)`
+
+目前已经可以依赖的隐式数值转换包括：
+
+- 整数字面量到目标整数 / 浮点上下文
+- 整数值到目标浮点上下文
+- 同号整数变宽
+- 浮点变宽
+
+仍然建议显式写 `@as(...)` 的情况包括：
+
+- `float -> int`
+- 整数缩窄
+- `signed <-> unsigned`
+- 任意指针重解释
 
 ## 10. 函数
 
@@ -501,12 +518,13 @@ make_adder = fn(x: i32) Function([i32], i32) {
 };
 ```
 
-当前还支持：
+当前稳定可依赖的是：
 
-- `fn|&x|(...) { ... }`
-- `fn|&mut x|(...) { ... }`
+- 无捕获函数值
+- `fn|x|...` 这种按值捕获闭包
 
-这对应不同的闭包捕获方式。
+按引用捕获 / 可变引用捕获的语法方向已经预留，但当前不应把
+`fn|&x|...` 或 `fn|&mut x|...` 当成稳定能力写进正式代码约定里。
 
 ## 11. 控制流
 
@@ -743,6 +761,18 @@ a: Pair(i32) = Pair(i32) {
 - 泛型本质上是“类型级普通函数”
 - `Type` 参与求值与返回
 
+当前比较稳的泛型能力包括：
+
+- `fn(T: Type) Type` 这种类型工厂
+- 显式传类型参数的泛型函数调用
+- `Function([..], T)`、`*T`、`[]T` 这类与类型值组合的写法
+
+当前仍应谨慎使用的边界包括：
+
+- 依赖复杂自动推导的泛型调用
+- 未特化泛型函数直接当运行时函数值传递
+- 泛型和复杂闭包捕获叠加的花式写法
+
 函数类型写作：
 
 ```mote
@@ -893,6 +923,16 @@ z: i32 = @as(i32, y);
 msg: *char = @as(*char, "hello\n");
 ```
 
+另一个常见用途是“明确要求有损或重解释转换”的地方，例如：
+
+```mote
+x: f32 = 3.5;
+y: i32 = @as(i32, x);
+```
+
+如果只是把整数传给浮点参数、返回成浮点、或在 `f32` / `f64` 上下文里参与运算，
+当前通常已经不需要再手写 `@as(f32, ...)`。
+
 ## 19. FFI 例子
 
 仓库已经内置了一批 C / libc 绑定，可以直接导入：
@@ -919,7 +959,79 @@ c.printf(@as(*char, "val=%d %s\n"), 42, @as(*char, "ok"));
 - [compiler_usage.md](compiler_usage.md)
 - [runtime_abi.md](runtime_abi.md)
 
-## 20. 当前实现限制与使用建议
+## 20. Slice 与内存管理
+
+### 20.1 Slice
+
+当前切片类型写作 `[]T`，它是语言内建类型，不需要自己定义结构体。
+
+常见写法：
+
+```mote
+empty: []i32 = @slice(i32, @as(*mut i32, 0), 0);
+```
+
+当前可以稳定依赖：
+
+- `[]T`
+- `xs[i]`
+- `@len(xs)`
+- `@slice(T, ptr, len)`
+- `[]T -> *T / *mut T` 的隐式或显式上下文转换
+
+不建议把切片当作公开暴露 `.ptr/.len` 成员的普通 struct 来理解；对用户代码来说，
+长度请用 `@len(xs)`，从切片取指针请用目标类型上下文或显式 `@as(*T, xs)`。
+
+### 20.2 `std/mem`
+
+仓库当前已经提供一版 typed memory API：
+
+```mote
+mem = @import("std/mem");
+
+ptr: *mut i32 = mem.new(i32);
+xs: []i32 = mem.make(i32, 16);
+```
+
+常见接口包括：
+
+- `new(T)` / `new_zeroed(T)`
+- `make(T, len)` / `make_zeroed(T, len)`
+- `try_new(T)` / `try_make(T, len)`
+- `dup(T, ptr)` / `dup_slice(T, xs)`
+- `free_ptr(T, ptr)`
+- `free_slice(T, xs)`
+
+释放规则按分配来源区分：
+
+- `new/make/dup` 这类普通堆分配，用 `free_ptr` 或 `free_slice`
+- `arena_*` 分配不能单独释放，只能统一 `arena_reset` 或 `arena_destroy`
+
+### 20.3 Arena
+
+当前也已经有显式 arena API：
+
+```mote
+mem = @import("std/mem");
+
+mut arena: mem.Arena = mem.arena_init(1024);
+defer mem.arena_destroy(&mut arena);
+
+ptr = mem.arena_new(i32, arena);
+xs = mem.arena_make(i32, arena, 32);
+```
+
+常见接口包括：
+
+- `arena_init`
+- `arena_new`
+- `arena_make`
+- `arena_dup`
+- `arena_dup_slice`
+- `arena_reset`
+- `arena_destroy`
+
+## 21. 当前实现限制与使用建议
 
 下面这些不是“语法糖习惯”，而是当前应明确记住的实现边界：
 
@@ -932,14 +1044,17 @@ c.printf(@as(*char, "val=%d %s\n"), 42, @as(*char, "ok"));
 - 数组长度目前必须写成编译期整数字面量
 - `if` / `while` / `for` 当前是语句，不是值表达式
 - 函数省略返回类型时，所有带值 `return` 的类型必须完全一致
+- `optional` 目前仍然只支持和 `null` 比较，不支持两个 `?T` 直接比较
+- 泛型已经可用，但还不是“高级元编程系统”
 
 如果你在写稍大一点的程序，建议遵循下面的工程习惯：
 
 - 把模块顶层主要用于绑定定义，而不是复杂副作用
 - 需要明确初始化顺序时，优先写显式函数调用链
-- 做 FFI 时总是显式写清类型，不依赖隐式转换
+- 做 FFI 时对字符串指针、原始指针重解释、函数指针这类地方保持显式
+- 对数值转换，优先依赖当前已经稳定的上下文隐式转换；只有在可能丢信息时才显式写 `@as`
 
-## 21. 建议继续阅读的样例
+## 22. 建议继续阅读的样例
 
 如果你想直接看仓库里的真实代码，推荐从这些文件开始：
 
@@ -952,8 +1067,13 @@ c.printf(@as(*char, "val=%d %s\n"), 42, @as(*char, "ok"));
 - `test/basic/control_defer.mote`
 - `test/basic/pointer_and_reference.mote`
 - `test/basic/array.mote`
+- `test/basic/contextual_numeric_conversions.mote`
+- `test/basic/integer_literal_numeric_context.mote`
+- `test/basic/int_to_float_implicit.mote`
 - `test/basic/structs.mote`
 - `test/basic/type_and_lambda_function.mote`
+- `test/basic/std_mem_alloc_api.mote`
+- `test/basic/std_mem_arena_api.mote`
 - `test/ffi/ffi_main.mote`
 - `test/ffi/string_as_ptr.mote`
 - `test/multi/main.mote`

@@ -2,7 +2,7 @@ rl = @import("vendor/raylib");
 
 main = fn() i32 {
     x: i32 = 7;
-    y: f32 = @as(f32, x);
+    y: f32 = x;
     z: i32 = @as(i32, y);
     id: u32 = @as(u32, z);
     if(id == @as(u32, 7)) {

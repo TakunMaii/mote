@@ -49,6 +49,24 @@
       "input": "test\\basic\\float_literal_context.mote"
     },
     {
+      "name": "contextual-numeric-conversions-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\contextual_numeric_conversions.mote"
+    },
+    {
+      "name": "integer-literal-numeric-context-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\integer_literal_numeric_context.mote"
+    },
+    {
+      "name": "int-to-float-implicit-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\int_to_float_implicit.mote"
+    },
+    {
       "name": "generic-void-call-llvm",
       "expect": "success",
       "mode": "llvm",

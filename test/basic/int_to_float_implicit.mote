@@ -1,0 +1,38 @@
+Pair = struct {
+    x: f32,
+    y: f32,
+};
+
+take_sum = fn(a: f32, b: f32) f32 {
+    return a + b;
+};
+
+from_i32 = fn(x: i32) f32 {
+    return x;
+};
+
+main = fn() i32 {
+    px: i32 = 3;
+    py: i32 = 4;
+    size: i32 = 8;
+
+    pair: Pair = Pair {
+        .x = px,
+        .y = py,
+    };
+
+    scalar: f32 = size;
+    mixed: f32 = px + size * 0.5;
+    summed: f32 = take_sum(px, size);
+    returned: f32 = from_i32(py);
+
+    if(pair.x == 3.0 &&
+       pair.y == 4.0 &&
+       scalar == 8.0 &&
+       mixed == 7.0 &&
+       summed == 11.0 &&
+       returned == 4.0) {
+        return 0;
+    }
+    return 1;
+};

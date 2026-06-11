@@ -8,8 +8,8 @@ shader_kind: u32 = gl.VERTEX_SHADER;
 texture_unit: u32 = gl.TEXTURE0;
 
 main = fn() i32 {
-    if(clear_mask == @as(u32, 0) || draw_mode == @as(u32, 0) || buffer_target == @as(u32, 0) ||
-       shader_kind == @as(u32, 0) || texture_unit == @as(u32, 0)) {
+    if(clear_mask == 0 || draw_mode == 0 || buffer_target == 0 ||
+       shader_kind == 0 || texture_unit == 0) {
         return 1;
     }
 

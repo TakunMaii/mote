@@ -1647,6 +1647,25 @@ bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType 
     if(expr->kind == AST_EXPR_PARENTHESIS)
         return canImplicitConvertExprToType(expr->lhs, scope, target_type);
 
+    if(target_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       (isIntegerPrimary(target_type->primary) || isFloatPrimary(target_type->primary)))
+    {
+        switch(expr->kind)
+        {
+            case AST_EXPR_UNARY_PLUS:
+            case AST_EXPR_UNARY_MINUS:
+                return canImplicitConvertExprToType(expr->lhs, scope, target_type);
+            case AST_EXPR_ADD:
+            case AST_EXPR_SUB:
+            case AST_EXPR_MUL:
+            case AST_EXPR_DIV:
+                return canImplicitConvertExprToType(expr->lhs, scope, target_type) &&
+                       canImplicitConvertExprToType(expr->rhs, scope, target_type);
+            default:
+                break;
+        }
+    }
+
     if(expr->kind == AST_EXPR_ARRAY_LITERAL)
     {
         if(target_type->kind != AST_DATA_TYPE_KIND_ARRAY)
@@ -1799,6 +1818,24 @@ TypeSystemExprType getCommonNumericType(ASTNode *node, TypeSystemExprType lhs_ty
        lhs_type.data_type != NULL &&
        lhs_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
        isFloatPrimary(lhs_type.data_type->primary))
+        return newValueExprType(lhs_type.data_type);
+
+    if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER &&
+       rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+       rhs_type.data_type != NULL &&
+       rhs_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       isIntegerPrimary(rhs_type.data_type->primary) &&
+       node->lhs != NULL &&
+       canLiteralIntegerFitPrimary(node->lhs->literal_integer, rhs_type.data_type->primary))
+        return newValueExprType(rhs_type.data_type);
+
+    if(rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER &&
+       lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+       lhs_type.data_type != NULL &&
+       lhs_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       isIntegerPrimary(lhs_type.data_type->primary) &&
+       node->rhs != NULL &&
+       canLiteralIntegerFitPrimary(node->rhs->literal_integer, lhs_type.data_type->primary))
         return newValueExprType(lhs_type.data_type);
 
     ASTDataType *lhs = normalizeNumericDataType(lhs_type);
