@@ -188,6 +188,7 @@ typedef struct MirInst {
         struct {
             MirValueId base_address;
             MirValueId index_value;
+            bool base_is_element_pointer;
         } index_ptr;
         struct {
             MirOperandList elements;
@@ -358,6 +359,8 @@ typedef struct MirLowering {
     int unique_block_counter;
     int unique_global_counter;
     int unique_extern_counter;
+    struct MirSpecializedFunctionCacheEntry *specialized_functions;
+    int specialized_function_count;
 } MirLowering;
 
 typedef struct MirFunctionState {
@@ -373,6 +376,13 @@ typedef struct MirMaybeValue {
     MirValueId value;
     bool valid;
 } MirMaybeValue;
+
+typedef struct MirSpecializedFunctionCacheEntry {
+    ASTNode *source_function;
+    ASTDataType *self_data_type;
+    ASTDataType *function_type;
+    int function_index;
+} MirSpecializedFunctionCacheEntry;
 
 MirProgram* lowerASTToMIR(ASTNode *root);
 void printMIRProgram(MirProgram *program);
@@ -656,6 +666,15 @@ static int countStructDataFields(ASTDataType *struct_type)
 
 static int findStructDataFieldIndex(ASTDataType *struct_type, const char *identifier)
 {
+    if(struct_type != NULL && struct_type->kind == AST_DATA_TYPE_KIND_SLICE)
+    {
+        if(strcmp(identifier, "ptr") == 0)
+            return 0;
+        if(strcmp(identifier, "len") == 0)
+            return 1;
+        return -1;
+    }
+
     int index = 0;
     ASTStructMember *member = struct_type->members;
     while(member)
@@ -722,6 +741,15 @@ static ASTDataType* mirBuildClosureEnvType(MirCaptureDesc *captures, int capture
     return newStructDataType("", head);
 }
 
+static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *node, ASTDataType *expected_type);
+static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *scope, ASTNode *node);
+static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNode *node);
+static const char* mirEnsureStringLiteralGlobal(MirLowering *lowering, const char *value);
+static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *scope, ASTNode *function_expr,
+                                       const char *name_hint, ASTDataType *self_data_type);
+static MirValueId lowerFunctionExprAsValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *function_expr,
+                                           const char *name_hint, ASTDataType *self_data_type);
+
 static bool functionHasTypeParameters(ASTFunctionParameter *parameter)
 {
     while(parameter)
@@ -733,6 +761,58 @@ static bool functionHasTypeParameters(ASTFunctionParameter *parameter)
         parameter = parameter->next;
     }
     return false;
+}
+
+static bool functionParameterIsComptimeType(ASTFunctionParameter *parameter)
+{
+    return parameter != NULL &&
+           parameter->data_type != NULL &&
+           parameter->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           parameter->data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE;
+}
+
+static int countRuntimeCallArguments(ASTFunctionParameter *parameter, ASTNode *argument)
+{
+    int count = 0;
+    while(parameter != NULL && argument != NULL)
+    {
+        if(!functionParameterIsComptimeType(parameter))
+            count++;
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    return count;
+}
+
+static MirOperandList lowerSpecializedCallArguments(MirFunctionState *state, MirLowerScope *scope,
+                                                    ASTFunctionParameter *source_parameters,
+                                                    ASTFunctionParameter *specialized_parameters,
+                                                    ASTNode *call_arguments)
+{
+    MirOperandList arguments = newMirOperandList(countRuntimeCallArguments(source_parameters, call_arguments));
+    int index = 0;
+
+    ASTFunctionParameter *source_parameter = source_parameters;
+    ASTFunctionParameter *specialized_parameter = specialized_parameters;
+    ASTNode *argument = call_arguments;
+    while(source_parameter != NULL && argument != NULL)
+    {
+        if(!functionParameterIsComptimeType(source_parameter))
+        {
+            ASTDataType *parameter_type = specialized_parameter == NULL ? NULL : specialized_parameter->data_type;
+            if(parameter_type != NULL && parameter_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+                arguments.items[index++] = lowerExprAsAddress(state, scope, argument);
+            else
+                arguments.items[index++] = lowerExprAsValue(state, scope, argument, parameter_type);
+            if(specialized_parameter != NULL)
+                specialized_parameter = specialized_parameter->next;
+        }
+
+        source_parameter = source_parameter->next;
+        argument = argument->next;
+    }
+
+    return arguments;
 }
 
 static bool mirCurrentBlockTerminated(MirFunctionState *state)
@@ -941,7 +1021,8 @@ static MirValueId mirEmitFieldPtr(MirFunctionState *state, MirValueId base_addre
 }
 
 static MirValueId mirEmitIndexPtr(MirFunctionState *state, MirValueId base_address, MirValueId index_value,
-                                  ASTDataType *element_type, const char *filename, int line, int column)
+                                  ASTDataType *element_type, bool base_is_element_pointer,
+                                  const char *filename, int line, int column)
 {
     MirValueId result = mirEmitResultInst(
         state,
@@ -952,6 +1033,7 @@ static MirValueId mirEmitIndexPtr(MirFunctionState *state, MirValueId base_addre
     MirInst *inst = mirGetLastInst(state);
     inst->data.index_ptr.base_address = base_address;
     inst->data.index_ptr.index_value = index_value;
+    inst->data.index_ptr.base_is_element_pointer = base_is_element_pointer;
     return result;
 }
 
@@ -1078,11 +1160,6 @@ static void mirEmitRetValue(MirFunctionState *state, MirValueId value)
     mirCurrentFunction(state)->blocks[state->current_block].terminator.data.ret.has_value = true;
     mirCurrentFunction(state)->blocks[state->current_block].terminator.data.ret.value = value;
 }
-
-static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *node, ASTDataType *expected_type);
-static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *scope, ASTNode *node);
-static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNode *node);
-static const char* mirEnsureStringLiteralGlobal(MirLowering *lowering, const char *value);
 
 static bool mirIsCharPointerTarget(ASTDataType *data_type)
 {
@@ -1343,6 +1420,154 @@ static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirL
     return inst_scope;
 }
 
+static ASTFunctionParameter* instantiateRuntimeFunctionParameters(ASTFunctionParameter *parameter,
+                                                                  ScopeFrame *scope,
+                                                                  ASTDataType *self_data_type)
+{
+    ASTFunctionParameter *head = NULL;
+    ASTFunctionParameter *tail = NULL;
+    while(parameter)
+    {
+        ASTDataType *resolved_type = resolveNamedDataType(parameter->data_type, scope, self_data_type);
+        if(!(resolved_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+             resolved_type->primary == AST_PRIMARY_DATA_TYPE_TYPE))
+        {
+            ASTFunctionParameter *new_parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
+            memset(new_parameter, 0, sizeof(ASTFunctionParameter));
+            new_parameter->filename = parameter->filename;
+            new_parameter->line_number = parameter->line_number;
+            new_parameter->column_number = parameter->column_number;
+            new_parameter->end_line_number = parameter->end_line_number;
+            new_parameter->end_column_number = parameter->end_column_number;
+            strcpy(new_parameter->identifier, parameter->identifier);
+            new_parameter->data_type = resolved_type;
+
+            if(head == NULL)
+                head = new_parameter;
+            else
+                tail->next = new_parameter;
+            tail = new_parameter;
+        }
+        parameter = parameter->next;
+    }
+    return head;
+}
+
+static ASTNode* instantiateRuntimeFunctionExpr(ASTNode *function_expr, MirLowerScope *inst_scope)
+{
+    ASTNode *specialized = (ASTNode*) malloc(sizeof(ASTNode));
+    memset(specialized, 0, sizeof(ASTNode));
+    *specialized = *function_expr;
+    specialized->parameters = instantiateRuntimeFunctionParameters(function_expr->parameters,
+                                                                   &(inst_scope->type_scope),
+                                                                   inst_scope->self_data_type);
+    specialized->return_data_type = resolveNamedDataType(function_expr->return_data_type,
+                                                         &(inst_scope->type_scope),
+                                                         inst_scope->self_data_type);
+    specialized->data_type = newFunctionDataType(cloneFunctionParameters(specialized->parameters),
+                                                 function_expr->is_variadic,
+                                                 cloneDataType(specialized->return_data_type));
+    return specialized;
+}
+
+static int mirFindSpecializedFunctionCacheEntry(MirLowering *lowering, ASTNode *source_function,
+                                                ASTDataType *self_data_type, ASTDataType *function_type)
+{
+    for(int i = 0; i < lowering->specialized_function_count; i++)
+    {
+        MirSpecializedFunctionCacheEntry *entry = &(lowering->specialized_functions[i]);
+        if(entry->source_function != source_function)
+            continue;
+        if(!isSameDataType(entry->self_data_type, self_data_type))
+            continue;
+        if(!isSameDataType(entry->function_type, function_type))
+            continue;
+        return i;
+    }
+    return -1;
+}
+
+static int mirCacheSpecializedFunctionDefinition(MirLowering *lowering, ASTNode *source_function,
+                                                 ASTDataType *self_data_type, ASTDataType *function_type,
+                                                 int function_index)
+{
+    lowering->specialized_functions = (MirSpecializedFunctionCacheEntry*) realloc(
+        lowering->specialized_functions,
+        sizeof(MirSpecializedFunctionCacheEntry) * (lowering->specialized_function_count + 1)
+    );
+    MirSpecializedFunctionCacheEntry *entry =
+        &(lowering->specialized_functions[lowering->specialized_function_count++]);
+    memset(entry, 0, sizeof(MirSpecializedFunctionCacheEntry));
+    entry->source_function = source_function;
+    entry->self_data_type = cloneDataType(self_data_type);
+    entry->function_type = cloneDataType(function_type);
+    entry->function_index = function_index;
+    return function_index;
+}
+
+static MirValueId lowerRuntimeSpecializedFunctionValue(MirFunctionState *state, MirLowerScope *scope,
+                                                       ASTNode *source_function, ASTNode *call_arguments,
+                                                       const char *name_hint, ASTDataType *self_data_type,
+                                                       ASTFunctionParameter **out_runtime_parameters,
+                                                       ASTDataType **out_return_type)
+{
+    MirLowerScope *inst_scope = instantiateFunctionCallScope(
+        state,
+        scope,
+        source_function,
+        call_arguments,
+        self_data_type
+    );
+    ASTNode *specialized_function = instantiateRuntimeFunctionExpr(source_function, inst_scope);
+
+    if(out_runtime_parameters != NULL)
+        *out_runtime_parameters = specialized_function->parameters;
+    if(out_return_type != NULL)
+        *out_return_type = specialized_function->return_data_type;
+
+    if(source_function->captures == NULL)
+    {
+        int cache_index = mirFindSpecializedFunctionCacheEntry(
+            state->lowering,
+            source_function,
+            self_data_type,
+            specialized_function->data_type
+        );
+        int function_index = -1;
+        if(cache_index >= 0)
+            function_index = state->lowering->specialized_functions[cache_index].function_index;
+        else
+        {
+            function_index = lowerFunctionExprDefinition(
+                state->lowering,
+                inst_scope,
+                specialized_function,
+                name_hint,
+                self_data_type
+            );
+            mirCacheSpecializedFunctionDefinition(
+                state->lowering,
+                source_function,
+                self_data_type,
+                specialized_function->data_type,
+                function_index
+            );
+        }
+
+        MirFunction *mir_function = &(state->lowering->program->functions[function_index]);
+        return mirEmitFunctionRef(state, mir_function->name, specialized_function->data_type,
+                                  source_function->filename, source_function->line_number, source_function->column_number);
+    }
+
+    return lowerFunctionExprAsValue(
+        state,
+        inst_scope,
+        specialized_function,
+        name_hint,
+        self_data_type
+    );
+}
+
 static MirMaybeValue tryLowerComptimeFunctionCall(MirFunctionState *state, MirLowerScope *scope, ASTNode *call_node)
 {
     MirMaybeValue result = {0};
@@ -1360,7 +1585,7 @@ static MirMaybeValue tryLowerComptimeFunctionCall(MirFunctionState *state, MirLo
     MirRuntimeBinding *callee_binding = findMirRuntimeBinding(scope, call_node->lhs->identifier);
     bool callee_is_comptime_only = callee_binding != NULL &&
                                    callee_binding->kind == MIR_RUNTIME_BINDING_COMPTIME_ONLY;
-    if(!callee_is_comptime_only && returned_expr->kind != AST_EXPR_FUNCTION)
+    if(!callee_is_comptime_only || returned_expr->kind != AST_EXPR_FUNCTION)
         return result;
 
     MirLowerScope *inst_scope = instantiateFunctionCallScope(
@@ -1729,6 +1954,63 @@ static MirValueId lowerMethodFunctionValue(MirFunctionState *state, MirLowerScop
     return lowerFunctionExprAsValue(state, method_scope, member->value, hint, struct_type);
 }
 
+static bool tryGetDirectGenericFunctionValue(MirLowerScope *scope, ASTNode *expr,
+                                             ASTNode **out_function_value,
+                                             const char **out_name_hint)
+{
+    if(out_function_value != NULL)
+        *out_function_value = NULL;
+    if(out_name_hint != NULL)
+        *out_name_hint = NULL;
+
+    if(expr == NULL)
+        return false;
+
+    if(expr->kind == AST_EXPR_VARIABLE)
+    {
+        VariableInfo *variable_info = findVariableInfo(&(scope->type_scope), expr->identifier);
+        if(variable_info != NULL && variable_info->function_value != NULL)
+        {
+            if(out_function_value != NULL)
+                *out_function_value = variable_info->function_value;
+            if(out_name_hint != NULL)
+                *out_name_hint = expr->identifier;
+            return true;
+        }
+        return false;
+    }
+
+    if(expr->kind == AST_EXPR_MEMBER)
+    {
+        TypeSystemExprType owner_type = inferExprType(expr->lhs, &(scope->type_scope));
+        ASTDataType *struct_type = NULL;
+        if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+            struct_type = owner_type.data_type;
+        else if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE)
+        {
+            struct_type = owner_type.data_type;
+            if(struct_type != NULL &&
+               (struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE))
+                struct_type = struct_type->child;
+        }
+
+        if(!isStructDataType(struct_type))
+            return false;
+
+        ASTStructMember *member = findStructMember(struct_type, expr->identifier);
+        if(member == NULL || member->value == NULL || member->value->kind != AST_EXPR_FUNCTION)
+            return false;
+
+        if(out_function_value != NULL)
+            *out_function_value = member->value;
+        if(out_name_hint != NULL)
+            *out_name_hint = expr->identifier;
+        return true;
+    }
+
+    return false;
+}
+
 static MirValueId lowerLogicalShortCircuit(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
                                            bool is_and)
 {
@@ -1804,12 +2086,58 @@ static MirValueId lowerZeroBuiltinExpr(MirFunctionState *state, MirLowerScope *s
     return mirMaybeConvertValue(state, scope, node, zero_value, expected_type);
 }
 
+static MirValueId lowerSlicePtrValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *slice_expr)
+{
+    TypeSystemExprType slice_type = inferExprType(slice_expr, &(scope->type_scope));
+    if(slice_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || !isSliceDataType(slice_type.data_type))
+        mirLoweringAbortNode("M2015", slice_expr,
+                             "slice pointer extraction requires a slice value",
+                             "type checking should reject non-slice operands here");
+
+    MirValueId slice_address = isAddressableExpr(slice_expr)
+                               ? lowerExprAsAddress(state, scope, slice_expr)
+                               : lowerExprMaterializedAddress(state, scope, slice_expr);
+    ASTDataType *ptr_field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true,
+                                                     cloneDataType(slice_type.data_type->child));
+    MirValueId ptr_field_address = mirEmitFieldPtr(state, slice_address, ptr_field_type, "ptr", 0,
+                                                   slice_expr->filename, slice_expr->line_number, slice_expr->column_number);
+    return mirEmitLoad(state, ptr_field_address, ptr_field_type,
+                       slice_expr->filename, slice_expr->line_number, slice_expr->column_number);
+}
+
+static MirValueId lowerSliceLenValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *slice_expr)
+{
+    TypeSystemExprType slice_type = inferExprType(slice_expr, &(scope->type_scope));
+    if(slice_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || !isSliceDataType(slice_type.data_type))
+        mirLoweringAbortNode("M2016", slice_expr,
+                             "slice length extraction requires a slice value",
+                             "type checking should reject non-slice operands here");
+
+    MirValueId slice_address = isAddressableExpr(slice_expr)
+                               ? lowerExprAsAddress(state, scope, slice_expr)
+                               : lowerExprMaterializedAddress(state, scope, slice_expr);
+    ASTDataType *len_field_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+    MirValueId len_field_address = mirEmitFieldPtr(state, slice_address, len_field_type, "len", 1,
+                                                   slice_expr->filename, slice_expr->line_number, slice_expr->column_number);
+    return mirEmitLoad(state, len_field_address, len_field_type,
+                       slice_expr->filename, slice_expr->line_number, slice_expr->column_number);
+}
+
+static MirValueId lowerLenBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
+                                      ASTDataType *expected_type)
+{
+    MirValueId length_value = lowerSliceLenValue(state, scope, node->lhs);
+    return mirMaybeConvertValue(state, scope, node, length_value, expected_type);
+}
+
 static MirValueId lowerAsBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
                                      ASTDataType *expected_type)
 {
     ASTNode *target_type_expr = node->lhs;
     ASTNode *value_expr = target_type_expr != NULL ? target_type_expr->next : NULL;
     ASTDataType *target_type = mirResolvedExprValueType(node, &(scope->type_scope));
+    TypeSystemExprType source_type = value_expr != NULL ? inferExprType(value_expr, &(scope->type_scope))
+                                                        : (TypeSystemExprType){0};
 
     if(value_expr != NULL &&
        value_expr->kind == AST_EXPR_LITERAL_STRING &&
@@ -1828,6 +2156,15 @@ static MirValueId lowerAsBuiltinExpr(MirFunctionState *state, MirLowerScope *sco
                                                 node->filename, node->line_number, node->column_number),
                                     expected_type);
     }
+
+    if(value_expr != NULL &&
+       source_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+       source_type.data_type != NULL &&
+       source_type.data_type->kind == AST_DATA_TYPE_KIND_SLICE &&
+       target_type->kind == AST_DATA_TYPE_KIND_POINTER)
+        return mirMaybeConvertValue(state, scope, node,
+                                    lowerSlicePtrValue(state, scope, value_expr),
+                                    expected_type);
 
     if(value_expr != NULL && target_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
     {
@@ -1852,6 +2189,28 @@ static MirValueId lowerAsBuiltinExpr(MirFunctionState *state, MirLowerScope *sco
     MirValueId value = lowerExprAsValue(state, scope, value_expr, NULL);
     value = mirEmitConvert(state, value, target_type,
                            node->filename, node->line_number, node->column_number);
+    return mirMaybeConvertValue(state, scope, node, value, expected_type);
+}
+
+static MirValueId lowerSliceBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
+                                        ASTDataType *expected_type)
+{
+    ASTDataType *slice_type = mirResolvedExprValueType(node, &(scope->type_scope));
+    ASTNode *element_type_expr = node->lhs;
+    ASTNode *pointer_expr = element_type_expr != NULL ? element_type_expr->next : NULL;
+    ASTNode *length_expr = pointer_expr != NULL ? pointer_expr->next : NULL;
+
+    MirFieldValueList fields = newMirFieldValueList(2);
+    strcpy(fields.items[0].identifier, "ptr");
+    fields.items[0].value = lowerExprAsValue(state, scope, pointer_expr,
+                                             newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true,
+                                                                cloneDataType(slice_type->child)));
+    strcpy(fields.items[1].identifier, "len");
+    fields.items[1].value = lowerExprAsValue(state, scope, length_expr,
+                                             newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64));
+
+    MirValueId value = mirEmitStructLiteral(state, fields, slice_type,
+                                            node->filename, node->line_number, node->column_number);
     return mirMaybeConvertValue(state, scope, node, value, expected_type);
 }
 
@@ -2015,9 +2374,74 @@ static MirValueId lowerCallExpr(MirFunctionState *state, MirLowerScope *scope, A
     if(comptime_call.valid)
         return mirMaybeConvertValue(state, scope, node, comptime_call.value, expected_type);
 
+    ASTNode *direct_generic_function = NULL;
+    const char *direct_name_hint = NULL;
+    if(tryGetDirectGenericFunctionValue(scope, node->lhs, &direct_generic_function, &direct_name_hint) &&
+       functionHasTypeParameters(direct_generic_function->parameters))
+    {
+        ASTFunctionParameter *specialized_parameters = NULL;
+        ASTDataType *specialized_return_type = NULL;
+        MirValueId callee = lowerRuntimeSpecializedFunctionValue(
+            state,
+            scope,
+            direct_generic_function,
+            node->rhs,
+            direct_name_hint,
+            NULL,
+            &specialized_parameters,
+            &specialized_return_type
+        );
+        MirOperandList arguments = lowerSpecializedCallArguments(
+            state,
+            scope,
+            direct_generic_function->parameters,
+            specialized_parameters,
+            node->rhs
+        );
+
+        MirValueId call_value = mirEmitCall(state, callee, arguments, specialized_return_type,
+                                            node->filename, node->line_number, node->column_number);
+        if(mirIsValueTypeVoid(specialized_return_type))
+            return call_value;
+        return mirMaybeConvertValue(state, scope, node, call_value, expected_type);
+    }
+
     if(node->lhs->kind == AST_EXPR_VARIABLE)
     {
         VariableInfo *callee_variable = findVariableInfo(&(scope->type_scope), node->lhs->identifier);
+        MirRuntimeBinding *callee_binding = findMirRuntimeBinding(scope, node->lhs->identifier);
+        if(callee_variable != NULL &&
+           callee_variable->function_value != NULL &&
+           callee_binding != NULL &&
+           callee_binding->kind == MIR_RUNTIME_BINDING_COMPTIME_ONLY)
+        {
+            ASTFunctionParameter *specialized_parameters = NULL;
+            ASTDataType *specialized_return_type = NULL;
+            MirValueId callee = lowerRuntimeSpecializedFunctionValue(
+                state,
+                scope,
+                callee_variable->function_value,
+                node->rhs,
+                node->lhs->identifier,
+                NULL,
+                &specialized_parameters,
+                &specialized_return_type
+            );
+            MirOperandList arguments = lowerSpecializedCallArguments(
+                state,
+                scope,
+                callee_variable->function_value->parameters,
+                specialized_parameters,
+                node->rhs
+            );
+
+            MirValueId call_value = mirEmitCall(state, callee, arguments, specialized_return_type,
+                                                node->filename, node->line_number, node->column_number);
+            if(mirIsValueTypeVoid(specialized_return_type))
+                return call_value;
+            return mirMaybeConvertValue(state, scope, node, call_value, expected_type);
+        }
+
         if(callee_variable != NULL && callee_variable->extern_value != NULL)
         {
             ASTDataType *function_type = mirResolvedExprValueType(node->lhs, &(scope->type_scope));
@@ -2232,8 +2656,12 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                 return lowerTypeLayoutBuiltinExpr(state, scope, node, true);
             if(strcmp(node->identifier, "zero") == 0)
                 return lowerZeroBuiltinExpr(state, scope, node, expected_type);
+            if(strcmp(node->identifier, "len") == 0)
+                return lowerLenBuiltinExpr(state, scope, node, expected_type);
             if(strcmp(node->identifier, "as") == 0)
                 return lowerAsBuiltinExpr(state, scope, node, expected_type);
+            if(strcmp(node->identifier, "slice") == 0)
+                return lowerSliceBuiltinExpr(state, scope, node, expected_type);
             if(strcmp(node->identifier, "unwrap") == 0)
                 return lowerUnwrapBuiltinExpr(state, scope, node, expected_type);
             mirLoweringAbortNodeFormatted("M2009", node,
@@ -2482,6 +2910,24 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
             else
                 base_address = lowerExprMaterializedAddress(state, scope, node->lhs);
 
+            if(isSliceDataType(struct_type))
+            {
+                ASTDataType *field_type = NULL;
+                if(strcmp(node->identifier, "ptr") == 0)
+                    field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true, cloneDataType(struct_type->child));
+                else if(strcmp(node->identifier, "len") == 0)
+                    field_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+                else
+                    mirLoweringAbortNodeFormatted("M2012", node,
+                                                  "this member is not a stored field",
+                                                  "member `%s` is not an addressable slice field",
+                                                  node->identifier);
+
+                return mirEmitFieldPtr(state, base_address, field_type, node->identifier,
+                                       findStructDataFieldIndex(struct_type, node->identifier),
+                                       node->filename, node->line_number, node->column_number);
+            }
+
             ASTStructMember *member = findStructMember(struct_type, node->identifier);
             if(member == NULL || member->value != NULL)
                 mirLoweringAbortNodeFormatted("M2012", node,
@@ -2496,10 +2942,24 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
             TypeSystemExprType owner_type = inferExprType(node->lhs, &(scope->type_scope));
             ASTDataType *array_type = owner_type.data_type;
             MirValueId base_address = -1;
+            bool base_is_element_pointer = false;
             if(array_type->kind == AST_DATA_TYPE_KIND_POINTER || array_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
             {
                 base_address = lowerExprAsValue(state, scope, node->lhs, NULL);
                 array_type = array_type->child;
+            }
+            else if(isSliceDataType(array_type))
+            {
+                MirValueId slice_address = isAddressableExpr(node->lhs)
+                                           ? lowerExprAsAddress(state, scope, node->lhs)
+                                           : lowerExprMaterializedAddress(state, scope, node->lhs);
+                ASTDataType *ptr_field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true,
+                                                                 cloneDataType(array_type->child));
+                MirValueId ptr_field_address = mirEmitFieldPtr(state, slice_address, ptr_field_type, "ptr", 0,
+                                                               node->filename, node->line_number, node->column_number);
+                base_address = mirEmitLoad(state, ptr_field_address, ptr_field_type,
+                                           node->filename, node->line_number, node->column_number);
+                base_is_element_pointer = true;
             }
             else if(isAddressableExpr(node->lhs))
                 base_address = lowerExprAsAddress(state, scope, node->lhs);
@@ -2508,7 +2968,7 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
 
             ASTDataType *index_type = defaultIntegerDataType();
             MirValueId index_value = lowerExprAsValue(state, scope, node->rhs, index_type);
-            return mirEmitIndexPtr(state, base_address, index_value, array_type->child,
+            return mirEmitIndexPtr(state, base_address, index_value, array_type->child, base_is_element_pointer,
                                    node->filename, node->line_number, node->column_number);
         }
         case AST_EXPR_PARENTHESIS:
@@ -2541,7 +3001,13 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
 
         if(is_new_variable)
         {
-            ASTDataType *declared_type = cloneDataType(node->data_type);
+            ASTDataType *declared_type = NULL;
+            if(node->rhs != NULL &&
+               node->rhs->kind == AST_EXPR_FUNCTION &&
+               functionHasTypeParameters(node->rhs->parameters))
+                declared_type = cloneDataType(node->data_type);
+            else
+                declared_type = resolveNamedDataType(node->data_type, &(scope->type_scope), scope->self_data_type);
             TypeSystemExprType expr_type = {0};
             if(node->rhs->kind == AST_EXPR_ARRAY_LITERAL && node->rhs->lhs == NULL &&
                declared_type->kind == AST_DATA_TYPE_KIND_ARRAY && declared_type->array_length == 0)

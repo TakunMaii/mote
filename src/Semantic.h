@@ -134,6 +134,7 @@ void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionC
 void checkStatementSemantics(ASTNode *node, ScopeFrame *scope, FunctionContext *function_context);
 void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *function_context);
 void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scope, ASTDataType *self_data_type);
+void predeclareTopLevelBindings(ASTNode *block, ScopeFrame *scope);
 
 bool isInsideFunction(FunctionContext *function_context)
 {
@@ -359,17 +360,30 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
 {
     if(isTypeDeclAssign(node, scope))
     {
-        if(findTypeInfoInScope(scope, node->identifier) >= 0)
+        TypeInfo *existing_type_info = findTypeInfo(scope, node->identifier);
+        if(existing_type_info != NULL)
         {
-            semanticAbortNodeFormatted("S1009", node,
-                                       "duplicate type declaration",
-                                       "type `%s` has already been declared in this scope",
-                                       node->identifier);
+            bool is_placeholder_struct = existing_type_info->predeclared &&
+                                         node->rhs != NULL &&
+                                         node->rhs->kind == AST_EXPR_STRUCT;
+            bool is_placeholder_enum = existing_type_info->predeclared &&
+                                       node->rhs != NULL &&
+                                       node->rhs->kind == AST_EXPR_ENUM;
+            if(!is_placeholder_struct && !is_placeholder_enum)
+            {
+                semanticAbortNodeFormatted("S1009", node,
+                                           "duplicate type declaration",
+                                           "type `%s` has already been declared in this scope",
+                                           node->identifier);
+            }
         }
 
-        TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
+        TypeInfo *type_info = existing_type_info;
+        if(type_info == NULL)
+            type_info = declareTypeInfo(scope, node->identifier);
         TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
         type_info->data_type = cloneDataType(expr_type.data_type);
+        type_info->predeclared = false;
         node->data_type = cloneDataType(type_info->data_type);
         if(node->rhs->kind == AST_EXPR_STRUCT)
             checkStructExprSemantics(node->rhs, scope);
@@ -579,6 +593,8 @@ void checkStatementSemantics(ASTNode *node, ScopeFrame *scope, FunctionContext *
 void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context)
 {
     ScopeFrame *current_scope = newScopeFrame(parent_scope);
+    if(parent_scope == NULL)
+        predeclareTopLevelBindings(block, current_scope);
 
     ASTNode *node = block->lhs;
     while(node)
@@ -634,6 +650,13 @@ void checkFunctionCallArgumentSemantics(ASTNode *call_node, ASTDataType *functio
     {
         if(parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && parameter->data_type->mutable)
         {
+            if(argument->kind == AST_EXPR_ADDRESS_OF_MUT)
+            {
+                parameter = parameter->next;
+                argument = argument->next;
+                continue;
+            }
+
             if(!isMutableAddressableExpr(argument, scope))
             {
                 semanticAbortTypeNode("T1101", argument,
@@ -647,11 +670,48 @@ void checkFunctionCallArgumentSemantics(ASTNode *call_node, ASTDataType *functio
     }
 }
 
+ASTDataType* resolveCallSemanticFunctionType(ASTNode *call_node, ScopeFrame *scope)
+{
+    if(call_node == NULL || call_node->kind != AST_EXPR_CALL)
+        return NULL;
+
+    if(call_node->lhs != NULL && call_node->lhs->kind == AST_EXPR_VARIABLE)
+    {
+        VariableInfo *callee_variable = findVariableInfo(scope, call_node->lhs->identifier);
+        if(callee_variable != NULL && callee_variable->function_value != NULL)
+            return instantiateFunctionCallResolvedFunctionType(callee_variable->function_value, call_node->rhs, scope);
+    }
+
+    TypeSystemExprType callee_type = inferExprType(call_node->lhs, scope);
+    if(callee_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+       callee_type.data_type != NULL &&
+       callee_type.data_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+        return callee_type.data_type;
+    return NULL;
+}
+
 ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
 {
-    ASTDataType *struct_type = newStructDataType(node->identifier, NULL);
-    TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
-    type_info->data_type = struct_type;
+    TypeInfo *type_info = findTypeInfo(scope, node->identifier);
+    ASTDataType *struct_type = NULL;
+    if(type_info != NULL)
+    {
+        struct_type = type_info->data_type;
+        if(!type_info->predeclared || struct_type == NULL || struct_type->kind != AST_DATA_TYPE_KIND_STRUCT)
+        {
+            semanticAbortTypeFormatted("T1108", node,
+                                       "duplicate type declaration",
+                                       "type `%s` has already been declared in this scope",
+                                       node->identifier);
+        }
+    }
+    else
+    {
+        struct_type = newStructDataType(node->identifier, NULL);
+        type_info = declareTypeInfo(scope, node->identifier);
+        type_info->data_type = struct_type;
+    }
+    type_info->predeclared = false;
 
     ASTStructMember *resolved_head = NULL;
     ASTStructMember *resolved_tail = NULL;
@@ -693,9 +753,26 @@ ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
 
 ASTDataType* declareEnumType(ASTNode *node, ScopeFrame *scope)
 {
-    ASTDataType *enum_type = newEnumDataType(node->identifier, NULL);
-    TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
-    type_info->data_type = enum_type;
+    TypeInfo *type_info = findTypeInfo(scope, node->identifier);
+    ASTDataType *enum_type = NULL;
+    if(type_info != NULL)
+    {
+        enum_type = type_info->data_type;
+        if(!type_info->predeclared || enum_type == NULL || enum_type->kind != AST_DATA_TYPE_KIND_ENUM)
+        {
+            semanticAbortTypeFormatted("T1109", node,
+                                       "duplicate type declaration",
+                                       "type `%s` has already been declared in this scope",
+                                       node->identifier);
+        }
+    }
+    else
+    {
+        enum_type = newEnumDataType(node->identifier, NULL);
+        type_info = declareTypeInfo(scope, node->identifier);
+        type_info->data_type = enum_type;
+    }
+    type_info->predeclared = false;
 
     ASTEnumVariant *resolved_head = NULL;
     ASTEnumVariant *resolved_tail = NULL;
@@ -1011,7 +1088,11 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
     {
         if(isStructDeclAssign(node))
         {
-            if(findTypeInfoInScope(scope, node->identifier) >= 0)
+            TypeInfo *existing_type_info = findTypeInfo(scope, node->identifier);
+            if(existing_type_info != NULL &&
+               (!existing_type_info->predeclared ||
+                existing_type_info->data_type == NULL ||
+                existing_type_info->data_type->kind != AST_DATA_TYPE_KIND_STRUCT))
             {
                 semanticAbortTypeFormatted("T1108", node,
                                            "duplicate type declaration",
@@ -1033,7 +1114,11 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
 
         if(isEnumDeclAssign(node))
         {
-            if(findTypeInfoInScope(scope, node->identifier) >= 0)
+            TypeInfo *existing_type_info = findTypeInfo(scope, node->identifier);
+            if(existing_type_info != NULL &&
+               (!existing_type_info->predeclared ||
+                existing_type_info->data_type == NULL ||
+                existing_type_info->data_type->kind != AST_DATA_TYPE_KIND_ENUM))
             {
                 semanticAbortTypeFormatted("T1109", node,
                                            "duplicate type declaration",
@@ -1045,7 +1130,8 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             return;
         }
 
-        if(findTypeInfoInScope(scope, node->identifier) >= 0)
+        TypeInfo *existing_type_info = findTypeInfo(scope, node->identifier);
+        if(existing_type_info != NULL && !existing_type_info->predeclared)
         {
             semanticAbortTypeFormatted("T1109", node,
                                        "duplicate type declaration",
@@ -1150,11 +1236,11 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         ASTDataType *array_type = owner_type.data_type;
         if(array_type->kind == AST_DATA_TYPE_KIND_POINTER || array_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
             array_type = array_type->child;
-        if(!isArrayDataType(array_type))
+        if(!isArrayDataType(array_type) && !isSliceDataType(array_type))
         {
             semanticAbortTypeNode("T1117", node->lhs,
-                                  "index assignment requires an array receiver",
-                                  "the indexed expression is not an array");
+                                  "index assignment requires an array or slice receiver",
+                                  "the indexed expression is not an array or slice");
         }
 
         if(!isMutableAddressableExpr(node->lhs, scope))
@@ -1180,9 +1266,9 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         checkFunctionExprTypes(node->rhs, scope, function_context == NULL ? NULL : function_context->self_data_type);
     if(node->rhs->kind == AST_EXPR_CALL)
     {
-        TypeSystemExprType callee_type = inferExprType(node->rhs->lhs, scope);
-        if(callee_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && callee_type.data_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
-            checkFunctionCallArgumentSemantics(node->rhs, callee_type.data_type, scope);
+        ASTDataType *resolved_call_type = resolveCallSemanticFunctionType(node->rhs, scope);
+        if(resolved_call_type != NULL && resolved_call_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+            checkFunctionCallArgumentSemantics(node->rhs, resolved_call_type, scope);
     }
 
     if(isExplicitDeclared(node))
@@ -1333,9 +1419,9 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
         {
             if(node->lhs->kind == AST_EXPR_CALL)
             {
-                TypeSystemExprType callee_type = inferExprType(node->lhs->lhs, scope);
-                if(callee_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && callee_type.data_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
-                    checkFunctionCallArgumentSemantics(node->lhs, callee_type.data_type, scope);
+                ASTDataType *resolved_call_type = resolveCallSemanticFunctionType(node->lhs, scope);
+                if(resolved_call_type != NULL && resolved_call_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+                    checkFunctionCallArgumentSemantics(node->lhs, resolved_call_type, scope);
             }
             else if(node->lhs->kind == AST_EXPR_FUNCTION)
             {
@@ -1381,14 +1467,14 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
         }
         else if(node->lhs->kind == AST_EXPR_CALL)
         {
-            TypeSystemExprType callee_type = inferExprType(node->lhs->lhs, scope);
-            if(callee_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || callee_type.data_type->kind != AST_DATA_TYPE_KIND_FUNCTION)
+            ASTDataType *resolved_call_type = resolveCallSemanticFunctionType(node->lhs, scope);
+            if(resolved_call_type == NULL || resolved_call_type->kind != AST_DATA_TYPE_KIND_FUNCTION)
             {
                 semanticAbortTypeNode("T1128", node->lhs,
                                       "called expression is not a function",
                                       "this expression does not have a function type");
             }
-            checkFunctionCallArgumentSemantics(node->lhs, callee_type.data_type, scope);
+            checkFunctionCallArgumentSemantics(node->lhs, resolved_call_type, scope);
             inferExprType(node->lhs, scope);
         }
         else if(node->lhs->kind == AST_EXPR_FUNCTION)
@@ -1463,6 +1549,8 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
 void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context)
 {
     ScopeFrame *current_scope = newScopeFrame(parent_scope);
+    if(parent_scope == NULL)
+        predeclareTopLevelBindings(block, current_scope);
 
     ASTNode *node = block->lhs;
     while(node)
@@ -1484,6 +1572,39 @@ void checkAssignTypes(ASTNode *root)
     }
 
     checkAssignTypesInBlock(root->lhs, NULL, NULL);
+}
+
+void predeclareTopLevelBindings(ASTNode *block, ScopeFrame *scope)
+{
+    if(block == NULL || scope == NULL)
+        return;
+
+    ASTNode *node = block->lhs;
+    while(node)
+    {
+        if(node->kind == AST_ASSIGN && node->lhs != NULL && node->lhs->kind == AST_EXPR_VARIABLE)
+        {
+            if(node->rhs != NULL && node->rhs->kind == AST_EXPR_STRUCT)
+            {
+                if(findTypeInfoInScope(scope, node->identifier) < 0)
+                {
+                    TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
+                    type_info->data_type = newStructDataType(node->identifier, NULL);
+                    type_info->predeclared = true;
+                }
+            }
+            else if(node->rhs != NULL && node->rhs->kind == AST_EXPR_ENUM)
+            {
+                if(findTypeInfoInScope(scope, node->identifier) < 0)
+                {
+                    TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
+                    type_info->data_type = newEnumDataType(node->identifier, NULL);
+                    type_info->predeclared = true;
+                }
+            }
+        }
+        node = node->next;
+    }
 }
 
 #endif /* SEMANTIC_H */

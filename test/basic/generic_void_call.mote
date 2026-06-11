@@ -1,0 +1,9 @@
+foo = fn(T: Type, p: *mut T) void {
+    return;
+};
+
+main = fn() i32 {
+    p: *mut i32 = 0;
+    foo(i32, p);
+    return 0;
+};

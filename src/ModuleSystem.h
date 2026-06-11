@@ -838,6 +838,8 @@ static void rewriteDataType(ModuleSourceFile *module, RewriteScope *scope, ASTDa
             return;
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
+        case AST_DATA_TYPE_KIND_OPTIONAL:
+        case AST_DATA_TYPE_KIND_SLICE:
             rewriteDataType(module, scope, data_type->child);
             return;
         case AST_DATA_TYPE_KIND_FUNCTION: {
@@ -1014,6 +1016,27 @@ static bool rewriteWouldDeclareNewVariable(RewriteScope *scope, ASTNode *node)
 
 static void rewriteStatementList(ModuleSourceFile *module, RewriteScope *scope, ASTNode *statement)
 {
+    ASTNode *predeclare = statement;
+    while(predeclare)
+    {
+        if(predeclare->kind == AST_ASSIGN &&
+           predeclare->lhs != NULL &&
+           predeclare->lhs->kind == AST_EXPR_VARIABLE &&
+           (moduleIsStructDeclAssign(predeclare) ||
+            moduleIsEnumDeclAssign(predeclare) ||
+            rewriteExprLooksLikeTypeValue(module, scope, predeclare->rhs)))
+        {
+            ModuleTopLevelBinding *top_level_binding = moduleFindTopLevelBinding(module, predeclare->identifier);
+            const char *rewritten = predeclare->identifier;
+            if(top_level_binding != NULL && scope->parent == NULL)
+                rewritten = top_level_binding->mangled;
+
+            if(findRewriteTypeBindingInScope(scope, predeclare->identifier) == NULL)
+                declareRewriteTypeBinding(scope, predeclare->identifier, rewritten);
+        }
+        predeclare = predeclare->next;
+    }
+
     while(statement)
     {
         rewriteStatement(module, scope, statement);
@@ -1064,9 +1087,9 @@ static void rewriteStatement(ModuleSourceFile *module, RewriteScope *scope, ASTN
                     strcpy(node->lhs->identifier, top_level_binding->mangled);
                 }
 
-                declareRewriteTypeBinding(scope,
-                                          is_top_level_binding ? top_level_binding->original : original_identifier,
-                                          node->lhs->identifier);
+                const char *binding_name = is_top_level_binding ? top_level_binding->original : original_identifier;
+                if(findRewriteTypeBindingInScope(scope, binding_name) == NULL)
+                    declareRewriteTypeBinding(scope, binding_name, node->lhs->identifier);
                 rewriteExpr(module, scope, node->rhs);
                 return;
             }

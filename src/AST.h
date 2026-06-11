@@ -97,6 +97,7 @@ typedef enum ASTDataTypeKind {
     AST_DATA_TYPE_KIND_FUNCTION,
     AST_DATA_TYPE_KIND_NAMED,
     AST_DATA_TYPE_KIND_ARRAY,
+    AST_DATA_TYPE_KIND_SLICE,
     AST_DATA_TYPE_KIND_APPLY,
     AST_DATA_TYPE_KIND_ENUM,
     AST_DATA_TYPE_KIND_STRUCT,
@@ -318,6 +319,15 @@ ASTDataType* newArrayDataType(ASTDataType *element_type, long long int length)
     data_type->kind = AST_DATA_TYPE_KIND_ARRAY;
     data_type->child = element_type;
     data_type->array_length = length;
+    return data_type;
+}
+
+ASTDataType* newSliceDataType(ASTDataType *element_type)
+{
+    ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    memset(data_type, 0, sizeof(ASTDataType));
+    data_type->kind = AST_DATA_TYPE_KIND_SLICE;
+    data_type->child = element_type;
     return data_type;
 }
 
@@ -864,6 +874,10 @@ void printASTDataType(ASTDataType *data_type)
             printASTDataType(data_type->child);
             printf(", %lld)", data_type->array_length);
         } break;
+        case AST_DATA_TYPE_KIND_SLICE: {
+            printf("[]");
+            printASTDataType(data_type->child);
+        } break;
         case AST_DATA_TYPE_KIND_APPLY: {
             printASTDataType(data_type->callee);
             printf("(");
@@ -1027,6 +1041,10 @@ void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer
             appendStringFragment(buffer, buffer_size, "Array(");
             appendASTDataTypeString(data_type->child, buffer, buffer_size);
             appendFormatFragment(buffer, buffer_size, ", %lld)", data_type->array_length);
+            break;
+        case AST_DATA_TYPE_KIND_SLICE:
+            appendStringFragment(buffer, buffer_size, "[]");
+            appendASTDataTypeString(data_type->child, buffer, buffer_size);
             break;
         case AST_DATA_TYPE_KIND_APPLY:
             appendASTDataTypeString(data_type->callee, buffer, buffer_size);

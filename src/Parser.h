@@ -66,6 +66,12 @@ ASTAssignModifier parseModifier(Token **token)
 
 ASTDataType* parsePrimaryDataType(Token **token)
 {
+    if((*token)->kind == TK_LEFT_BRACKET && (*token)->next != NULL && (*token)->next->kind == TK_RIGHT_BRACKET)
+    {
+        (*token) = (*token)->next->next;
+        return newSliceDataType(parseDataType(token));
+    }
+
     if((*token)->kind == TK_TYPE)
     {
         (*token) = (*token)->next;
@@ -214,7 +220,7 @@ ASTTypeArgument* parseTypeArgumentList(Token **token)
 
     while((*token)->kind != TK_RIGHT_PARENTHESIS)
     {
-        ASTTypeArgument *argument = newASTTypeArgument(parseTypeExpr(token));
+        ASTTypeArgument *argument = newASTTypeArgument(parseDataType(token));
         if(head == NULL)
             head = argument;
         else
@@ -247,6 +253,11 @@ static bool tokenStartsDataType(Token *token)
 {
     if(token == NULL)
         return false;
+
+    if(token->kind == TK_LEFT_BRACKET &&
+       token->next != NULL &&
+       token->next->kind == TK_RIGHT_BRACKET)
+        return true;
 
     if(token->kind == TK_STAR || token->kind == TK_AMPERSAND || token->kind == TK_QUESTION ||
        token->kind == TK_TYPE || token->kind == TK_VOID || token->kind == TK_OPAQUE)
@@ -286,7 +297,7 @@ ASTNode* parseBuiltinExpr(Token **token)
     strcpy(node->identifier, builtin_token->identifier);
     (*token) = (*token)->next;
 
-    if(strcmp(node->identifier, "as") == 0)
+    if(strcmp(node->identifier, "as") == 0 || strcmp(node->identifier, "slice") == 0)
     {
         ASTNode *head = NULL;
         ASTNode *tail = NULL;
@@ -327,6 +338,7 @@ ASTNode* parseBuiltinExpr(Token **token)
     }
 
     if(strcmp(node->identifier, "zero") == 0 ||
+       strcmp(node->identifier, "len") == 0 ||
        strcmp(node->identifier, "sizeof") == 0 ||
        strcmp(node->identifier, "alignof") == 0)
     {
@@ -603,15 +615,25 @@ ASTNode* parsePrimary(Token **token)
     if((*token)->kind == TK_TYPE || (*token)->kind == TK_VOID || (*token)->kind == TK_OPAQUE)
     {
         ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
-        node->data_type = parseTypeExpr(token);
+        node->data_type = parseDataType(token);
         return node;
     }
 
     if((*token)->kind == TK_IDENTIFIER &&
-       (strcmp((*token)->identifier, "Function") == 0 || strcmp((*token)->identifier, "Array") == 0))
+       (strcmp((*token)->identifier, "Function") == 0 ||
+        strcmp((*token)->identifier, "Array") == 0))
     {
         ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
-        node->data_type = parseTypeExpr(token);
+        node->data_type = parseDataType(token);
+        return node;
+    }
+
+    if((*token)->kind == TK_LEFT_BRACKET &&
+       (*token)->next != NULL &&
+       (*token)->next->kind == TK_RIGHT_BRACKET)
+    {
+        ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
+        node->data_type = parseDataType(token);
         return node;
     }
 

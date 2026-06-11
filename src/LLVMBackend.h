@@ -182,6 +182,7 @@ static bool llvmIsExternAggregateType(ASTDataType *data_type)
 {
     return data_type != NULL &&
            (data_type->kind == AST_DATA_TYPE_KIND_ARRAY ||
+            data_type->kind == AST_DATA_TYPE_KIND_SLICE ||
             data_type->kind == AST_DATA_TYPE_KIND_STRUCT ||
             data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL);
 }
@@ -213,6 +214,14 @@ static size_t llvmExternABITypeSize(ASTDataType *data_type)
         case AST_DATA_TYPE_KIND_ARRAY: {
             size_t child_size = llvmExternABITypeSize(data_type->child);
             return child_size * (size_t) data_type->array_length;
+        }
+        case AST_DATA_TYPE_KIND_SLICE: {
+            size_t ptr_size = sizeof(void*);
+            size_t len_align = llvmExternABITypeAlignment(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64));
+            size_t len_size = llvmExternABITypeSize(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64));
+            size_t offset = llvmAlignTo(ptr_size, len_align);
+            size_t max_align = sizeof(void*) > len_align ? sizeof(void*) : len_align;
+            return llvmAlignTo(offset + len_size, max_align);
         }
         case AST_DATA_TYPE_KIND_STRUCT: {
             size_t offset = 0;
@@ -260,6 +269,10 @@ static size_t llvmExternABITypeAlignment(ASTDataType *data_type)
             return 4;
         case AST_DATA_TYPE_KIND_ARRAY:
             return llvmExternABITypeAlignment(data_type->child);
+        case AST_DATA_TYPE_KIND_SLICE: {
+            size_t len_align = llvmExternABITypeAlignment(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64));
+            return sizeof(void*) > len_align ? sizeof(void*) : len_align;
+        }
         case AST_DATA_TYPE_KIND_STRUCT: {
             size_t max_align = 1;
             ASTStructMember *member = data_type->members;
@@ -351,6 +364,11 @@ static void llvmEmitOptionalRuntimeType(FILE *stream, ASTDataType *data_type, bo
     fprintf(stream, " }");
 }
 
+static void llvmEmitSliceRuntimeType(FILE *stream)
+{
+    fprintf(stream, "{ ptr, i64 }");
+}
+
 static void llvmEmitType(FILE *stream, ASTDataType *data_type)
 {
     if(data_type == NULL)
@@ -394,6 +412,9 @@ static void llvmEmitType(FILE *stream, ASTDataType *data_type)
             fprintf(stream, "[%lld x ", data_type->array_length);
             llvmEmitStorageType(stream, data_type->child);
             fprintf(stream, "]");
+            return;
+        case AST_DATA_TYPE_KIND_SLICE:
+            llvmEmitSliceRuntimeType(stream);
             return;
         case AST_DATA_TYPE_KIND_OPTIONAL:
             llvmEmitOptionalRuntimeType(stream, data_type, true);
@@ -454,6 +475,9 @@ static void llvmEmitStorageType(FILE *stream, ASTDataType *data_type)
             fprintf(stream, "[%lld x ", data_type->array_length);
             llvmEmitStorageType(stream, data_type->child);
             fprintf(stream, "]");
+            return;
+        case AST_DATA_TYPE_KIND_SLICE:
+            llvmEmitSliceRuntimeType(stream);
             return;
         case AST_DATA_TYPE_KIND_OPTIONAL:
             llvmEmitOptionalRuntimeType(stream, data_type, true);
@@ -952,6 +976,20 @@ static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context
             else if(i == 1)
             {
                 field_type = inst->result_type->child;
+                field_index = 1;
+            }
+        }
+        else if(inst->result_type != NULL && inst->result_type->kind == AST_DATA_TYPE_KIND_SLICE)
+        {
+            if(strcmp(field->identifier, "ptr") == 0)
+            {
+                field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true,
+                                                cloneDataType(inst->result_type->child));
+                field_index = 0;
+            }
+            else if(strcmp(field->identifier, "len") == 0)
+            {
+                field_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
                 field_index = 1;
             }
         }
@@ -1619,7 +1657,10 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitStorageType(stream, pointee_type);
             fprintf(stream, ", ptr ");
             llvmEmitValueRef(stream, context, inst->data.index_ptr.base_address);
-            fprintf(stream, ", i32 0, ");
+            if(!inst->data.index_ptr.base_is_element_pointer)
+                fprintf(stream, ", i32 0, ");
+            else
+                fprintf(stream, ", ");
             llvmEmitType(stream, llvmResolvedValueType(context, inst->data.index_ptr.index_value));
             fprintf(stream, " ");
             llvmEmitValueRef(stream, context, inst->data.index_ptr.index_value);

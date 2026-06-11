@@ -32,6 +32,19 @@ ASTDataType* instantiateTypeExprValue(ASTNode *expr, ScopeFrame *inst_scope);
 TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTNode *call_arguments, ScopeFrame *outer_scope);
 ASTNode* buildTypeLiteralArgumentExprs(ASTTypeArgument *argument, ScopeFrame *scope, ASTDataType *self_data_type);
 
+typedef struct ResolveDataTypeEntry {
+    ASTDataType *source;
+    ASTDataType *resolved;
+    struct ResolveDataTypeEntry *next;
+} ResolveDataTypeEntry;
+
+static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFrame *scope,
+                                                 ASTDataType *self_data_type,
+                                                 ResolveDataTypeEntry **memo);
+static ASTStructMember* resolveStructMembersInternal(ASTStructMember *member, ScopeFrame *scope,
+                                                     ASTDataType *self_data_type,
+                                                     ResolveDataTypeEntry **memo);
+
 TypeSystemExprType newValueExprType(ASTDataType *data_type)
 {
     TypeSystemExprType expr_type = {0};
@@ -248,6 +261,7 @@ void typeSystemEnsureNoBareOpaque(ASTDataType *data_type, ASTNode *node, const c
             return;
         case AST_DATA_TYPE_KIND_OPTIONAL:
         case AST_DATA_TYPE_KIND_ARRAY:
+        case AST_DATA_TYPE_KIND_SLICE:
             typeSystemEnsureNoBareOpaque(data_type->child, node, code, context);
             return;
         case AST_DATA_TYPE_KIND_FUNCTION: {
@@ -283,6 +297,11 @@ bool isEnumDataType(ASTDataType *data_type)
 bool isArrayDataType(ASTDataType *data_type)
 {
     return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_ARRAY;
+}
+
+bool isSliceDataType(ASTDataType *data_type)
+{
+    return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_SLICE;
 }
 
 bool isOptionalDataType(ASTDataType *data_type)
@@ -350,6 +369,15 @@ static size_t moteTypeLayoutSize(ASTDataType *data_type)
             return 4;
         case AST_DATA_TYPE_KIND_ARRAY:
             return moteTypeLayoutSize(data_type->child) * (size_t) data_type->array_length;
+        case AST_DATA_TYPE_KIND_SLICE: {
+            ASTDataType *len_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+            size_t ptr_size = sizeof(void*);
+            size_t len_align = moteTypeLayoutAlignment(len_type);
+            size_t len_size = moteTypeLayoutSize(len_type);
+            size_t offset = moteAlignTo(ptr_size, len_align);
+            size_t max_align = sizeof(void*) > len_align ? sizeof(void*) : len_align;
+            return moteAlignTo(offset + len_size, max_align);
+        }
         case AST_DATA_TYPE_KIND_STRUCT: {
             size_t offset = 0;
             size_t max_align = 1;
@@ -424,6 +452,11 @@ static size_t moteTypeLayoutAlignment(ASTDataType *data_type)
             return 4;
         case AST_DATA_TYPE_KIND_ARRAY:
             return moteTypeLayoutAlignment(data_type->child);
+        case AST_DATA_TYPE_KIND_SLICE: {
+            ASTDataType *len_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+            size_t len_align = moteTypeLayoutAlignment(len_type);
+            return sizeof(void*) > len_align ? sizeof(void*) : len_align;
+        }
         case AST_DATA_TYPE_KIND_STRUCT: {
             size_t max_align = 1;
             ASTStructMember *member = data_type->members;
@@ -665,6 +698,11 @@ bool isSameArrayType(ASTDataType *lhs, ASTDataType *rhs)
     return isSameArrayTypeInternal(lhs, rhs, &memo);
 }
 
+bool isSameSliceTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompareEntry **memo)
+{
+    return isSameDataTypeInternal(lhs->child, rhs->child, memo);
+}
+
 bool isSameDataTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompareEntry **memo)
 {
     if(lhs == NULL || rhs == NULL)
@@ -707,6 +745,11 @@ bool isSameDataTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompa
                 return true;
             rememberComparedDataTypePair(memo, lhs, rhs);
             return isSameArrayTypeInternal(lhs, rhs, memo);
+        case AST_DATA_TYPE_KIND_SLICE:
+            if(hasComparedDataTypePair(*memo, lhs, rhs))
+                return true;
+            rememberComparedDataTypePair(memo, lhs, rhs);
+            return isSameSliceTypeInternal(lhs, rhs, memo);
         case AST_DATA_TYPE_KIND_ENUM:
             return isSameEnumTypeInternal(lhs, rhs, memo);
         case AST_DATA_TYPE_KIND_STRUCT:
@@ -724,10 +767,20 @@ bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs)
     return isSameDataTypeInternal(lhs, rhs, &memo);
 }
 
-ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, ASTDataType *self_data_type)
+static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFrame *scope,
+                                                 ASTDataType *self_data_type,
+                                                 ResolveDataTypeEntry **memo)
 {
     if(data_type == NULL)
         return NULL;
+
+    ResolveDataTypeEntry *entry = memo == NULL ? NULL : *memo;
+    while(entry != NULL)
+    {
+        if(entry->source == data_type)
+            return entry->resolved;
+        entry = entry->next;
+    }
 
     switch(data_type->kind)
     {
@@ -738,7 +791,13 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
             return cloneDataType(data_type);
         case AST_DATA_TYPE_KIND_STRUCT: {
             ASTDataType *resolved_struct = newStructDataType(data_type->identifier, NULL);
-            resolved_struct->members = resolveStructMembers(data_type->members, scope, resolved_struct);
+            ResolveDataTypeEntry *new_entry = (ResolveDataTypeEntry*) malloc(sizeof(ResolveDataTypeEntry));
+            new_entry->source = data_type;
+            new_entry->resolved = resolved_struct;
+            new_entry->next = memo == NULL ? NULL : *memo;
+            if(memo != NULL)
+                *memo = new_entry;
+            resolved_struct->members = resolveStructMembersInternal(data_type->members, scope, resolved_struct, memo);
             return resolved_struct;
         }
         case AST_DATA_TYPE_KIND_NAMED: {
@@ -774,10 +833,12 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
         case AST_DATA_TYPE_KIND_REFERENCE:
         case AST_DATA_TYPE_KIND_OPTIONAL:
             return newWrappedDataType(data_type->kind, data_type->mutable,
-                                      resolveNamedDataType(data_type->child, scope, self_data_type));
+                                      resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo));
         case AST_DATA_TYPE_KIND_ARRAY:
-            return newArrayDataType(resolveNamedDataType(data_type->child, scope, self_data_type),
+            return newArrayDataType(resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo),
                                     data_type->array_length);
+        case AST_DATA_TYPE_KIND_SLICE:
+            return newSliceDataType(resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo));
         case AST_DATA_TYPE_KIND_FUNCTION: {
             ASTFunctionParameter *head = NULL;
             ASTFunctionParameter *tail = NULL;
@@ -787,7 +848,7 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
                 ASTFunctionParameter *new_parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
                 *new_parameter = *parameter;
                 new_parameter->next = NULL;
-                new_parameter->data_type = resolveNamedDataType(parameter->data_type, scope, self_data_type);
+                new_parameter->data_type = resolveNamedDataTypeInternal(parameter->data_type, scope, self_data_type, memo);
 
                 if(head == NULL)
                     head = new_parameter;
@@ -798,7 +859,7 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
             }
 
             return newFunctionDataType(head, data_type->is_variadic,
-                                       resolveNamedDataType(data_type->return_data_type, scope, self_data_type));
+                                       resolveNamedDataTypeInternal(data_type->return_data_type, scope, self_data_type, memo));
         }
         case AST_DATA_TYPE_KIND_APPLY: {
             if(data_type->callee != NULL && data_type->callee->kind == AST_DATA_TYPE_KIND_NAMED)
@@ -810,7 +871,7 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
                         callee_variable->function_value,
                         buildTypeLiteralArgumentExprs(data_type->arguments, scope, self_data_type),
                         scope
-                    );
+                        );
                     if(applied_type.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
                         typeSystemAbortNoSpan("T1203",
                                               "type application requires a constructor returning `Type`",
@@ -819,13 +880,13 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
                 }
             }
 
-            ASTDataType *resolved_callee = resolveNamedDataType(data_type->callee, scope, self_data_type);
+            ASTDataType *resolved_callee = resolveNamedDataTypeInternal(data_type->callee, scope, self_data_type, memo);
             ASTTypeArgument *resolved_arguments = NULL;
             ASTTypeArgument *resolved_tail = NULL;
             ASTTypeArgument *argument = data_type->arguments;
             while(argument)
             {
-                ASTTypeArgument *new_argument = newASTTypeArgument(resolveNamedDataType(argument->data_type, scope, self_data_type));
+                ASTTypeArgument *new_argument = newASTTypeArgument(resolveNamedDataTypeInternal(argument->data_type, scope, self_data_type, memo));
                 if(resolved_arguments == NULL)
                     resolved_arguments = new_argument;
                 else
@@ -840,6 +901,12 @@ ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, AST
                                   "resolveNamedDataType hit unsupported AST data type kind",
                                   NULL);
     }
+}
+
+ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, ASTDataType *self_data_type)
+{
+    ResolveDataTypeEntry *memo = NULL;
+    return resolveNamedDataTypeInternal(data_type, scope, self_data_type, &memo);
 }
 
 void bindCapturedValuesForInstantiation(ASTFunctionCapture *capture, ScopeFrame *inst_scope, ScopeFrame *outer_scope)
@@ -1032,6 +1099,38 @@ TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTN
     return result;
 }
 
+ASTDataType* instantiateFunctionCallResolvedFunctionType(ASTNode *function_value, ASTNode *call_arguments, ScopeFrame *outer_scope)
+{
+    ScopeFrame *inst_scope = newScopeFrame(outer_scope);
+    bindCapturedValuesForInstantiation(function_value->captures, inst_scope, outer_scope);
+    bindCallArgumentsForInstantiation(function_value->parameters, call_arguments, inst_scope, outer_scope);
+
+    ASTFunctionParameter *resolved_head = NULL;
+    ASTFunctionParameter *resolved_tail = NULL;
+    for(ASTFunctionParameter *parameter = function_value->parameters; parameter != NULL; parameter = parameter->next)
+    {
+        ASTFunctionParameter *resolved_parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
+        memset(resolved_parameter, 0, sizeof(ASTFunctionParameter));
+        resolved_parameter->filename = parameter->filename;
+        resolved_parameter->line_number = parameter->line_number;
+        resolved_parameter->column_number = parameter->column_number;
+        resolved_parameter->end_line_number = parameter->end_line_number;
+        resolved_parameter->end_column_number = parameter->end_column_number;
+        strcpy(resolved_parameter->identifier, parameter->identifier);
+        resolved_parameter->data_type = resolveNamedDataType(parameter->data_type, inst_scope, NULL);
+        if(resolved_head == NULL)
+            resolved_head = resolved_parameter;
+        else
+            resolved_tail->next = resolved_parameter;
+        resolved_tail = resolved_parameter;
+    }
+
+    ASTDataType *resolved_return_type = resolveNamedDataType(function_value->return_data_type, inst_scope, NULL);
+    ASTDataType *result = newFunctionDataType(resolved_head, function_value->is_variadic, resolved_return_type);
+    deleteScopeFrame(inst_scope);
+    return result;
+}
+
 bool canLiteralIntegerFitPrimary(long long int literal_integer, ASTPrimaryDataType target_primary)
 {
     switch(target_primary)
@@ -1189,6 +1288,11 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     if(source_data_type->kind == AST_DATA_TYPE_KIND_POINTER && target_type->kind == AST_DATA_TYPE_KIND_POINTER)
         return true;
 
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_SLICE &&
+       target_type->kind == AST_DATA_TYPE_KIND_POINTER &&
+       isSameDataType(source_data_type->child, target_type->child))
+        return true;
+
     if(source_data_type->kind == AST_DATA_TYPE_KIND_POINTER &&
        target_type->kind == AST_DATA_TYPE_KIND_FUNCTION &&
        !target_type->is_variadic)
@@ -1197,6 +1301,14 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     if(source_data_type->kind == AST_DATA_TYPE_KIND_FUNCTION &&
        target_type->kind == AST_DATA_TYPE_KIND_POINTER)
         return true;
+
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_SLICE &&
+       target_type->kind == AST_DATA_TYPE_KIND_POINTER)
+    {
+        if(!isSameDataType(source_data_type->child, target_type->child))
+            return false;
+        return true;
+    }
 
     if(source_node != NULL &&
        source_node->kind == AST_EXPR_LITERAL_STRING &&
@@ -1315,6 +1427,67 @@ ASTDataType* inferAsBuiltinValueType(ASTNode *node, ScopeFrame *scope)
     return target_type;
 }
 
+ASTDataType* inferLenBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    if(node->lhs == NULL || node->lhs->next != NULL)
+        typeSystemAbortNode("T1254", node,
+                            "@len expects exactly one argument",
+                            "expected `@len(slice_value)`");
+
+    TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
+    if(operand_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || !isSliceDataType(operand_type.data_type))
+        typeSystemAbortNode("T1255", node->lhs,
+                            "@len expects a slice value",
+                            "argument must have type `[]T`");
+
+    return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+}
+
+ASTDataType* inferSliceBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    if(node->lhs == NULL || node->lhs->next == NULL || node->lhs->next->next == NULL || node->lhs->next->next->next != NULL)
+        typeSystemAbortNode("T1256", node,
+                            "@slice expects exactly three arguments",
+                            "expected `@slice(T, ptr, len)`");
+
+    ASTNode *element_type_expr = node->lhs;
+    ASTNode *pointer_expr = element_type_expr->next;
+    ASTNode *length_expr = pointer_expr->next;
+
+    TypeSystemExprType element_type_value = inferExprType(element_type_expr, scope);
+    if(element_type_value.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
+        typeSystemAbortNode("T1257", element_type_expr,
+                            "@slice expects a type as its first argument",
+                            "first argument must evaluate to a type");
+
+    ASTDataType *element_type = resolveNamedDataType(element_type_value.data_type, scope, NULL);
+    if(element_type == NULL)
+        typeSystemAbortNode("T1258", element_type_expr,
+                            "@slice could not resolve its element type",
+                            "the provided element type could not be resolved");
+
+    TypeSystemExprType pointer_type = inferExprType(pointer_expr, scope);
+    if(pointer_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
+       pointer_type.data_type == NULL ||
+       pointer_type.data_type->kind != AST_DATA_TYPE_KIND_POINTER ||
+       !pointer_type.data_type->mutable ||
+       !isSameDataType(pointer_type.data_type->child, element_type))
+        typeSystemAbortNode("T1259", pointer_expr,
+                            "@slice expects a mutable pointer to the given element type",
+                            "second argument must have type `*mut T` matching the first argument");
+
+    TypeSystemExprType length_type = inferExprType(length_expr, scope);
+    if(length_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
+       (length_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+        (length_type.data_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
+         !isIntegerPrimary(length_type.data_type->primary))))
+        typeSystemAbortNode("T1260", length_expr,
+                            "@slice expects an integer length",
+                            "third argument must be an integer value");
+
+    return newSliceDataType(element_type);
+}
+
 ASTDataType* inferUnwrapBuiltinValueType(ASTNode *node, ScopeFrame *scope)
 {
     if(node->lhs == NULL || node->lhs->next != NULL)
@@ -1384,7 +1557,8 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     {
         if(isOptionalDataType(source_data_type))
             return isSameDataType(source_data_type->child, target_type->child);
-        return canImplicitConvertDataType(newValueExprType(source_data_type), source_node, target_type->child);
+        return canImplicitConvertDataType(newValueExprType(source_data_type), source_node, target_type->child) ||
+               isSameDataType(source_data_type, target_type->child);
     }
 
     if(source_data_type->kind == AST_DATA_TYPE_KIND_PRIMARY && target_type->kind == AST_DATA_TYPE_KIND_PRIMARY)
@@ -1434,6 +1608,11 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     if(source_data_type->kind == AST_DATA_TYPE_KIND_FUNCTION && target_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
         return isSameFunctionSignature(source_data_type, target_type);
 
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_SLICE &&
+       target_type->kind == AST_DATA_TYPE_KIND_POINTER &&
+       isSameDataType(source_data_type->child, target_type->child))
+        return true;
+
     if(source_node != NULL &&
        source_node->kind == AST_EXPR_LITERAL_STRING &&
        source_data_type->kind == AST_DATA_TYPE_KIND_ARRAY &&
@@ -1460,6 +1639,10 @@ bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType 
 {
     if(expr == NULL || target_type == NULL || isInferDataType(target_type))
         return false;
+
+    if(isOptionalDataType(target_type) && expr->kind != AST_EXPR_LITERAL_NULL)
+        return canImplicitConvertExprToType(expr, scope, target_type->child) ||
+               canImplicitConvertDataType(inferExprType(expr, scope), expr, target_type);
 
     if(expr->kind == AST_EXPR_PARENTHESIS)
         return canImplicitConvertExprToType(expr->lhs, scope, target_type);
@@ -1701,7 +1884,12 @@ bool isMutableAddressableExpr(ASTNode *node, ScopeFrame *scope)
     }
 
     if(node->kind == AST_EXPR_INDEX)
+    {
+        TypeSystemExprType owner_type = inferExprType(node->lhs, scope);
+        if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && isSliceDataType(owner_type.data_type))
+            return true;
         return isMutableAddressableExpr(node->lhs, scope);
+    }
 
     return false;
 }
@@ -1914,12 +2102,16 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 return newValueExprType(inferExternBuiltinFunctionType(node, scope));
             if(strcmp(node->identifier, "zero") == 0)
                 return newValueExprType(inferZeroBuiltinValueType(node, scope));
+            if(strcmp(node->identifier, "len") == 0)
+                return newValueExprType(inferLenBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "sizeof") == 0)
                 return newValueExprType(inferSizeofBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "alignof") == 0)
                 return newValueExprType(inferAlignofBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "as") == 0)
                 return newValueExprType(inferAsBuiltinValueType(node, scope));
+            if(strcmp(node->identifier, "slice") == 0)
+                return newValueExprType(inferSliceBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "unwrap") == 0)
                 return newValueExprType(inferUnwrapBuiltinValueType(node, scope));
             typeSystemAbortFormatted("T1227", node,
@@ -2057,6 +2249,12 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 return newValueExprType(owner_data_type);
             }
 
+            if(isSliceDataType(owner_data_type))
+                typeSystemAbortFormatted("T1238", node,
+                                         "slice members are not exposed",
+                                         "use `@len(slice)` or `@as(*T, slice)` instead of `.%s`",
+                                         node->identifier);
+
             ASTDataType *struct_type = owner_data_type;
             if(!isStructDataType(struct_type))
                 typeSystemAbortNode("T1237", node,
@@ -2091,10 +2289,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             if(owner_data_type->kind == AST_DATA_TYPE_KIND_POINTER || owner_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
                 owner_data_type = owner_data_type->child;
 
-            if(!isArrayDataType(owner_data_type))
+            if(!isArrayDataType(owner_data_type) && !isSliceDataType(owner_data_type))
                 typeSystemAbortNode("T1241", node,
-                                    "indexing requires an array type",
-                                    "the indexed expression is not an array");
+                                    "indexing requires an array or slice type",
+                                    "the indexed expression is not an array or slice");
 
             TypeSystemExprType index_type = inferExprType(node->rhs, scope);
             if(index_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
@@ -2102,7 +2300,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 (index_type.data_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
                  !isIntegerPrimary(index_type.data_type->primary))))
                 typeSystemAbortNode("T1242", node->rhs,
-                                    "array index must be an integer",
+                                    "index must be an integer",
                                     "this index expression is not an integer");
 
             return newValueExprType(owner_data_type->child);
@@ -2354,7 +2552,9 @@ ASTDataType* inferDeclaredTypeFromExpr(ASTNode *expr, ScopeFrame *scope)
     return cloneDataType(expr_type.data_type);
 }
 
-ASTStructMember* resolveStructMembers(ASTStructMember *member, ScopeFrame *scope, ASTDataType *self_data_type)
+static ASTStructMember* resolveStructMembersInternal(ASTStructMember *member, ScopeFrame *scope,
+                                                     ASTDataType *self_data_type,
+                                                     ResolveDataTypeEntry **memo)
 {
     ASTStructMember *head = NULL;
     ASTStructMember *tail = NULL;
@@ -2369,7 +2569,7 @@ ASTStructMember* resolveStructMembers(ASTStructMember *member, ScopeFrame *scope
         strcpy(new_member->identifier, member->identifier);
         new_member->value = member->value;
         if(member->data_type)
-            new_member->data_type = resolveNamedDataType(member->data_type, scope, self_data_type);
+            new_member->data_type = resolveNamedDataTypeInternal(member->data_type, scope, self_data_type, memo);
 
         if(head == NULL)
             head = new_member;
@@ -2380,6 +2580,12 @@ ASTStructMember* resolveStructMembers(ASTStructMember *member, ScopeFrame *scope
     }
 
     return head;
+}
+
+ASTStructMember* resolveStructMembers(ASTStructMember *member, ScopeFrame *scope, ASTDataType *self_data_type)
+{
+    ResolveDataTypeEntry *memo = NULL;
+    return resolveStructMembersInternal(member, scope, self_data_type, &memo);
 }
 
 #endif /* TYPE_SYSTEM_H */

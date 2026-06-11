@@ -1,0 +1,8 @@
+main = fn() i32 {
+    value: []i32 = @slice(i32, @as(*mut i32, 0), 0);
+
+    if(@len(value) == 0) {
+        return 0;
+    }
+    return 1;
+};

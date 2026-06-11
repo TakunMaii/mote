@@ -17,6 +17,7 @@ typedef struct VariableInfo {
 
 typedef struct TypeInfo {
     ASTDataType *data_type;
+    bool predeclared;
     char identifier[MAX_IDENTIFIER_LENGTH];
 } TypeInfo;
 

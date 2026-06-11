@@ -6,6 +6,7 @@ import os
 import pathlib
 import subprocess
 import sys
+from typing import Iterable
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -27,11 +28,33 @@ def normalize_arg(raw: str) -> str:
     return raw
 
 
+def compiler_inputs() -> list[pathlib.Path]:
+    inputs = [REPO_ROOT / "src" / "main.c"]
+    inputs.extend(sorted((REPO_ROOT / "src").rglob("*.h")))
+    return inputs
+
+
+def newest_mtime(paths: Iterable[pathlib.Path]) -> float:
+    latest = 0.0
+    for path in paths:
+        try:
+            latest = max(latest, path.stat().st_mtime)
+        except FileNotFoundError:
+            return float("inf")
+    return latest
+
+
+def should_rebuild_compiler(path: pathlib.Path) -> bool:
+    if not path.exists():
+        return True
+    return newest_mtime(compiler_inputs()) > path.stat().st_mtime
+
+
 def ensure_compiler(path: pathlib.Path, should_build: bool) -> None:
-    if should_build or not path.exists():
+    if should_build or should_rebuild_compiler(path):
         print(f"Building compiler -> {path}")
         result = subprocess.run(
-            ["gcc", "src/main.c", "-o", str(path)],
+            ["gcc", "-std=c11", "-Wall", "-Wextra", "-g", "src/main.c", "-o", str(path)],
             cwd=REPO_ROOT,
             text=True,
             capture_output=True,
