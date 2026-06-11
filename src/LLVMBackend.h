@@ -11,6 +11,7 @@
 
 typedef struct LLVMFunctionEmitContext {
     FILE *stream;
+    MirProgram *program;
     MirFunction *function;
     int *aliases;
     int temp_counter;
@@ -1120,6 +1121,18 @@ static bool llvmProgramHasExternSymbol(MirProgram *program, const char *symbol_n
     return false;
 }
 
+static MirExternFunction* llvmFindExternFunction(MirProgram *program, const char *symbol_name)
+{
+    for(int i = 0; i < program->extern_function_count; i++)
+    {
+        MirExternFunction *extern_function = &(program->extern_functions[i]);
+        if(strcmp(extern_function->symbol_name, symbol_name) == 0 ||
+           strcmp(extern_function->wrapper_name, symbol_name) == 0)
+            return extern_function;
+    }
+    return NULL;
+}
+
 static void llvmEmitExternDeclarations(FILE *stream, MirProgram *program)
 {
     for(int i = 0; i < program->extern_function_count; i++)
@@ -1765,6 +1778,11 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
         case MIR_INST_EXTERN_CALL: {
             LLVMExternABIInfo return_abi = llvmDescribeExternReturnABI(inst->result_type);
             ASTDataType *function_type = inst->data.extern_call.function_type;
+            MirExternFunction *extern_function_info = llvmFindExternFunction(context->program, inst->data.extern_call.symbol_name);
+            bool call_wrapper = extern_function_info != NULL &&
+                                extern_function_info->kind == MIR_EXTERN_FUNCTION_NATIVE &&
+                                !extern_function_info->is_direct &&
+                                strcmp(extern_function_info->wrapper_name, inst->data.extern_call.symbol_name) == 0;
             ASTFunctionParameter *parameter = function_type != NULL ? function_type->parameters : NULL;
             int temp_base = inst->result >= 0 ? inst->result : 900000;
 
@@ -1829,6 +1847,10 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 }
                 fprintf(stream, ") @%s", inst->data.extern_call.symbol_name);
             }
+            else if(call_wrapper)
+            {
+                fprintf(stream, "@%s", inst->data.extern_call.symbol_name);
+            }
             else
             {
                 llvmEmitNativeExternReturnType(stream, inst->result_type);
@@ -1843,6 +1865,14 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 fprintf(stream, "ptr sret(");
                 llvmEmitType(stream, inst->result_type);
                 fprintf(stream, ") align %zu %%v%d_ret_slot", return_abi.align, temp_base);
+                need_comma = true;
+            }
+
+            if(call_wrapper)
+            {
+                if(need_comma)
+                    fprintf(stream, ", ");
+                fprintf(stream, "ptr null");
                 need_comma = true;
             }
 
@@ -1918,10 +1948,11 @@ static void llvmEmitTerminator(FILE *stream, LLVMFunctionEmitContext *context, M
     }
 }
 
-static void llvmEmitFunctionDefinition(FILE *stream, MirFunction *function)
+static void llvmEmitFunctionDefinition(FILE *stream, MirProgram *program, MirFunction *function)
 {
     LLVMFunctionEmitContext context = {0};
     context.stream = stream;
+    context.program = program;
     context.function = function;
     context.aliases = (int*) malloc(sizeof(int) * function->value_count);
     for(int i = 0; i < function->value_count; i++)
@@ -2031,7 +2062,7 @@ static void emitLLVMProgramToFile(MirProgram *program, const char *module_name, 
         llvmEmitExternWrapperDefinitions(stream, program);
 
     for(int i = 0; i < program->function_count; i++)
-        llvmEmitFunctionDefinition(stream, program->functions[i]);
+        llvmEmitFunctionDefinition(stream, program, program->functions[i]);
 
     llvmEmitEntryPoint(stream, program);
 

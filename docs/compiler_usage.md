@@ -48,6 +48,19 @@ mote [options] <input.mote>
 - The compiler also auto-registers official module roots relative to the executable location.
 - In the current layout, it automatically checks the executable's sibling directory and sibling `lib/` directory.
 - That means built-in packages like `std` and `c` should not require users to manually pass `-I`.
+- User-facing diagnostics print source names where possible instead of internal module-mangled identifiers.
+
+## Debug Output
+
+- `@debug(x, y, ...)` writes to `stderr`.
+- The output format is `file:line: value ; value ; ...`.
+- Current debug formatting covers scalars, pointers/references, arrays, slices, optionals, structs, enums, function values, and type values.
+
+Example:
+
+```text
+path/to/file.mote:12: Color(Blue) ; Function([v: i32], i32)(code=0x..., env=0x0) ; Type(Pair)
+```
 
 ## Entry Model
 

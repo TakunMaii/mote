@@ -946,6 +946,21 @@ void appendFormatFragment(char *buffer, size_t buffer_size, const char *format, 
     va_end(args);
 }
 
+static const char* astUserFacingIdentifier(const char *identifier)
+{
+    if(identifier == NULL)
+        return "";
+
+    int ignored_index = 0;
+    int prefix_length = 0;
+    if(sscanf(identifier, "m%d__%n", &ignored_index, &prefix_length) == 1 &&
+       prefix_length > 0 &&
+       identifier[prefix_length] != '\0')
+        return identifier + prefix_length;
+
+    return identifier;
+}
+
 typedef struct ASTDataTypePrintStack {
     ASTDataType *items[256];
     int count;
@@ -1090,7 +1105,7 @@ static void appendASTDataTypeStringInternal(ASTDataType *data_type, char *buffer
             appendStringFragment(buffer, buffer_size, ")");
             break;
         case AST_DATA_TYPE_KIND_NAMED:
-            appendStringFragment(buffer, buffer_size, data_type->identifier);
+            appendStringFragment(buffer, buffer_size, astUserFacingIdentifier(data_type->identifier));
             break;
         case AST_DATA_TYPE_KIND_ARRAY:
             appendStringFragment(buffer, buffer_size, "Array(");
@@ -1109,7 +1124,7 @@ static void appendASTDataTypeStringInternal(ASTDataType *data_type, char *buffer
             break;
         case AST_DATA_TYPE_KIND_ENUM:
             if(data_type->identifier[0] != '\0')
-                appendStringFragment(buffer, buffer_size, data_type->identifier);
+                appendStringFragment(buffer, buffer_size, astUserFacingIdentifier(data_type->identifier));
             else
             {
                 appendStringFragment(buffer, buffer_size, "enum {");
@@ -1119,7 +1134,7 @@ static void appendASTDataTypeStringInternal(ASTDataType *data_type, char *buffer
             break;
         case AST_DATA_TYPE_KIND_STRUCT:
             if(data_type->identifier[0] != '\0')
-                appendStringFragment(buffer, buffer_size, data_type->identifier);
+                appendStringFragment(buffer, buffer_size, astUserFacingIdentifier(data_type->identifier));
             else
             {
                 appendStringFragment(buffer, buffer_size, "struct {");
@@ -1129,7 +1144,7 @@ static void appendASTDataTypeStringInternal(ASTDataType *data_type, char *buffer
             break;
         case AST_DATA_TYPE_KIND_OPAQUE:
             if(data_type->identifier[0] != '\0')
-                appendStringFragment(buffer, buffer_size, data_type->identifier);
+                appendStringFragment(buffer, buffer_size, astUserFacingIdentifier(data_type->identifier));
             else
                 appendStringFragment(buffer, buffer_size, "opaque");
             break;

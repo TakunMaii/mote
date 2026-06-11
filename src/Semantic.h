@@ -184,7 +184,8 @@ void declareFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scop
                                                    "S1001",
                                                    astFunctionParameterSourceSpan(parameter),
                                                    "duplicate function parameter");
-            diagnosticSetPrimaryLabel(&diagnostic, "parameter `%s` is declared more than once", parameter->identifier);
+            diagnosticSetPrimaryLabel(&diagnostic, "parameter `%s` is declared more than once",
+                                      astUserFacingIdentifier(parameter->identifier));
             diagnosticAbort(diagnostic);
         }
 
@@ -213,7 +214,7 @@ void declareFunctionCaptures(ASTFunctionCapture *capture, ScopeFrame *target_sco
                                                     capture->end_line_number, capture->end_column_number),
                                      "duplicate capture",
                                      "function capture `%s` is declared more than once",
-                                     capture->identifier);
+                                     astUserFacingIdentifier(capture->identifier));
         }
 
         VariableInfo *outer_variable = findVariableInfo(source_scope, capture->identifier);
@@ -225,7 +226,7 @@ void declareFunctionCaptures(ASTFunctionCapture *capture, ScopeFrame *target_sco
                                                     capture->end_line_number, capture->end_column_number),
                                      "unknown capture",
                                      "unknown function capture `%s`",
-                                     capture->identifier);
+                                     astUserFacingIdentifier(capture->identifier));
         }
 
         VariableInfo *variable_info = declareVariableInfo(target_scope, capture->identifier);
@@ -292,7 +293,7 @@ void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
                                      astNodeSourceSpan(node),
                                      "unknown name",
                                      "use of undeclared variable `%s` in expression",
-                                     node->identifier);
+                                     astUserFacingIdentifier(node->identifier));
         }
         return;
     }
@@ -404,7 +405,7 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
                 semanticAbortNodeFormatted("S1009", node,
                                            "duplicate type declaration",
                                            "type `%s` has already been declared in this scope",
-                                           node->identifier);
+                                           astUserFacingIdentifier(node->identifier));
             }
         }
 
@@ -485,7 +486,7 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
             semanticAbortNodeFormatted("S1013", node,
                                        "duplicate variable declaration",
                                        "variable `%s` has already been declared and cannot be declared again",
-                                       node->identifier);
+                                       astUserFacingIdentifier(node->identifier));
         }
 
         VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
@@ -511,7 +512,7 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
             semanticAbortNodeFormatted("S1014", node,
                                        "immutable assignment target",
                                        "cannot assign to immutable variable `%s`",
-                                       node->identifier);
+                                       astUserFacingIdentifier(node->identifier));
         }
     }
 }
@@ -766,7 +767,7 @@ ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
             semanticAbortTypeFormatted("T1108", node,
                                        "duplicate type declaration",
                                        "type `%s` has already been declared in this scope",
-                                       node->identifier);
+                                       astUserFacingIdentifier(node->identifier));
         }
     }
     else
@@ -787,7 +788,8 @@ ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
             semanticAbortTypeFormatted("T1102", node,
                                        "duplicate struct member",
                                        "duplicate struct member `%s` in `%s`",
-                                       member->identifier, node->identifier);
+                                       astUserFacingIdentifier(member->identifier),
+                                       astUserFacingIdentifier(node->identifier));
         }
 
         ASTStructMember *resolved_member = (ASTStructMember*) malloc(sizeof(ASTStructMember));
@@ -827,7 +829,7 @@ ASTDataType* declareEnumType(ASTNode *node, ScopeFrame *scope)
             semanticAbortTypeFormatted("T1109", node,
                                        "duplicate type declaration",
                                        "type `%s` has already been declared in this scope",
-                                       node->identifier);
+                                       astUserFacingIdentifier(node->identifier));
         }
     }
     else
@@ -848,7 +850,8 @@ ASTDataType* declareEnumType(ASTNode *node, ScopeFrame *scope)
             semanticAbortTypeFormatted("T1103", node,
                                        "duplicate enum variant",
                                        "duplicate enum variant `%s` in `%s`",
-                                       variant->identifier, node->identifier);
+                                       astUserFacingIdentifier(variant->identifier),
+                                       astUserFacingIdentifier(node->identifier));
         }
 
         ASTEnumVariant *resolved_variant = (ASTEnumVariant*) malloc(sizeof(ASTEnumVariant));
@@ -1080,7 +1083,7 @@ void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFra
                                                    "duplicate function parameter");
             diagnosticSetPrimaryLabel(&diagnostic,
                                       "parameter `%s` is declared more than once",
-                                      parameter->identifier);
+                                      astUserFacingIdentifier(parameter->identifier));
             diagnosticAbort(diagnostic);
         }
 
@@ -1161,7 +1164,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
                 semanticAbortTypeFormatted("T1108", node,
                                            "duplicate type declaration",
                                            "type `%s` has already been declared in this scope",
-                                           node->identifier);
+                                           astUserFacingIdentifier(node->identifier));
             }
 
             ASTDataType *struct_type = declareStructType(node, scope);
@@ -1187,7 +1190,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
                 semanticAbortTypeFormatted("T1109", node,
                                            "duplicate type declaration",
                                            "type `%s` has already been declared in this scope",
-                                           node->identifier);
+                                           astUserFacingIdentifier(node->identifier));
             }
 
             declareEnumType(node, scope);
@@ -1200,7 +1203,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             semanticAbortTypeFormatted("T1109", node,
                                        "duplicate type declaration",
                                        "type `%s` has already been declared in this scope",
-                                       node->identifier);
+                                       astUserFacingIdentifier(node->identifier));
         }
 
         TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
@@ -1265,7 +1268,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             semanticAbortTypeFormatted("T1114", node->lhs,
                                        "invalid member assignment target",
                                        "cannot assign to member `%s`",
-                                       node->lhs->identifier);
+                                       astUserFacingIdentifier(node->lhs->identifier));
         }
 
         if(!isMutableAddressableExpr(node->lhs, scope))
@@ -1344,7 +1347,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             semanticAbortTypeFormatted("T1119", node,
                                        "duplicate variable declaration",
                                        "variable `%s` has already been declared and cannot be declared again",
-                                       node->identifier);
+                                       astUserFacingIdentifier(node->identifier));
         }
 
         ASTDataType *declared_type = node->data_type;
@@ -1370,6 +1373,16 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         }
         else
             expr_type = inferExprType(node->rhs, scope);
+
+        if(isVoidDataType(declared_type))
+            semanticAbortTypeNode("T1133", node,
+                                  "variables cannot have type void",
+                                  "remove this binding or choose a non-void type");
+
+        typeSystemRejectVoidValueExpr(node->rhs, scope,
+                                      "T1134",
+                                      "cannot assign a void expression to a variable",
+                                      "this expression does not produce a runtime value");
 
         if(isReferenceDataType(declared_type))
         {
@@ -1419,6 +1432,11 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             ASTDataType *declared_type = inferDeclaredTypeFromExpr(node->rhs, scope);
             node->data_type = declared_type;
 
+            if(isVoidDataType(declared_type))
+                semanticAbortTypeNode("T1133", node,
+                                      "variables cannot have type void",
+                                      "remove this binding or choose a non-void type");
+
             VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
             new_variable_info->mutable = false;
             new_variable_info->data_type = cloneDataType(declared_type);
@@ -1428,6 +1446,11 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             new_variable_info->function_value = resolveFunctionValueExpr(node->rhs, scope);
             new_variable_info->extern_value = resolveExternValueExpr(node->rhs, scope);
 
+            typeSystemRejectVoidValueExpr(node->rhs, scope,
+                                          "T1134",
+                                          "cannot assign a void expression to a variable",
+                                          "this expression does not produce a runtime value");
+
             if(!canImplicitConvertExprToType(node->rhs, scope, declared_type))
                 typeErrorAssign(node, node->rhs, expr_type, declared_type);
         }
@@ -1436,6 +1459,11 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
             ASTDataType *target_type = resolved_variable_info->data_type;
             bool assign_through_reference = isReferenceDataType(target_type);
+
+            typeSystemRejectVoidValueExpr(node->rhs, scope,
+                                          "T1134",
+                                          "cannot assign a void expression to a variable",
+                                          "this expression does not produce a runtime value");
 
             if(assign_through_reference)
                 target_type = target_type->child;

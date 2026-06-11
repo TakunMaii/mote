@@ -900,7 +900,7 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
                                          makeSourceSpan(NULL, 0, 0, 0, 0),
                                          NULL,
                                          "unknown data type `%s`",
-                                         data_type->identifier);
+                                         astUserFacingIdentifier(data_type->identifier));
             }
             return cloneDataType(type_info->data_type);
         }
@@ -1010,7 +1010,7 @@ void bindCapturedValuesForInstantiation(ASTFunctionCapture *capture, ScopeFrame 
                                                     capture->end_line_number, capture->end_column_number),
                                      "unknown capture",
                                      "unknown function capture `%s`",
-                                     capture->identifier);
+                                     astUserFacingIdentifier(capture->identifier));
 
         VariableInfo *inst_variable = declareVariableInfo(inst_scope, capture->identifier);
         inst_variable->mutable = false;
@@ -1389,6 +1389,19 @@ bool isVoidDataType(ASTDataType *data_type)
            data_type->primary == AST_PRIMARY_DATA_TYPE_VOID;
 }
 
+static void typeSystemRejectVoidValueExpr(ASTNode *expr, ScopeFrame *scope,
+                                          const char *code,
+                                          const char *message,
+                                          const char *detail)
+{
+    if(expr == NULL)
+        return;
+
+    TypeSystemExprType expr_type = inferExprType(expr, scope);
+    if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && isVoidDataType(expr_type.data_type))
+        typeSystemAbortNode(code, expr, message, detail);
+}
+
 ASTDataType* inferExternBuiltinFunctionType(ASTNode *node, ScopeFrame *scope)
 {
     if(node->lhs == NULL || node->lhs->next == NULL || node->lhs->next->next != NULL)
@@ -1592,6 +1605,19 @@ ASTDataType* inferAlignofBuiltinValueType(ASTNode *node, ScopeFrame *scope)
 {
     inferTypeBuiltinLayoutValue(node, scope, "alignof", "expected `@alignof(Type)`", true);
     return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+}
+
+ASTDataType* inferDebugBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    if(node->lhs == NULL)
+        typeSystemAbortNode("T1249", node,
+                            "@debug expects at least one argument",
+                            "expected `@debug(value, ...)`");
+
+    for(ASTNode *argument = node->lhs; argument != NULL; argument = argument->next)
+        (void) inferExprType(argument, scope);
+
+    return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
 }
 
 ASTDataType* inferAsBuiltinValueType(ASTNode *node, ScopeFrame *scope)
@@ -1922,9 +1948,13 @@ bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType 
     if(expr == NULL || target_type == NULL || isInferDataType(target_type))
         return false;
 
+    TypeSystemExprType expr_type = inferExprType(expr, scope);
+    if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && isVoidDataType(expr_type.data_type))
+        return isVoidDataType(target_type);
+
     if(isOptionalDataType(target_type) && expr->kind != AST_EXPR_LITERAL_NULL)
         return canImplicitConvertExprToType(expr, scope, target_type->child) ||
-               canImplicitConvertDataType(inferExprType(expr, scope), expr, target_type);
+               canImplicitConvertDataType(expr_type, expr, target_type);
 
     if(expr->kind == AST_EXPR_PARENTHESIS)
         return canImplicitConvertExprToType(expr->lhs, scope, target_type);
@@ -2018,7 +2048,7 @@ bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType 
         return true;
     }
 
-    return canImplicitConvertDataType(inferExprType(expr, scope), expr, target_type);
+    return canImplicitConvertDataType(expr_type, expr, target_type);
 }
 
 MOTE_NORETURN void typeErrorBinaryOperator(ASTNode *node, const char *operator_name,
@@ -2069,7 +2099,7 @@ MOTE_NORETURN void typeErrorAssign(ASTNode *node, ASTNode *source_node, TypeSyst
                               "cannot implicitly convert %s to %s",
                               source_buffer, target_buffer);
     if(node->identifier[0] != '\0')
-        diagnosticAddNote(&diagnostic, "assignment target: `%s`", node->identifier);
+        diagnosticAddNote(&diagnostic, "assignment target: `%s`", astUserFacingIdentifier(node->identifier));
     diagnosticAbort(diagnostic);
 }
 
@@ -2541,6 +2571,8 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 return newValueExprType(inferSizeofBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "alignof") == 0)
                 return newValueExprType(inferAlignofBuiltinValueType(node, scope));
+            if(strcmp(node->identifier, "debug") == 0)
+                return newValueExprType(inferDebugBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "as") == 0)
                 return newValueExprType(inferAsBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "slice") == 0)
@@ -2578,7 +2610,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             typeSystemAbortFormatted("T1228", node,
                                      "undeclared variable",
                                      "type inference found undeclared variable `%s`",
-                                     node->identifier);
+                                     astUserFacingIdentifier(node->identifier));
         }
         case AST_EXPR_FUNCTION:
             return newValueExprType(node->data_type);
@@ -2628,13 +2660,13 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                         typeSystemAbortFormatted("T1232", node,
                                                  "missing struct field",
                                                  "missing field `%s` in struct literal",
-                                                 member->identifier);
+                                                 astUserFacingIdentifier(member->identifier));
 
                     if(!canImplicitConvertExprToType(field->value, scope, member->data_type))
                         typeSystemAbortFormatted("T1233", field->value,
                                                  "struct field type mismatch",
                                                  "struct field `%s` has an incompatible value",
-                                                 member->identifier);
+                                                 astUserFacingIdentifier(member->identifier));
                 }
                 member = member->next;
             }
@@ -2647,7 +2679,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                     typeSystemAbortFormatted("T1234", field->value != NULL ? field->value : node,
                                              "unknown struct field",
                                              "unknown struct field `%s`",
-                                             field->identifier);
+                                             astUserFacingIdentifier(field->identifier));
                 field = field->next;
             }
 
@@ -2677,7 +2709,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                     typeSystemAbortFormatted("T1236", node,
                                              "unknown enum variant",
                                              "unknown enum variant `%s`",
-                                             node->identifier);
+                                             astUserFacingIdentifier(node->identifier));
 
                 return newValueExprType(owner_data_type);
             }
@@ -2686,7 +2718,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 typeSystemAbortFormatted("T1238", node,
                                          "slice members are not exposed",
                                          "use `@len(slice)` or `@as(*T, slice)` instead of `.%s`",
-                                         node->identifier);
+                                         astUserFacingIdentifier(node->identifier));
 
             ASTDataType *struct_type = resolveNamedDataType(owner_data_type, scope, NULL);
             if(!isStructDataType(struct_type))
@@ -2699,13 +2731,13 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 typeSystemAbortFormatted("T1238", node,
                                          "unknown struct member",
                                          "unknown struct member `%s`",
-                                         node->identifier);
+                                         astUserFacingIdentifier(node->identifier));
 
             if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE && member->value == NULL)
                 typeSystemAbortFormatted("T1239", node,
                                          "instance field accessed on type",
                                          "struct field `%s` cannot be accessed on the type itself",
-                                         node->identifier);
+                                         astUserFacingIdentifier(node->identifier));
 
             if(member->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
                 return newValueExprType(member->data_type->child);

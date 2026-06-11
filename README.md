@@ -159,8 +159,15 @@ Mote 当前已经稳定可用的一批语法包括：
 - 模块系统：`pub`、`@import`
 - vendor 绑定：`@import("vendor/raylib")`、`@import("vendor/glfw")`、`@import("vendor/opengl")`
 - 内建：`@extern`、`@zero`、`@as`、`@slice`、`@len`、`@ptr_add`、`@ptr_diff`
+- 调试输出：`@debug(x, y, ...)`
 - FFI 句柄类型：`Name = opaque;`，通常配合 `*Name` 使用
 - 受限运算符重载：`@operator(+)`、`@operator(*)`、`@operator(==)`
+
+## 调试与诊断
+
+- `@debug(x, y, ...)` 会把文件、行号和每个值的结构化表示输出到 `stderr`
+- 当前对标量、数组、slice、optional、struct、enum、function、type 值都已有可读输出
+- 编译器诊断中的类型名、变量名、字段名会尽量保持源码名字，不显示内部模块前缀
 
 例如：
 

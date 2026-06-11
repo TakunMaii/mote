@@ -91,6 +91,12 @@
       "input": "test\\basic\\ptr_builtin_api.mote"
     },
     {
+      "name": "debug-builtin-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\debug_builtin.mote"
+    },
+    {
       "name": "std-containers-smoke-llvm",
       "expect": "success",
       "mode": "llvm",
@@ -580,7 +586,7 @@
       },
       "contains": [
         "error[S2002]",
-        "scope type capacity exceeded while declaring `m0__T256`"
+        "scope type capacity exceeded while declaring `T256`"
       ]
     },
     {

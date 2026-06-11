@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <math.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -209,6 +210,51 @@ void mote_unwrap_null_panic(void)
 {
     fputs("runtime panic: @unwrap(null)\n", stderr);
     abort();
+}
+
+void mote_debug_begin(const char *file, long long line)
+{
+    fprintf(stderr, "%s:%lld: ", file != NULL ? file : "<unknown>", line);
+}
+
+void mote_debug_sep(void)
+{
+    fputs(" ; ", stderr);
+}
+
+void mote_debug_end(void)
+{
+    fputc('\n', stderr);
+}
+
+void mote_debug_write_cstr(const char *s)
+{
+    fputs(s != NULL ? s : "<null>", stderr);
+}
+
+void mote_debug_write_char(int ch)
+{
+    fputc(ch, stderr);
+}
+
+void mote_debug_write_i64(long long value)
+{
+    fprintf(stderr, "%lld", value);
+}
+
+void mote_debug_write_u64(unsigned long long value)
+{
+    fprintf(stderr, "%llu", value);
+}
+
+void mote_debug_write_f64(double value)
+{
+    fprintf(stderr, "%.17g", value);
+}
+
+void mote_debug_write_ptr(const void *ptr)
+{
+    fprintf(stderr, "%p", ptr);
 }
 
 typedef struct MoteArenaChunk {

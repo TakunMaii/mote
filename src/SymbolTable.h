@@ -97,7 +97,7 @@ VariableInfo* declareVariableInfo(ScopeFrame *scope, const char *identifier)
                                  makeSourceSpan(NULL, 0, 0, 0, 0),
                                  NULL,
                                  "scope variable capacity exceeded while declaring `%s`",
-                                 identifier);
+                                 astUserFacingIdentifier(identifier));
 
     VariableInfo *variable_info = &(scope->variable_infos[scope->variable_count++]);
     memset(variable_info, 0, sizeof(VariableInfo));
@@ -135,7 +135,7 @@ TypeInfo* declareTypeInfo(ScopeFrame *scope, const char *identifier)
                                  makeSourceSpan(NULL, 0, 0, 0, 0),
                                  NULL,
                                  "scope type capacity exceeded while declaring `%s`",
-                                 identifier);
+                                 astUserFacingIdentifier(identifier));
 
     TypeInfo *type_info = &(scope->type_infos[scope->type_count++]);
     memset(type_info, 0, sizeof(TypeInfo));

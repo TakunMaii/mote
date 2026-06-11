@@ -394,6 +394,38 @@ ASTNode* parseBuiltinExpr(Token **token)
         return node;
     }
 
+    if(strcmp(node->identifier, "debug") == 0)
+    {
+        ASTNode *head = NULL;
+        ASTNode *tail = NULL;
+
+        expectToken(*token, TK_LEFT_PARENTHESIS);
+        (*token) = (*token)->next;
+
+        while((*token)->kind != TK_RIGHT_PARENTHESIS)
+        {
+            ASTNode *argument = parseExpr(token);
+            if(head == NULL)
+                head = argument;
+            else
+                tail->next = argument;
+
+            tail = argument;
+            while(tail->next)
+                tail = tail->next;
+
+            if((*token)->kind == TK_COMMA)
+                (*token) = (*token)->next;
+            else
+                break;
+        }
+
+        expectToken(*token, TK_RIGHT_PARENTHESIS);
+        (*token) = (*token)->next;
+        node->lhs = head;
+        return node;
+    }
+
     if(strcmp(node->identifier, "zero") == 0 ||
        strcmp(node->identifier, "len") == 0 ||
        strcmp(node->identifier, "sizeof") == 0 ||
