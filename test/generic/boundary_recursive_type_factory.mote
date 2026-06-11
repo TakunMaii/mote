@@ -1,0 +1,17 @@
+Loop = fn(T: Type) Type {
+    return struct {
+        next: ?Loop(T),
+        value: T,
+    };
+};
+
+main = fn() i32 {
+    value: Loop(i32) = Loop(i32) {
+        .next = null,
+        .value = 1,
+    };
+    if(value.value == 1) {
+        return 0;
+    }
+    return 1;
+};

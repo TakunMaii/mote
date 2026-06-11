@@ -1,0 +1,9 @@
+chain = @import("./support_reexport_chain_b");
+
+main = fn() i32 {
+    value: chain.Pair(i32) = chain.make_pair(i32, 8, 9);
+    if(value.right == 9) {
+        return 0;
+    }
+    return 1;
+};

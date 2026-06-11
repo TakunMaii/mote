@@ -690,6 +690,27 @@ ASTDataType* resolveCallSemanticFunctionType(ASTNode *call_node, ScopeFrame *sco
     return NULL;
 }
 
+void checkSpecializedCallArguments(ASTNode *call_node, ScopeFrame *scope)
+{
+    if(call_node == NULL || call_node->kind != AST_EXPR_CALL)
+        return;
+
+    if(call_node->lhs == NULL || call_node->lhs->kind != AST_EXPR_VARIABLE)
+        return;
+
+    VariableInfo *callee_variable = findVariableInfo(scope, call_node->lhs->identifier);
+    if(callee_variable == NULL || callee_variable->function_value == NULL)
+        return;
+
+    ASTDataType *specialized_type = instantiateFunctionCallResolvedFunctionType(
+        callee_variable->function_value,
+        call_node->rhs,
+        scope
+    );
+    if(specialized_type != NULL && specialized_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+        checkFunctionCallArguments(specialized_type->parameters, call_node->rhs, scope, specialized_type->is_variadic);
+}
+
 ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
 {
     TypeInfo *type_info = findTypeInfo(scope, node->identifier);
@@ -1266,6 +1287,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         checkFunctionExprTypes(node->rhs, scope, function_context == NULL ? NULL : function_context->self_data_type);
     if(node->rhs->kind == AST_EXPR_CALL)
     {
+        checkSpecializedCallArguments(node->rhs, scope);
         ASTDataType *resolved_call_type = resolveCallSemanticFunctionType(node->rhs, scope);
         if(resolved_call_type != NULL && resolved_call_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
             checkFunctionCallArgumentSemantics(node->rhs, resolved_call_type, scope);
@@ -1415,6 +1437,7 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
         {
             if(node->lhs->kind == AST_EXPR_CALL)
             {
+                checkSpecializedCallArguments(node->lhs, scope);
                 ASTDataType *resolved_call_type = resolveCallSemanticFunctionType(node->lhs, scope);
                 if(resolved_call_type != NULL && resolved_call_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
                     checkFunctionCallArgumentSemantics(node->lhs, resolved_call_type, scope);
@@ -1463,6 +1486,7 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
         }
         else if(node->lhs->kind == AST_EXPR_CALL)
         {
+            checkSpecializedCallArguments(node->lhs, scope);
             ASTDataType *resolved_call_type = resolveCallSemanticFunctionType(node->lhs, scope);
             if(resolved_call_type == NULL || resolved_call_type->kind != AST_DATA_TYPE_KIND_FUNCTION)
             {

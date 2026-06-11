@@ -1,0 +1,7 @@
+same = fn(T: Type, left: T, right: T) T {
+    return left;
+};
+
+main = fn() i32 {
+    return same(1, 2.0);
+};

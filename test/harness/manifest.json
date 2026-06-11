@@ -209,6 +209,108 @@
       "input": "test\\basic\\type_alias_boundaries.mote"
     },
     {
+      "name": "generic-pass-cross-module-generic-method-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_cross_module_generic_method.mote"
+    },
+    {
+      "name": "generic-pass-cross-module-type-factory-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_cross_module_type_factory.mote"
+    },
+    {
+      "name": "generic-pass-alias-function-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_generic_alias_function.mote"
+    },
+    {
+      "name": "generic-pass-function-basic-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_generic_function_basic.mote"
+    },
+    {
+      "name": "generic-pass-method-self-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_generic_method_self.mote"
+    },
+    {
+      "name": "generic-pass-optional-slice-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_generic_optional_slice.mote"
+    },
+    {
+      "name": "generic-pass-pointer-arg-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_generic_pointer_arg.mote"
+    },
+    {
+      "name": "generic-pass-reference-arg-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_generic_reference_arg.mote"
+    },
+    {
+      "name": "generic-pass-return-type-value-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_generic_return_type_value.mote"
+    },
+    {
+      "name": "generic-pass-std-wrapper-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_generic_std_wrapper.mote"
+    },
+    {
+      "name": "generic-pass-type-factory-basic-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_type_factory_basic.mote"
+    },
+    {
+      "name": "generic-pass-type-factory-nested-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\pass_type_factory_nested.mote"
+    },
+    {
+      "name": "generic-runtime-arena-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\runtime_arena_generic.mote"
+    },
+    {
+      "name": "generic-runtime-container-nested-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\runtime_container_nested.mote"
+    },
+    {
+      "name": "generic-runtime-function-field-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\runtime_function_field_generic.mote"
+    },
+    {
+      "name": "generic-runtime-chain-call-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\runtime_generic_chain_call.mote"
+    },
+    {
+      "name": "generic-runtime-many-instantiations-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\runtime_many_instantiations.mote"
+    },
+    {
       "name": "diagnostic-type-error",
       "expect": "failure",
       "input": "test\\diagnostic\\bad_type.mote",
@@ -244,6 +346,114 @@
       "contains": [
         "error[T1238]",
         "unknown struct member"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-cross-module-private-leak",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_cross_module_private_leak.mote",
+      "contains": [
+        "error[M1001]",
+        "imported module does not export the requested type name"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-function-arg-count",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_function_arg_count.mote",
+      "contains": [
+        "error[T1206]",
+        "function call argument count mismatch during instantiation"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-infer-conflict",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_infer_conflict.mote",
+      "contains": [
+        "error[T1205]",
+        "expected a `Type` argument"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-infer-failure",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_infer_failure.mote",
+      "contains": [
+        "error[T1206]",
+        "function call argument count mismatch during instantiation"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-method-receiver-mismatch",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_method_receiver_mismatch.mote",
+      "contains": [
+        "error[T1238]",
+        "unknown struct member `new`"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-optional-mismatch",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_optional_mismatch.mote",
+      "contains": [
+        "error[T1003]",
+        "cannot implicitly convert ?i32 to ?f32"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-pointer-mismatch",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_pointer_mismatch.mote",
+      "contains": [
+        "error[L2001]",
+        "unsupported conversion in textual LLVM backend"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-reexport-bad-call",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_reexport_bad_call.mote",
+      "contains": [
+        "error[T1205]",
+        "expected a `Type` argument"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-reference-mismatch",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_reference_mismatch.mote",
+      "contains": [
+        "error[T1220]",
+        "function reference argument type mismatch"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-slice-elem-mismatch",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_slice_elem_mismatch.mote",
+      "contains": [
+        "error[T1230]",
+        "array literal element type mismatch"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-type-arg-count",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_type_arg_count.mote",
+      "contains": [
+        "error[T1206]",
+        "function call argument count mismatch during instantiation"
+      ]
+    },
+    {
+      "name": "diagnostic-generic-uninstantiated-value-use",
+      "expect": "failure",
+      "input": "test\\diagnostic\\generic_uninstantiated_value_use.mote",
+      "contains": [
+        "error[T1202]",
+        "unknown data type `T`"
       ]
     },
     {

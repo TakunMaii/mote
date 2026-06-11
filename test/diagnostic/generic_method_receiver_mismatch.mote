@@ -1,0 +1,8 @@
+g = @import("../generic/support_factories");
+
+main = fn() i32 {
+    value: g.Vec2(i32) = g.Vec2(i32).new(1, 2);
+    other: g.Vec2(i32) = g.Vec2(i32).new(3, 4);
+    value.add(other);
+    return value.x;
+};

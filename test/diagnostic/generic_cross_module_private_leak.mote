@@ -1,0 +1,3 @@
+hidden = @import("../generic/support_private_factory");
+
+value: hidden.Hidden(i32) = hidden.make_hidden(i32, 1);

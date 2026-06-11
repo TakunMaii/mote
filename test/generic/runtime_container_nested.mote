@@ -1,0 +1,29 @@
+g = @import("./support_factories");
+list = @import("std/list");
+map = @import("std/map");
+hash = @import("std/hash");
+mem = @import("std/mem");
+
+main = fn() i32 {
+    mut arena: mem.Arena = mem.arena_init(256);
+    defer mem.arena_destroy(&mut arena);
+
+    mut xs: list.List(i32) = list.init_in_arena(i32, arena);
+    list.append(i32, &mut xs, 5);
+    list.append(i32, &mut xs, 7);
+
+    mut table: map.Map(i32, list.List(i32)) = map.init_in_arena(i32, list.List(i32), arena, hash.hash_i32, hash.eq_i32);
+    map.put(i32, list.List(i32), &mut table, 1, xs);
+
+    maybe_list: ?list.List(i32) = map.get(i32, list.List(i32), &table, 1);
+    if(maybe_list == null) {
+        return 1;
+    }
+
+    stored: list.List(i32) = @unwrap(maybe_list);
+    second: i32 = list.get(i32, &stored, 1);
+    if(second == 7 && g.id(i64, stored.len) == 2) {
+        return 0;
+    }
+    return 1;
+};

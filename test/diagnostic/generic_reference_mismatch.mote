@@ -1,0 +1,7 @@
+g = @import("../generic/support_factories");
+
+main = fn() i32 {
+    value: i32 = 1;
+    g.ref_write(i32, value, 2);
+    return value;
+};

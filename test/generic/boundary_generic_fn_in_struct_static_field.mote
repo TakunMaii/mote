@@ -1,0 +1,18 @@
+g = @import("./support_factories");
+
+Registry = struct {
+    make_i32_identity: Function([], Function([i32], i32)),
+};
+
+main = fn() i32 {
+    reg: Registry = Registry {
+        .make_i32_identity = fn() Function([i32], i32) {
+            return g.make_identity(i32);
+        },
+    };
+    id_i32: Function([i32], i32) = reg.make_i32_identity();
+    if(id_i32(9) == 9) {
+        return 0;
+    }
+    return 1;
+};

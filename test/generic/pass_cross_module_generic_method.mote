@@ -1,0 +1,13 @@
+t = @import("./support_public_types");
+base = @import("./support_factories");
+
+main = fn() i32 {
+    mut value: t.Vec2Type(i32) = t.make_vec2(i32, 2, 3);
+    other: t.Vec2Type(i32) = t.make_vec2(i32, 4, 5);
+    base.add_vec2(i32, &mut value, other);
+
+    if(value.x == 6 && value.y == 8) {
+        return 0;
+    }
+    return 1;
+};

@@ -1,0 +1,8 @@
+build = fn(T: Type) T {
+    return @zero(T);
+};
+
+main = fn() i32 {
+    value = build();
+    return value;
+};

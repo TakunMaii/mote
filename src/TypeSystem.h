@@ -33,12 +33,26 @@ TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTN
 ASTNode* buildTypeLiteralArgumentExprs(ASTTypeArgument *argument, ScopeFrame *scope, ASTDataType *self_data_type);
 ASTNode* resolveFunctionValueExpr(ASTNode *expr, ScopeFrame *scope);
 ASTNode* resolveExternValueExpr(ASTNode *expr, ScopeFrame *scope);
+bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType *target_type);
+bool canBindReferenceArgument(ASTNode *argument, ScopeFrame *scope, ASTDataType *parameter_type);
 
 typedef struct ResolveDataTypeEntry {
     ASTDataType *source;
     ASTDataType *resolved;
     struct ResolveDataTypeEntry *next;
 } ResolveDataTypeEntry;
+
+static bool isInstantiatingFunctionInScopeChain(ScopeFrame *scope, ASTNode *function_value)
+{
+    ScopeFrame *current = scope;
+    while(current != NULL)
+    {
+        if(current->instantiating_function == function_value)
+            return true;
+        current = current->parent;
+    }
+    return false;
+}
 
 static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFrame *scope,
                                                  ASTDataType *self_data_type,
@@ -969,6 +983,22 @@ void bindCallArgumentsForInstantiation(ASTFunctionParameter *parameter, ASTNode 
             }
         }
 
+        if(resolved_parameter_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+        {
+            if(!canBindReferenceArgument(argument, outer_scope, resolved_parameter_type))
+                typeSystemAbortNode("T1220", argument,
+                                    "function reference argument type mismatch",
+                                    "argument cannot bind to the reference parameter");
+        }
+        else if(resolved_parameter_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
+                resolved_parameter_type->primary != AST_PRIMARY_DATA_TYPE_TYPE)
+        {
+            if(!canImplicitConvertExprToType(argument, outer_scope, resolved_parameter_type))
+                typeSystemAbortNode("T1221", argument,
+                                    "function argument type mismatch",
+                                    "argument cannot be implicitly converted to the parameter type");
+        }
+
         parameter = parameter->next;
         argument = argument->next;
     }
@@ -1172,7 +1202,17 @@ ASTNode* resolveExternValueExpr(ASTNode *expr, ScopeFrame *scope)
 
 TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTNode *call_arguments, ScopeFrame *outer_scope)
 {
+    if(isInstantiatingFunctionInScopeChain(outer_scope, function_value))
+    {
+        ASTNode *site = call_arguments != NULL ? call_arguments : function_value;
+        typeSystemAbortNode("T1240", site,
+                            "recursive generic instantiation is not supported",
+                            "this generic/type factory instantiation depends on itself");
+    }
+
     ScopeFrame *inst_scope = newScopeFrame(outer_scope);
+    inst_scope->instantiating_function = function_value;
+    inst_scope->instantiation_site = call_arguments != NULL ? call_arguments : function_value;
     bindCapturedValuesForInstantiation(function_value->captures, inst_scope, outer_scope);
     bindCallArgumentsForInstantiation(function_value->parameters, call_arguments, inst_scope, outer_scope);
 
@@ -2111,6 +2151,19 @@ bool canBindReferenceArgument(ASTNode *argument, ScopeFrame *scope, ASTDataType 
 {
     if(parameter_type->kind != AST_DATA_TYPE_KIND_REFERENCE)
         return false;
+
+    if(argument->kind == AST_EXPR_ADDRESS_OF || argument->kind == AST_EXPR_ADDRESS_OF_MUT)
+    {
+        if(parameter_type->mutable && argument->kind != AST_EXPR_ADDRESS_OF_MUT)
+            return false;
+
+        TypeSystemExprType argument_type = inferExprType(argument, scope);
+        if(argument_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
+            return false;
+        if(argument_type.data_type->kind == AST_DATA_TYPE_KIND_POINTER)
+            return isSameDataType(argument_type.data_type->child, parameter_type->child);
+        return isSameDataType(getReferenceTargetType(argument_type.data_type), parameter_type->child);
+    }
 
     if(!isAddressableExpr(argument))
         return false;

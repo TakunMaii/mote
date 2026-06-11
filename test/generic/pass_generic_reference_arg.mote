@@ -1,0 +1,13 @@
+g = @import("./support_factories");
+
+main = fn() i32 {
+    mut value: i32 = 3;
+    before: i32 = g.ref_read(i32, value);
+    g.ref_write(i32, &mut value, 11);
+    after: i32 = g.ref_read(i32, value);
+
+    if(before == 3 && after == 11 && value == 11) {
+        return 0;
+    }
+    return 1;
+};

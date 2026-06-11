@@ -54,7 +54,9 @@ pub hash_u64 = fn(value: u64) u64 {
 };
 
 pub hash_ptr = fn(T: Type, ptr: *T) u64 {
-    return mix_u64(@as(u64, ptr));
+    ptr_u8: *u8 = @as(*u8, ptr);
+    zero_u8: *u8 = @as(*u8, 0);
+    return mix_u64(@as(u64, @ptr_diff(u8, ptr_u8, zero_u8)));
 };
 
 pub eq_bool = fn(a: bool, b: bool) bool {

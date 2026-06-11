@@ -66,6 +66,7 @@ typedef struct RewriteValueBinding {
     char rewritten[MAX_IDENTIFIER_LENGTH];
     bool is_import_alias;
     ModuleSourceFile *imported_module;
+    bool is_type_binding;
 } RewriteValueBinding;
 
 typedef struct RewriteTypeBinding {
@@ -677,6 +678,12 @@ static void declareRewriteImportBinding(RewriteScope *scope, const char *alias, 
     binding->imported_module = imported_module;
 }
 
+static void declareRewriteTypedValueBinding(RewriteScope *scope, const char *original, const char *rewritten)
+{
+    declareRewriteValueBinding(scope, original, rewritten);
+    scope->value_bindings[scope->value_count - 1].is_type_binding = true;
+}
+
 static void declareRewriteTypeBinding(RewriteScope *scope, const char *original, const char *rewritten)
 {
     if(scope->type_count >= MODULE_MAX_SCOPE_TYPE_BINDINGS)
@@ -697,10 +704,12 @@ static bool moduleDataTypeIsPrimaryTypeKeyword(ASTDataType *data_type)
 
 static bool moduleFindTypeAliasBinding(RewriteScope *scope, const char *identifier)
 {
+    RewriteValueBinding *value_binding = findRewriteValueBinding(scope, identifier);
     return identifier != NULL &&
            (builtinIdentifierToDataType(identifier) != NULL ||
             strcmp(identifier, "Self") == 0 ||
-            findRewriteTypeBinding(scope, identifier) != NULL);
+            findRewriteTypeBinding(scope, identifier) != NULL ||
+            (value_binding != NULL && value_binding->is_type_binding));
 }
 
 static bool rewriteExprLooksLikeTypeValue(ModuleSourceFile *module, RewriteScope *scope, ASTNode *node)
@@ -897,6 +906,15 @@ static void rewriteExpr(ModuleSourceFile *module, RewriteScope *scope, ASTNode *
                 if(value_binding->is_import_alias)
                     moduleSystemError("module values can only be used through member access",
                                       node->filename, node->line_number, node->column_number);
+                if(value_binding->is_type_binding)
+                {
+                    RewriteTypeBinding *type_binding = findRewriteTypeBinding(scope, node->identifier);
+                    if(type_binding != NULL)
+                    {
+                        strcpy(node->identifier, type_binding->rewritten);
+                        return;
+                    }
+                }
                 strcpy(node->identifier, value_binding->rewritten);
                 return;
             }
@@ -1129,15 +1147,22 @@ static void rewriteStatement(ModuleSourceFile *module, RewriteScope *scope, ASTN
                 {
                     strcpy(node->identifier, top_level_binding->mangled);
                     strcpy(node->lhs->identifier, top_level_binding->mangled);
-                    declareRewriteValueBinding(scope, top_level_binding->original, top_level_binding->mangled);
+                    if(rewriteExprLooksLikeTypeValue(module, scope, node->rhs))
+                        declareRewriteTypedValueBinding(scope, top_level_binding->original, top_level_binding->mangled);
+                    else
+                        declareRewriteValueBinding(scope, top_level_binding->original, top_level_binding->mangled);
                     if(rewriteExprLooksLikeTypeValue(module, scope, node->rhs))
                         declareRewriteTypeBinding(scope, top_level_binding->original, top_level_binding->mangled);
                 }
                 else if(rewriteWouldDeclareNewVariable(scope, node))
                 {
-                    declareRewriteValueBinding(scope, node->identifier, node->identifier);
                     if(rewriteExprLooksLikeTypeValue(module, scope, node->rhs))
+                    {
+                        declareRewriteTypedValueBinding(scope, node->identifier, node->identifier);
                         declareRewriteTypeBinding(scope, node->identifier, node->identifier);
+                    }
+                    else
+                        declareRewriteValueBinding(scope, node->identifier, node->identifier);
                 }
                 return;
             }

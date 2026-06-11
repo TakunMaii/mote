@@ -1,0 +1,11 @@
+g = @import("./support_factories");
+
+main = fn() i32 {
+    value: g.choose_type(i64) = 9;
+    copied: g.choose_type(i64) = g.type_and_value(i64, value);
+
+    if(copied == 9) {
+        return 0;
+    }
+    return 1;
+};

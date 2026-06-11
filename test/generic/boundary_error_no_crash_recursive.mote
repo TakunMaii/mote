@@ -1,0 +1,11 @@
+Node = fn(T: Type) Type {
+    return struct {
+        next: Node(T),
+        value: T,
+    };
+};
+
+value: Node(i32) = Node(i32) {
+    .next = @zero(Node(i32)),
+    .value = 1,
+};

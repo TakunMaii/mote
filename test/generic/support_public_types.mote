@@ -1,0 +1,17 @@
+base = @import("./support_factories");
+
+pub PairType = fn(T: Type) Type {
+    return base.Pair(T);
+};
+
+pub make_pair = fn(T: Type, left: T, right: T) base.Pair(T) {
+    return base.make_pair(T, left, right);
+};
+
+pub Vec2Type = fn(T: Type) Type {
+    return base.Vec2(T);
+};
+
+pub make_vec2 = fn(T: Type, x: T, y: T) base.Vec2(T) {
+    return base.make_vec2(T, x, y);
+};

@@ -1,0 +1,24 @@
+g = @import("./support_factories");
+
+main = fn() i32 {
+    mut local: i32 = 41;
+    ptr: *mut i32 = &mut local;
+    ok = g.id(bool, true) &&
+         g.id(i8, 1) == 1 &&
+         g.id(i16, 2) == 2 &&
+         g.id(i32, 3) == 3 &&
+         g.id(i64, 4) == 4 &&
+         g.id(u8, 5) == 5 &&
+         g.id(u16, 6) == 6 &&
+         g.id(u32, 7) == 7 &&
+         g.id(u64, 8) == 8 &&
+         g.id(f32, 1.5) > 1.0 &&
+         g.id(f64, 2.5) > 2.0 &&
+         g.id(char, 'z') == 'z' &&
+         g.ptr_pass(i32, ptr) == ptr;
+
+    if(ok) {
+        return 0;
+    }
+    return 1;
+};

@@ -1,0 +1,15 @@
+Hidden = fn(T: Type) Type {
+    return struct {
+        value: T,
+
+        make: fn(value: T) Self {
+            return Self {
+                .value = value,
+            };
+        },
+    };
+};
+
+pub make_hidden = fn(T: Type, value: T) Hidden(T) {
+    return Hidden(T).make(value);
+};

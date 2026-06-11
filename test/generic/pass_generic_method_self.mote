@@ -1,0 +1,12 @@
+g = @import("./support_factories");
+
+main = fn() i32 {
+    mut a: g.Vec2(i32) = g.make_vec2(i32, 1, 2);
+    b: g.Vec2(i32) = g.make_vec2(i32, 3, 4);
+    g.add_vec2(i32, &mut a, b);
+
+    if(a.x == 4 && a.y == 6) {
+        return 0;
+    }
+    return 1;
+};

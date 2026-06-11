@@ -40,6 +40,8 @@ typedef struct ScopeFrame {
     int variable_count;
     TypeInfo type_infos[SCOPE_MAX_TYPE_INFOS];
     int type_count;
+    ASTNode *instantiating_function;
+    ASTNode *instantiation_site;
 } ScopeFrame;
 
 void initScopeFrame(ScopeFrame *scope, ScopeFrame *parent)

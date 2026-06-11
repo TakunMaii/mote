@@ -1,0 +1,5 @@
+g = @import("../generic/support_factories");
+
+main = fn() i32 {
+    return g.id(i32, 1, 2);
+};

@@ -561,6 +561,15 @@ static bool mirIsValueTypeVoid(ASTDataType *data_type)
            data_type->primary == AST_PRIMARY_DATA_TYPE_VOID;
 }
 
+static bool mirIsCompileTimeTypeFactory(ASTDataType *data_type)
+{
+    return data_type != NULL &&
+           data_type->kind == AST_DATA_TYPE_KIND_FUNCTION &&
+           data_type->return_data_type != NULL &&
+           data_type->return_data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           data_type->return_data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE;
+}
+
 static ASTDataType* mirOptionalBoolType(void)
 {
     return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL);
@@ -3111,10 +3120,12 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
             binding->extern_value = resolveExternValueExpr(node->rhs, &(scope->type_scope));
 
             if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
+               mirIsCompileTimeTypeFactory(declared_type) ||
                (node->rhs->kind == AST_EXPR_BUILTIN &&
                 strcmp(node->rhs->identifier, "extern") == 0 &&
                 declared_type->is_variadic) ||
-               (node->rhs->kind == AST_EXPR_FUNCTION && functionHasTypeParameters(node->rhs->parameters)))
+               (binding->function_value != NULL &&
+                functionHasTypeParameters(binding->function_value->parameters)))
             {
                 binding->kind = MIR_RUNTIME_BINDING_COMPTIME_ONLY;
                 binding->type_value = expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ? cloneDataType(expr_type.data_type) : NULL;
