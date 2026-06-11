@@ -31,6 +31,8 @@ ASTNode* findReturnedExpr(ASTNode *function_expr);
 ASTDataType* instantiateTypeExprValue(ASTNode *expr, ScopeFrame *inst_scope);
 TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTNode *call_arguments, ScopeFrame *outer_scope);
 ASTNode* buildTypeLiteralArgumentExprs(ASTTypeArgument *argument, ScopeFrame *scope, ASTDataType *self_data_type);
+ASTNode* resolveFunctionValueExpr(ASTNode *expr, ScopeFrame *scope);
+ASTNode* resolveExternValueExpr(ASTNode *expr, ScopeFrame *scope);
 
 typedef struct ResolveDataTypeEntry {
     ASTDataType *source;
@@ -1107,6 +1109,65 @@ ASTNode* buildTypeLiteralArgumentExprs(ASTTypeArgument *argument, ScopeFrame *sc
     }
 
     return head;
+}
+
+ASTNode* resolveFunctionValueExpr(ASTNode *expr, ScopeFrame *scope)
+{
+    if(expr == NULL)
+        return NULL;
+
+    if(expr->kind == AST_EXPR_FUNCTION)
+        return expr;
+
+    if(expr->kind == AST_EXPR_VARIABLE)
+    {
+        VariableInfo *variable_info = findVariableInfo(scope, expr->identifier);
+        if(variable_info != NULL)
+            return variable_info->function_value;
+        return NULL;
+    }
+
+    if(expr->kind == AST_EXPR_MEMBER)
+    {
+        TypeSystemExprType owner_type = inferExprType(expr->lhs, scope);
+        ASTDataType *struct_type = NULL;
+        if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
+            struct_type = inferDeclaredTypeFromExpr(expr->lhs, scope);
+        else if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE)
+        {
+            struct_type = owner_type.data_type;
+            if(struct_type != NULL &&
+               (struct_type->kind == AST_DATA_TYPE_KIND_POINTER || struct_type->kind == AST_DATA_TYPE_KIND_REFERENCE))
+                struct_type = struct_type->child;
+        }
+        struct_type = resolveNamedDataType(struct_type, scope, NULL);
+        if(!isStructDataType(struct_type))
+            return NULL;
+
+        ASTStructMember *member = findStructMember(struct_type, expr->identifier);
+        if(member != NULL && member->value != NULL && member->value->kind == AST_EXPR_FUNCTION)
+            return member->value;
+    }
+
+    return NULL;
+}
+
+ASTNode* resolveExternValueExpr(ASTNode *expr, ScopeFrame *scope)
+{
+    if(expr == NULL)
+        return NULL;
+
+    if(expr->kind == AST_EXPR_BUILTIN && strcmp(expr->identifier, "extern") == 0)
+        return expr;
+
+    if(expr->kind == AST_EXPR_VARIABLE)
+    {
+        VariableInfo *variable_info = findVariableInfo(scope, expr->identifier);
+        if(variable_info != NULL)
+            return variable_info->extern_value;
+    }
+
+    return NULL;
 }
 
 TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTNode *call_arguments, ScopeFrame *outer_scope)

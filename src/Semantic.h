@@ -1338,10 +1338,8 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         new_variable_info->data_type = cloneDataType(node->data_type);
         if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
             new_variable_info->type_value = cloneDataType(expr_type.data_type);
-        if(node->rhs->kind == AST_EXPR_FUNCTION)
-            new_variable_info->function_value = node->rhs;
-        if(node->rhs->kind == AST_EXPR_BUILTIN && strcmp(node->rhs->identifier, "extern") == 0)
-            new_variable_info->extern_value = node->rhs;
+        new_variable_info->function_value = resolveFunctionValueExpr(node->rhs, scope);
+        new_variable_info->extern_value = resolveExternValueExpr(node->rhs, scope);
     }
     else
     {
@@ -1360,10 +1358,8 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             new_variable_info->data_type = cloneDataType(declared_type);
             if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
                 new_variable_info->type_value = cloneDataType(expr_type.data_type);
-            if(node->rhs->kind == AST_EXPR_FUNCTION)
-                new_variable_info->function_value = node->rhs;
-            if(node->rhs->kind == AST_EXPR_BUILTIN && strcmp(node->rhs->identifier, "extern") == 0)
-                new_variable_info->extern_value = node->rhs;
+            new_variable_info->function_value = resolveFunctionValueExpr(node->rhs, scope);
+            new_variable_info->extern_value = resolveExternValueExpr(node->rhs, scope);
 
             if(!canImplicitConvertExprToType(node->rhs, scope, declared_type))
                 typeErrorAssign(node, node->rhs, expr_type, declared_type);

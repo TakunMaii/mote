@@ -7,6 +7,8 @@ Mote 是一个用纯 C 实现的实验性编程语言与编译器项目。当前
 - MIR 中间表示
 - LLVM IR 后端与默认可执行文件输出
 - 基础 C FFI
+- typed memory API、slice、defer、显式 arena
+- `std` 泛型容器 `List/Map/Set`
 - 一个较完整的 raylib 示例游戏 `notgate`
 
 ## 核心思想
@@ -92,6 +94,12 @@ mote [options] <input.mote>
 - `-Wl,<args>`：把参数直接转发给 linker
 - `--dump-ast` / `--dump-mir`：显式打印 AST / MIR
 
+说明：
+
+- 编译器会相对自身可执行文件自动加入官方模块搜索根
+- 默认会自动查找同级目录与同级 `lib/`
+- 也就是说正常分发时，`std` / `c` 不需要用户手工再写 `-I`
+
 更完整的 CLI 说明见：
 
 - [docs/compiler_usage.md](docs/compiler_usage.md)
@@ -101,7 +109,7 @@ mote [options] <input.mote>
 ### 1. 先编一个最小例子
 
 ```powershell
-.\mote.exe test\ffi\string_as_ptr.mote -I lib -o test\artifacts\string_as_ptr.exe
+.\mote.exe test\ffi\string_as_ptr.mote -o test\artifacts\string_as_ptr.exe
 .\test\artifacts\string_as_ptr.exe
 ```
 
@@ -150,7 +158,7 @@ Mote 当前已经稳定可用的一批语法包括：
 - 泛型：通过 `Type` 普通函数表达
 - 模块系统：`pub`、`@import`
 - vendor 绑定：`@import("vendor/raylib")`、`@import("vendor/glfw")`、`@import("vendor/opengl")`
-- 内建：`@extern`、`@zero`、`@as`
+- 内建：`@extern`、`@zero`、`@as`、`@slice`、`@len`、`@ptr_add`、`@ptr_diff`
 - FFI 句柄类型：`Name = opaque;`，通常配合 `*Name` 使用
 
 例如：
@@ -193,6 +201,23 @@ gl = @import("vendor/opengl");
 ```mote
 gl.LoadWith(glfw.GetProcAddress);
 ```
+
+## 标准库进展
+
+当前 `std` 里比较值得直接使用的部分：
+
+- `std/mem`
+  - `new/make/dup`
+  - `free_ptr/free_slice`
+  - `arena_init/arena_make/arena_destroy`
+- `std/list`
+  - 动态数组
+- `std/map`
+  - 开放寻址哈希表
+- `std/set`
+  - 基于 `Map(T, bool)` 的集合
+- `std/hash`
+  - 若干基础 hash/eq helper
 
 ## 当前执行模型
 

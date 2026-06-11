@@ -833,7 +833,7 @@ static bool llvmProgramNeedsMalloc(MirProgram *program)
 {
     for(int i = 0; i < program->function_count; i++)
     {
-        MirFunction *function = &(program->functions[i]);
+        MirFunction *function = program->functions[i];
         for(int block_index = 0; block_index < function->block_count; block_index++)
         {
             MirBlock *block = &(function->blocks[block_index]);
@@ -2008,7 +2008,7 @@ static void emitLLVMProgramToFile(MirProgram *program, const char *module_name, 
         llvmEmitExternWrapperDefinitions(stream, program);
 
     for(int i = 0; i < program->function_count; i++)
-        llvmEmitFunctionDefinition(stream, &(program->functions[i]));
+        llvmEmitFunctionDefinition(stream, program->functions[i]);
 
     llvmEmitEntryPoint(stream, program);
 

@@ -1043,6 +1043,70 @@ xs = mem.arena_make(i32, arena, 32);
 - `arena_reset`
 - `arena_destroy`
 
+### 20.4 `std` 容器
+
+当前标准库已经提供三类基础泛型容器：
+
+- `std/list`
+- `std/map`
+- `std/set`
+
+它们也都通过 `std` 根模块做了包装导出。
+
+```mote
+std = @import("std");
+hash = @import("std/hash");
+
+mut xs = std.list_init(i32);
+std.list_append(i32, &mut xs, 10);
+std.list_append(i32, &mut xs, 20);
+
+mut kv = std.map_init(i32, i32, hash.hash_i32, hash.eq_i32);
+std.map_put(i32, i32, &mut kv, 3, 30);
+
+mut seen = std.set_init(i32, hash.hash_i32, hash.eq_i32);
+std.set_insert(i32, &mut seen, 42);
+```
+
+`List(T)` 当前常见接口：
+
+- `init` / `init_cap`
+- `init_in_arena` / `init_cap_in_arena`
+- `append` / `append_slice`
+- `pop`
+- `insert`
+- `remove_at`
+- `swap_remove`
+- `as_slice`
+- `deinit`
+
+`Map(K, V)` 当前采用开放寻址哈希表，常见接口：
+
+- `init` / `init_cap`
+- `init_in_arena` / `init_cap_in_arena`
+- `put`
+- `get`
+- `get_ptr`
+- `contains`
+- `remove`
+- `clear`
+- `deinit`
+
+`Set(T)` 当前基于 `Map(T, bool)` 构建，常见接口：
+
+- `init` / `init_cap`
+- `init_in_arena` / `init_cap_in_arena`
+- `insert`
+- `contains`
+- `remove`
+- `clear`
+- `deinit`
+
+容器释放规则：
+
+- 普通 `init/init_cap` 路径，最后调用对应的 `deinit`
+- `init_in_arena/init_cap_in_arena` 路径，不单独释放底层块，只在 arena 上统一 `reset/destroy`
+
 ## 21. 当前实现限制与使用建议
 
 下面这些不是“语法糖习惯”，而是当前应明确记住的实现边界：

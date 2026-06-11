@@ -67,6 +67,12 @@
       "input": "test\\basic\\int_to_float_implicit.mote"
     },
     {
+      "name": "optional-runtime-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\optional_runtime_api.mote"
+    },
+    {
       "name": "generic-void-call-llvm",
       "expect": "success",
       "mode": "llvm",
@@ -83,6 +89,18 @@
       "expect": "success",
       "mode": "llvm",
       "input": "test\\basic\\ptr_builtin_api.mote"
+    },
+    {
+      "name": "std-containers-smoke-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_containers_smoke.mote"
+    },
+    {
+      "name": "std-containers-growth-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_containers_growth.mote"
     },
     {
       "name": "std-smoke-llvm",

@@ -308,7 +308,7 @@ typedef struct MirProgram {
     int global_count;
     MirExternFunction *extern_functions;
     int extern_function_count;
-    MirFunction *functions;
+    MirFunction **functions;
     int function_count;
 } MirProgram;
 
@@ -419,11 +419,12 @@ static MirProgram* newMirProgram()
 
 static MirFunction* mirAppendFunction(MirProgram *program)
 {
-    program->functions = (MirFunction*) realloc(
+    program->functions = (MirFunction**) realloc(
         program->functions,
-        sizeof(MirFunction) * (program->function_count + 1)
+        sizeof(MirFunction*) * (program->function_count + 1)
     );
-    MirFunction *function = &(program->functions[program->function_count++]);
+    MirFunction *function = (MirFunction*) malloc(sizeof(MirFunction));
+    program->functions[program->function_count++] = function;
     memset(function, 0, sizeof(MirFunction));
     return function;
 }
@@ -491,7 +492,7 @@ static MirValueId mirAppendValue(MirFunction *function, ASTDataType *data_type, 
 
 static MirFunction* mirCurrentFunction(MirFunctionState *state)
 {
-    return &(state->lowering->program->functions[state->function_index]);
+    return state->lowering->program->functions[state->function_index];
 }
 
 static const char* mirEnsureExternFunction(MirLowering *lowering, const char *symbol_name, ASTDataType *function_type,
@@ -789,6 +790,15 @@ static int countRuntimeCallArguments(ASTFunctionParameter *parameter, ASTNode *a
     return count;
 }
 
+static MirValueId lowerReferenceArgument(MirFunctionState *state, MirLowerScope *scope, ASTNode *argument_node,
+                                         ASTDataType *parameter_type)
+{
+    if(argument_node->kind == AST_EXPR_ADDRESS_OF ||
+       argument_node->kind == AST_EXPR_ADDRESS_OF_MUT)
+        return lowerExprAsValue(state, scope, argument_node, parameter_type);
+    return lowerExprAsAddress(state, scope, argument_node);
+}
+
 static MirOperandList lowerSpecializedCallArguments(MirFunctionState *state, MirLowerScope *scope,
                                                     ASTFunctionParameter *source_parameters,
                                                     ASTFunctionParameter *specialized_parameters,
@@ -806,7 +816,7 @@ static MirOperandList lowerSpecializedCallArguments(MirFunctionState *state, Mir
         {
             ASTDataType *parameter_type = specialized_parameter == NULL ? NULL : specialized_parameter->data_type;
             if(parameter_type != NULL && parameter_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-                arguments.items[index++] = lowerExprAsAddress(state, scope, argument);
+                arguments.items[index++] = lowerReferenceArgument(state, scope, argument, parameter_type);
             else
                 arguments.items[index++] = lowerExprAsValue(state, scope, argument, parameter_type);
             if(specialized_parameter != NULL)
@@ -1327,11 +1337,8 @@ static void mirDeclareVariableInfo(MirLowerScope *scope, ASTNode *assign_node, A
     variable_info->data_type = cloneDataType(declared_type);
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
         variable_info->type_value = cloneDataType(expr_type.data_type);
-    if(assign_node->rhs != NULL && assign_node->rhs->kind == AST_EXPR_FUNCTION)
-        variable_info->function_value = assign_node->rhs;
-    if(assign_node->rhs != NULL && assign_node->rhs->kind == AST_EXPR_BUILTIN &&
-       strcmp(assign_node->rhs->identifier, "extern") == 0)
-        variable_info->extern_value = assign_node->rhs;
+    variable_info->function_value = resolveFunctionValueExpr(assign_node->rhs, &(scope->type_scope));
+    variable_info->extern_value = resolveExternValueExpr(assign_node->rhs, &(scope->type_scope));
 }
 
 static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirLowerScope *outer_scope,
@@ -1574,7 +1581,7 @@ static MirValueId lowerRuntimeSpecializedFunctionValue(MirFunctionState *state, 
             );
         }
 
-        MirFunction *mir_function = &(state->lowering->program->functions[function_index]);
+        MirFunction *mir_function = state->lowering->program->functions[function_index];
         return mirEmitFunctionRef(state, mir_function->name, specialized_function->data_type,
                                   source_function->filename, source_function->line_number, source_function->column_number);
     }
@@ -1707,7 +1714,7 @@ static MirValueId lowerFunctionExprAsValue(MirFunctionState *state, MirLowerScop
                              "specialize this generic function before using it as a runtime value");
 
     int function_index = lowerFunctionExprDefinition(state->lowering, scope, function_expr, name_hint, self_data_type);
-    MirFunction *mir_function = &(state->lowering->program->functions[function_index]);
+    MirFunction *mir_function = state->lowering->program->functions[function_index];
 
     int runtime_capture_count = 0;
     ASTFunctionCapture *capture = function_expr->captures;
@@ -2362,7 +2369,7 @@ static MirValueId lowerDirectExternCall(MirFunctionState *state, MirLowerScope *
             parameter_type = mirInferVariadicArgumentType(argument_node, scope);
 
         if(parameter_type != NULL && parameter_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-            arguments.items[index++] = lowerExprAsAddress(state, scope, argument_node);
+            arguments.items[index++] = lowerReferenceArgument(state, scope, argument_node, parameter_type);
         else
             arguments.items[index++] = lowerExprAsValue(state, scope, argument_node, parameter_type);
 
@@ -2539,7 +2546,7 @@ static MirValueId lowerCallExpr(MirFunctionState *state, MirLowerScope *scope, A
                 if(receiver_count == 1)
                 {
                     if(parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-                        arguments.items[index++] = lowerExprAsAddress(state, scope, member_node->lhs);
+                        arguments.items[index++] = lowerReferenceArgument(state, scope, member_node->lhs, parameter->data_type);
                     else if(parameter->data_type->kind == AST_DATA_TYPE_KIND_POINTER)
                     {
                         TypeSystemExprType receiver_type = inferExprType(member_node->lhs, &(scope->type_scope));
@@ -2560,7 +2567,7 @@ static MirValueId lowerCallExpr(MirFunctionState *state, MirLowerScope *scope, A
                 {
                     ASTDataType *parameter_type = parameter == NULL ? NULL : parameter->data_type;
                     if(parameter_type != NULL && parameter_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-                        arguments.items[index++] = lowerExprAsAddress(state, scope, argument_node);
+                        arguments.items[index++] = lowerReferenceArgument(state, scope, argument_node, parameter_type);
                     else
                         arguments.items[index++] = lowerExprAsValue(state, scope, argument_node, parameter_type);
                     if(parameter != NULL)
@@ -2588,7 +2595,7 @@ static MirValueId lowerCallExpr(MirFunctionState *state, MirLowerScope *scope, A
     {
         ASTDataType *parameter_type = parameter == NULL ? NULL : parameter->data_type;
         if(parameter_type != NULL && parameter_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-            arguments.items[index++] = lowerExprAsAddress(state, scope, argument_node);
+            arguments.items[index++] = lowerReferenceArgument(state, scope, argument_node, parameter_type);
         else
             arguments.items[index++] = lowerExprAsValue(state, scope, argument_node, parameter_type);
         if(parameter != NULL)
@@ -2855,6 +2862,8 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
         case AST_EXPR_BIT_OR:
         case AST_EXPR_BIT_XOR: {
             ASTDataType *result_type = mirResolvedExprValueType(node, &(scope->type_scope));
+            if(result_type != NULL && result_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
+                result_type = result_type->child;
             if(expected_type != NULL &&
                result_type != NULL &&
                result_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
@@ -2862,6 +2871,23 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                ((isFloatPrimary(result_type->primary) && isFloatPrimary(expected_type->primary)) ||
                 (isIntegerPrimary(result_type->primary) && isIntegerPrimary(expected_type->primary))))
                 result_type = cloneDataType(expected_type);
+            else if(result_type != NULL &&
+                    result_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+                    isIntegerPrimary(result_type->primary))
+            {
+                TypeSystemExprType lhs_type = inferExprType(node->lhs, &(scope->type_scope));
+                TypeSystemExprType rhs_type = inferExprType(node->rhs, &(scope->type_scope));
+                if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+                   lhs_type.data_type != NULL &&
+                   lhs_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+                   isIntegerPrimary(lhs_type.data_type->primary))
+                    result_type = cloneDataType(lhs_type.data_type);
+                else if(rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+                        rhs_type.data_type != NULL &&
+                        rhs_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+                        isIntegerPrimary(rhs_type.data_type->primary))
+                    result_type = cloneDataType(rhs_type.data_type);
+            }
             MirValueId lhs = lowerExprAsValue(state, scope, node->lhs, result_type);
             MirValueId rhs = lowerExprAsValue(state, scope, node->rhs, result_type);
             MirInstKind kind = MIR_INST_ADD;
@@ -2904,10 +2930,11 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                                                            node->filename, node->line_number, node->column_number);
                 MirValueId has_value = mirEmitLoad(state, has_value_ptr, mirOptionalBoolType(),
                                                    node->filename, node->line_number, node->column_number);
-                if(node->kind == AST_EXPR_NOT_EQUAL)
-                    has_value = mirEmitUnary(state, MIR_INST_NOT, has_value, mirOptionalBoolType(),
-                                             node->filename, node->line_number, node->column_number);
-                return mirMaybeConvertValue(state, scope, node, has_value, expected_type);
+                MirValueId result = has_value;
+                if(node->kind == AST_EXPR_EQUAL)
+                    result = mirEmitUnary(state, MIR_INST_NOT, has_value, mirOptionalBoolType(),
+                                          node->filename, node->line_number, node->column_number);
+                return mirMaybeConvertValue(state, scope, node, result, expected_type);
             }
             MirValueId lhs = lowerExprAsValue(state, scope, node->lhs, operand_type);
             MirValueId rhs = lowerExprAsValue(state, scope, node->rhs, operand_type);
@@ -3023,7 +3050,12 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
                 base_address = lowerExprMaterializedAddress(state, scope, node->lhs);
 
             ASTDataType *index_type = defaultIntegerDataType();
-            MirValueId index_value = lowerExprAsValue(state, scope, node->rhs, index_type);
+            TypeSystemExprType index_expr_type = inferExprType(node->rhs, &(scope->type_scope));
+            ASTDataType *index_expected_type = index_expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE
+                                               ? index_expr_type.data_type
+                                               : index_type;
+            MirValueId index_value = lowerExprAsValue(state, scope, node->rhs, index_expected_type);
+            index_value = mirMaybeConvertValue(state, scope, node->rhs, index_value, index_type);
             return mirEmitIndexPtr(state, base_address, index_value, array_type->child, base_is_element_pointer,
                                    node->filename, node->line_number, node->column_number);
         }
@@ -3075,9 +3107,8 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
             MirRuntimeBinding *binding = declareMirRuntimeBinding(scope, node->identifier);
             binding->mutable = node->modifier.mutable;
             binding->declared_data_type = cloneDataType(declared_type);
-            binding->function_value = node->rhs->kind == AST_EXPR_FUNCTION ? node->rhs : NULL;
-            binding->extern_value = node->rhs->kind == AST_EXPR_BUILTIN &&
-                                    strcmp(node->rhs->identifier, "extern") == 0 ? node->rhs : NULL;
+            binding->function_value = resolveFunctionValueExpr(node->rhs, &(scope->type_scope));
+            binding->extern_value = resolveExternValueExpr(node->rhs, &(scope->type_scope));
 
             if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
                (node->rhs->kind == AST_EXPR_BUILTIN &&

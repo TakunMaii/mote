@@ -251,7 +251,7 @@ void printMIRProgram(MirProgram *program)
 
     for(int i = 0; i < program->function_count; i++)
     {
-        MirFunction *function = &(program->functions[i]);
+        MirFunction *function = program->functions[i];
         printf("fn %s(", function->name);
         bool need_comma = false;
         if(function->closure_env_type != NULL)

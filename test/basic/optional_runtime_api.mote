@@ -1,0 +1,15 @@
+main = fn() i32 {
+    some_value: ?i32 = 7;
+    none_value: ?i32 = null;
+
+    if(some_value == null) {
+        return 1;
+    }
+    if(none_value != null) {
+        return 2;
+    }
+    if(@unwrap(some_value) != 7) {
+        return 3;
+    }
+    return 0;
+};

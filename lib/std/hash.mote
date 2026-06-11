@@ -26,19 +26,31 @@ pub hash_bool = fn(value: bool) u64 {
 };
 
 pub hash_i32 = fn(value: i32) u64 {
-    return mix_u64(@as(u64, value));
+    if(value == 0) {
+        return @as(u64, 1);
+    }
+    return mix_u64(@as(u64, value) ^ @as(u64, 0x9e3779b97f4a7c15));
 };
 
 pub hash_i64 = fn(value: i64) u64 {
-    return mix_u64(@as(u64, value));
+    if(value == 0) {
+        return @as(u64, 1);
+    }
+    return mix_u64(@as(u64, value) ^ @as(u64, 0x9e3779b97f4a7c15));
 };
 
 pub hash_u32 = fn(value: u32) u64 {
-    return mix_u64(value);
+    if(value == 0) {
+        return @as(u64, 1);
+    }
+    return mix_u64(@as(u64, value) ^ @as(u64, 0x9e3779b97f4a7c15));
 };
 
 pub hash_u64 = fn(value: u64) u64 {
-    return mix_u64(value);
+    if(value == 0) {
+        return @as(u64, 1);
+    }
+    return mix_u64(value ^ @as(u64, 0x9e3779b97f4a7c15));
 };
 
 pub hash_ptr = fn(T: Type, ptr: *T) u64 {

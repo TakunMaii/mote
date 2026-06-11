@@ -45,6 +45,9 @@ mote [options] <input.mote>
 - When executable linking succeeds, the temporary `.ll` file is removed.
 - If `clang` link fails, the compiler keeps the intermediate `.ll` file for debugging.
 - When emitting an executable, the compiler resolves `runtime/mote_runtime.c` relative to the `mote` executable location, not the caller's current working directory.
+- The compiler also auto-registers official module roots relative to the executable location.
+- In the current layout, it automatically checks the executable's sibling directory and sibling `lib/` directory.
+- That means built-in packages like `std` and `c` should not require users to manually pass `-I`.
 
 ## Entry Model
 
@@ -100,7 +103,7 @@ Build an executable with extra linker arguments:
 Compile with the built-in C FFI package:
 
 ```powershell
-.\mote.exe test\ffi\ffi_main.mote -I lib
+.\mote.exe test\ffi\ffi_main.mote
 ```
 
 Compile a package-based multi-file program:
@@ -119,6 +122,7 @@ Compile the `notgate` test package:
 
 - Relative imports like `@import("./foo")` are resolved from the importing file's directory.
 - Search-root imports like `@import("c/io")` require `-I <dir>` where `<dir>` contains `c\root.mote` or `c\io.mote`.
+- Official packages such as `@import("std")` and `@import("c")` are normally found through the compiler's automatic relative search roots.
 - Vendor imports like `@import("vendor/raylib")` or `@import("vendor/opengl")` typically use the repository root as a search root, for example `-I .`.
 - Search roots may point to either a module file tree or a directory containing nested packages with `root.mote`.
 
