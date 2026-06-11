@@ -84,6 +84,11 @@ static void build_output_path(char *buffer, size_t buffer_size, const char *inpu
         snprintf(buffer, buffer_size, "%.*s%s", (int)(last_dot - input_path), input_path, extension);
 }
 
+static void build_temp_llvm_output_path(char *buffer, size_t buffer_size, const char *exe_output_path)
+{
+    snprintf(buffer, buffer_size, "%s.mote-tmp.ll", exe_output_path);
+}
+
 static bool file_exists(const char *path)
 {
     FILE *stream = fopen(path, "rb");
@@ -342,10 +347,52 @@ static void append_shell_escaped(char *command, size_t command_size, const char 
     command[used] = '\0';
 }
 
+static void append_shell_quoted_fragment(char *command, size_t command_size, const char *value)
+{
+    size_t used = strlen(command);
+    if(used + 3 >= command_size)
+    {
+        printf("Link command is too long\n");
+        exit(1);
+    }
+
+    command[used++] = '"';
+    command[used] = '\0';
+
+    for(const char *p = value; *p != '\0'; p++)
+    {
+        if(*p == '"')
+        {
+            if(used + 2 >= command_size)
+            {
+                printf("Link command is too long\n");
+                exit(1);
+            }
+            command[used++] = '\\';
+        }
+
+        if(used + 1 >= command_size)
+        {
+            printf("Link command is too long\n");
+            exit(1);
+        }
+        command[used++] = *p;
+    }
+
+    if(used + 2 >= command_size)
+    {
+        printf("Link command is too long\n");
+        exit(1);
+    }
+    command[used++] = '"';
+    command[used] = '\0';
+}
+
 static int run_clang_link(const char *llvm_input_path, const char *runtime_source_path,
                           const char *exe_output_path,
                           const char **driver_args, int driver_arg_count,
-                          const char **linker_args, int linker_arg_count)
+                          const char **linker_args, int linker_arg_count,
+                          const char *log_path)
 {
     char command[4096];
     strcpy(command, "clang");
@@ -367,7 +414,29 @@ static int run_clang_link(const char *llvm_input_path, const char *runtime_sourc
         append_shell_escaped(command, sizeof(command), linker_args[i]);
     }
 
+    if(strlen(command) + strlen(" >") + strlen(log_path) + strlen(" 2>&1") + 1 >= sizeof(command))
+    {
+        printf("Link command is too long\n");
+        exit(1);
+    }
+    strcat(command, " >");
+    append_shell_quoted_fragment(command, sizeof(command), log_path);
+    strcat(command, " 2>&1");
+
     return system(command);
+}
+
+static void print_file_if_exists(const char *path)
+{
+    FILE *stream = fopen(path, "rb");
+    if(stream == NULL)
+        return;
+
+    char buffer[1024];
+    size_t count = 0;
+    while((count = fread(buffer, 1, sizeof(buffer), stream)) > 0)
+        fwrite(buffer, 1, count, stderr);
+    fclose(stream);
 }
 
 int main(int argn, char** argv)
@@ -383,6 +452,7 @@ int main(int argn, char** argv)
     const char *requested_output_path = NULL;
     const char *llvm_output_path = NULL;
     const char *exe_output_path = NULL;
+    bool keep_llvm_output = false;
     ModulePackage *packages = (ModulePackage*) calloc(CLI_MAX_PACKAGES, sizeof(ModulePackage));
     int package_count = 0;
     const char **driver_args = (const char**) calloc(CLI_MAX_LINK_ARGS, sizeof(const char*));
@@ -412,6 +482,7 @@ int main(int argn, char** argv)
         {
             emit_llvm = true;
             emit_exe = false;
+            keep_llvm_output = true;
             continue;
         }
 
@@ -602,12 +673,14 @@ int main(int argn, char** argv)
     if(emit_llvm)
     {
         emitLLVMProgramToFile(mir_program, input_path, llvm_output_path);
-        printf("WROTE LLVM IR ===============\n\n%s\n\n", llvm_output_path);
+        if(keep_llvm_output)
+            printf("%s\n", llvm_output_path);
     }
 
     if(emit_exe)
     {
         char runtime_source_path[CLI_PATH_BUFFER_SIZE] = {0};
+        char clang_log_path[CLI_PATH_BUFFER_SIZE] = {0};
         if(!resolve_runtime_source_path(runtime_source_path, sizeof(runtime_source_path), argv[0]))
         {
             printf("Failed to resolve runtime path relative to the compiler executable\n");
@@ -621,23 +694,28 @@ int main(int argn, char** argv)
 
         if(!emit_llvm)
         {
-            build_output_path(default_llvm_output_path, sizeof(default_llvm_output_path), exe_output_path, ".ll");
+            build_temp_llvm_output_path(default_llvm_output_path, sizeof(default_llvm_output_path), exe_output_path);
             llvm_output_path = default_llvm_output_path;
             emitLLVMProgramToFile(mir_program, input_path, llvm_output_path);
-            printf("WROTE LLVM IR ===============\n\n%s\n\n", llvm_output_path);
         }
 
+        snprintf(clang_log_path, sizeof(clang_log_path), "%s.mote-link.log", exe_output_path);
         int clang_exit_code = run_clang_link(llvm_output_path, runtime_source_path, exe_output_path,
                                              driver_args, driver_arg_count,
-                                             linker_args, linker_arg_count);
+                                             linker_args, linker_arg_count,
+                                             clang_log_path);
         if(clang_exit_code != 0)
         {
-            printf("LLVM link failed; kept intermediate IR at %s\n", llvm_output_path);
+            remove(llvm_output_path);
+            print_file_if_exists(clang_log_path);
+            remove(clang_log_path);
+            printf("LLVM link failed\n");
             exit(1);
         }
 
         remove(llvm_output_path);
-        printf("WROTE EXECUTABLE ===============\n\n%s\n\n", exe_output_path);
+        remove(clang_log_path);
+        printf("%s\n", exe_output_path);
     }
 
     return 0;
