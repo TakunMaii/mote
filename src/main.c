@@ -257,6 +257,8 @@ static void add_default_official_link_args(const char *input_path,
 {
     bool uses_glfw = source_uses_import(input_path, "@import(\"vendor/glfw\")");
     bool uses_raylib = source_uses_import(input_path, "@import(\"vendor/raylib\")");
+    bool uses_std_math = source_uses_import(input_path, "@import(\"std/math\")");
+    bool uses_c_math = source_uses_import(input_path, "@import(\"c/math\")");
 
 #if defined(__APPLE__)
     if(directory_exists("/opt/homebrew/lib"))
@@ -292,6 +294,9 @@ static void add_default_official_link_args(const char *input_path,
         add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,AudioUnit");
 #endif
     }
+
+    if(uses_std_math || uses_c_math)
+        add_driver_arg(driver_args, driver_arg_count, "-lm");
 }
 
 static void append_shell_escaped(char *command, size_t command_size, const char *arg)

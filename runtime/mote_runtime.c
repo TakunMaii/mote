@@ -15,9 +15,19 @@ float mote_sinf(float x)
     return sinf(x);
 }
 
+double mote_sin(double x)
+{
+    return sin(x);
+}
+
 float mote_cosf(float x)
 {
     return cosf(x);
+}
+
+double mote_cos(double x)
+{
+    return cos(x);
 }
 
 float mote_sqrtf(float x)
@@ -25,14 +35,174 @@ float mote_sqrtf(float x)
     return sqrtf(x);
 }
 
+double mote_sqrt(double x)
+{
+    return sqrt(x);
+}
+
 double mote_fabs(double x)
 {
     return fabs(x);
 }
 
+float mote_tanf(float x)
+{
+    return tanf(x);
+}
+
+double mote_tan(double x)
+{
+    return tan(x);
+}
+
+float mote_asinf(float x)
+{
+    return asinf(x);
+}
+
+double mote_asin(double x)
+{
+    return asin(x);
+}
+
+float mote_acosf(float x)
+{
+    return acosf(x);
+}
+
+double mote_acos(double x)
+{
+    return acos(x);
+}
+
+float mote_atanf(float x)
+{
+    return atanf(x);
+}
+
+double mote_atan(double x)
+{
+    return atan(x);
+}
+
+float mote_atan2f(float y, float x)
+{
+    return atan2f(y, x);
+}
+
+double mote_atan2(double y, double x)
+{
+    return atan2(y, x);
+}
+
+float mote_expf(float x)
+{
+    return expf(x);
+}
+
+double mote_exp(double x)
+{
+    return exp(x);
+}
+
+float mote_logf(float x)
+{
+    return logf(x);
+}
+
+double mote_log(double x)
+{
+    return log(x);
+}
+
+float mote_log2f(float x)
+{
+    return log2f(x);
+}
+
+double mote_log2(double x)
+{
+    return log2(x);
+}
+
+float mote_log10f(float x)
+{
+    return log10f(x);
+}
+
+double mote_log10(double x)
+{
+    return log10(x);
+}
+
+float mote_powf(float x, float y)
+{
+    return powf(x, y);
+}
+
+double mote_pow(double x, double y)
+{
+    return pow(x, y);
+}
+
+float mote_floorf(float x)
+{
+    return floorf(x);
+}
+
+double mote_floor(double x)
+{
+    return floor(x);
+}
+
+float mote_ceilf(float x)
+{
+    return ceilf(x);
+}
+
+double mote_ceil(double x)
+{
+    return ceil(x);
+}
+
+float mote_roundf(float x)
+{
+    return roundf(x);
+}
+
+double mote_round(double x)
+{
+    return round(x);
+}
+
+float mote_truncf(float x)
+{
+    return truncf(x);
+}
+
+double mote_trunc(double x)
+{
+    return trunc(x);
+}
+
 float mote_fminf(float a, float b)
 {
     return fminf(a, b);
+}
+
+double mote_fmin(double a, double b)
+{
+    return fmin(a, b);
+}
+
+float mote_fmaxf(float a, float b)
+{
+    return fmaxf(a, b);
+}
+
+double mote_fmax(double a, double b)
+{
+    return fmax(a, b);
 }
 
 void mote_unwrap_null_panic(void)

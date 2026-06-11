@@ -218,6 +218,10 @@ gl.LoadWith(glfw.GetProcAddress);
   - 基于 `Map(T, bool)` 的集合
 - `std/hash`
   - 若干基础 hash/eq helper
+- `std/math`
+  - 当前以显式浮点 API 为主
+  - 命名采用 `_f32` / `_f64` 后缀，例如 `sqrt_f32`、`pow_f64`
+  - 另有纯语言级 `min/max/clamp` 泛型 helper
 
 ## 当前执行模型
 
