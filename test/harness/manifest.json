@@ -221,6 +221,12 @@
       "input": "test\\generic\\pass_cross_module_type_factory.mote"
     },
     {
+      "name": "generic-pass-multi-module-reexport-chain-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\generic\\boundary_multi_module_reexport_chain.mote"
+    },
+    {
       "name": "generic-pass-alias-function-llvm",
       "expect": "success",
       "mode": "llvm",

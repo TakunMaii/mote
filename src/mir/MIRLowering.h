@@ -3098,10 +3098,10 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
 
         if(is_new_variable)
         {
+            ASTNode *resolved_function_value = resolveFunctionValueExpr(node->rhs, &(scope->type_scope));
             ASTDataType *declared_type = NULL;
-            if(node->rhs != NULL &&
-               node->rhs->kind == AST_EXPR_FUNCTION &&
-               functionHasTypeParameters(node->rhs->parameters))
+            if(resolved_function_value != NULL &&
+               functionHasTypeParameters(resolved_function_value->parameters))
                 declared_type = cloneDataType(node->data_type);
             else
                 declared_type = resolveNamedDataType(node->data_type, &(scope->type_scope), scope->self_data_type);
@@ -3116,7 +3116,7 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
             MirRuntimeBinding *binding = declareMirRuntimeBinding(scope, node->identifier);
             binding->mutable = node->modifier.mutable;
             binding->declared_data_type = cloneDataType(declared_type);
-            binding->function_value = resolveFunctionValueExpr(node->rhs, &(scope->type_scope));
+            binding->function_value = resolved_function_value;
             binding->extern_value = resolveExternValueExpr(node->rhs, &(scope->type_scope));
 
             if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
