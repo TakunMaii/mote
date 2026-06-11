@@ -335,6 +335,30 @@
       "input": "test\\generic\\runtime_many_instantiations.mote"
     },
     {
+      "name": "operator-overload-basic-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\operator_overload_basic.mote"
+    },
+    {
+      "name": "operator-overload-mixed-scalar-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\operator_overload_mixed_scalar.mote"
+    },
+    {
+      "name": "operator-overload-eq-neq-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\operator_overload_eq_neq.mote"
+    },
+    {
+      "name": "operator-overload-builtin-still-numeric-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\operator_overload_builtin_still_numeric.mote"
+    },
+    {
       "name": "diagnostic-type-error",
       "expect": "failure",
       "input": "test\\diagnostic\\bad_type.mote",
@@ -342,6 +366,33 @@
         "error[T1003]",
         "cannot implicitly convert assigned value",
         "cannot implicitly convert bool to i32"
+      ]
+    },
+    {
+      "name": "diagnostic-operator-annotation-non-function",
+      "expect": "failure",
+      "input": "test\\diagnostic\\operator_annotation_non_function.mote",
+      "contains": [
+        "error[S1007]",
+        "@operator requires a function value"
+      ]
+    },
+    {
+      "name": "diagnostic-operator-annotation-generic-function",
+      "expect": "failure",
+      "input": "test\\diagnostic\\operator_annotation_generic_function.mote",
+      "contains": [
+        "error[S1008]",
+        "@operator does not support generic functions yet"
+      ]
+    },
+    {
+      "name": "diagnostic-operator-missing-rhs-direction",
+      "expect": "failure",
+      "input": "test\\diagnostic\\operator_missing_rhs_direction.mote",
+      "contains": [
+        "error[T1001]",
+        "operator * cannot be applied"
       ]
     },
     {

@@ -61,6 +61,19 @@ bool isReferenceDataType(ASTDataType *data_type)
     return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_REFERENCE;
 }
 
+static bool semanticFunctionHasTypeParameters(ASTFunctionParameter *parameter)
+{
+    while(parameter)
+    {
+        if(parameter->data_type != NULL &&
+           parameter->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           parameter->data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
+            return true;
+        parameter = parameter->next;
+    }
+    return false;
+}
+
 bool isPointerOrReferenceDataType(ASTDataType *data_type)
 {
     return data_type != NULL &&
@@ -358,6 +371,23 @@ void checkDeferredAssignmentSemantics(ASTNode *node, ScopeFrame *scope)
 
 void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
 {
+    if(node->operator_kind != AST_OPERATOR_NONE)
+    {
+        if(node->lhs == NULL || node->lhs->kind != AST_EXPR_VARIABLE)
+        {
+            semanticAbortNode("S1006", node,
+                              "@operator can only annotate named function declarations",
+                              "apply @operator to a `name: fn(...) ...` declaration");
+        }
+
+        if(node->rhs == NULL || node->rhs->kind != AST_EXPR_FUNCTION)
+        {
+            semanticAbortNode("S1007", node,
+                              "@operator requires a function value",
+                              "annotate a function declaration like `name: fn(...) ...`");
+        }
+    }
+
     if(isTypeDeclAssign(node, scope))
     {
         TypeInfo *existing_type_info = findTypeInfo(scope, node->identifier);
@@ -391,6 +421,17 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
     }
 
     checkExprDeclaredVariable(node->rhs, scope);
+
+    if(node->operator_kind != AST_OPERATOR_NONE)
+    {
+        ASTNode *function_expr = node->rhs;
+        if(semanticFunctionHasTypeParameters(function_expr->parameters))
+        {
+            semanticAbortNode("S1008", node,
+                              "@operator does not support generic functions yet",
+                              "remove type parameters from this operator function");
+        }
+    }
 
     if(node->lhs->kind == AST_EXPR_DEREF)
     {
@@ -450,6 +491,7 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
         VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
         new_variable_info->mutable = node->modifier.mutable;
         new_variable_info->data_type = newInferDataType();
+        new_variable_info->operator_kind = node->operator_kind;
     }
     else
     {
@@ -462,6 +504,7 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
             VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
             new_variable_info->mutable = false;
             new_variable_info->data_type = newInferDataType();
+            new_variable_info->operator_kind = node->operator_kind;
         }
         else if(!resolved_variable_info->mutable && !isReferenceDataType(resolved_variable_info->data_type))
         {
@@ -1358,6 +1401,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
         new_variable_info->mutable = node->modifier.mutable;
         new_variable_info->data_type = cloneDataType(node->data_type);
+        new_variable_info->operator_kind = node->operator_kind;
         if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
             new_variable_info->type_value = cloneDataType(expr_type.data_type);
         new_variable_info->function_value = resolveFunctionValueExpr(node->rhs, scope);
@@ -1378,6 +1422,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
             VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
             new_variable_info->mutable = false;
             new_variable_info->data_type = cloneDataType(declared_type);
+            new_variable_info->operator_kind = node->operator_kind;
             if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
                 new_variable_info->type_value = cloneDataType(expr_type.data_type);
             new_variable_info->function_value = resolveFunctionValueExpr(node->rhs, scope);

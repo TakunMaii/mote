@@ -526,6 +526,55 @@ make_adder = fn(x: i32) Function([i32], i32) {
 按引用捕获 / 可变引用捕获的语法方向已经预留，但当前不应把
 `fn|&x|...` 或 `fn|&mut x|...` 当成稳定能力写进正式代码约定里。
 
+### 10.6 `@operator` 运算符重载
+
+当前已经支持一版受限的运算符重载。
+
+顶层或局部独立函数写法：
+
+```mote
+@operator(+)
+vec2_add = fn(lhs: Vec2, rhs: Vec2) Vec2 {
+    return Vec2{
+        .x = lhs.x + rhs.x,
+        .y = lhs.y + rhs.y,
+    };
+};
+```
+
+结构体成员写法：
+
+```mote
+Vec2 = struct {
+    @operator(+)
+    add: fn(lhs: Vec2, rhs: Vec2) Vec2 {
+        return lhs;
+    },
+};
+```
+
+当前规则：
+
+1. 支持的操作符是二元 `+ - * / ==`，以及一元 `-`
+2. `!=` 不单独定义，而是自动复用 `==`
+3. 当前只做左操作数分派
+4. 内建数值类型仍优先按原生运算处理
+5. 当前不支持泛型 `@operator`
+
+所以这类写法当前是支持的：
+
+```mote
+scaled = v * 2.0;
+same = a == b;
+neg = -v;
+```
+
+而这类“右操作数分派”当前还不支持：
+
+```mote
+scaled = 2.0 * v;
+```
+
 ## 11. 控制流
 
 ### 11.1 `if / else if / else`

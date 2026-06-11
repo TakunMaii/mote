@@ -1,0 +1,31 @@
+Vec2 = struct {
+    x: f32,
+    y: f32,
+};
+
+@operator(+)
+vec2_add = fn(lhs: Vec2, rhs: Vec2) Vec2 {
+    return Vec2{
+        .x = lhs.x + rhs.x,
+        .y = lhs.y + rhs.y,
+    };
+};
+
+@operator(-)
+vec2_neg = fn(v: Vec2) Vec2 {
+    return Vec2{
+        .x = -v.x,
+        .y = -v.y,
+    };
+};
+
+main = fn() i32 {
+    a = Vec2{ .x = 1.5, .y = 2.0 };
+    b = Vec2{ .x = 3.0, .y = 4.5 };
+    c = a + b;
+    d = -c;
+    if(c.x == 4.5 && c.y == 6.5 && d.x == -4.5 && d.y == -6.5) {
+        return 0;
+    }
+    return 1;
+};

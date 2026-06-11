@@ -112,6 +112,15 @@ typedef struct ASTEnumVariant ASTEnumVariant;
 typedef struct ASTTypeArgument ASTTypeArgument;
 typedef struct ASTFunctionCapture ASTFunctionCapture;
 
+typedef enum ASTOperatorKind {
+    AST_OPERATOR_NONE = 0,
+    AST_OPERATOR_ADD,
+    AST_OPERATOR_SUB,
+    AST_OPERATOR_MUL,
+    AST_OPERATOR_DIV,
+    AST_OPERATOR_EQ,
+} ASTOperatorKind;
+
 typedef struct ASTFunctionParameter {
     struct ASTFunctionParameter *next;
     const char *filename;
@@ -179,6 +188,7 @@ struct ASTStructMember {
     int end_line_number;
     int end_column_number;
     char identifier[MAX_IDENTIFIER_LENGTH];
+    ASTOperatorKind operator_kind;
     ASTDataType *data_type;
     ASTNode *value;
 };
@@ -223,6 +233,7 @@ struct ASTNode {
     // assign or decl
     ASTAssignModifier modifier;
     bool is_pub;
+    ASTOperatorKind operator_kind;
     ASTDataType *data_type;
     char identifier[MAX_IDENTIFIER_LENGTH];
 
@@ -1144,13 +1155,29 @@ const char* modifierToString(ASTAssignModifier modifier)
         return "immutable";
 }
 
+const char* astOperatorKindToString(ASTOperatorKind kind)
+{
+    switch(kind)
+    {
+        case AST_OPERATOR_NONE: return "";
+        case AST_OPERATOR_ADD: return "+";
+        case AST_OPERATOR_SUB: return "-";
+        case AST_OPERATOR_MUL: return "*";
+        case AST_OPERATOR_DIV: return "/";
+        case AST_OPERATOR_EQ: return "==";
+        default:
+            diagnosticAbortInternal("astOperatorKindToString", "unknown operator kind");
+    }
+}
+
 void printASTNode(ASTNode node)
 {
     switch(node.kind)
     {
         case AST_ASSIGN: {
-            printf("AST_ASSIGN: %smodifier(%s) lhs(",
+            printf("AST_ASSIGN: %s%smodifier(%s) lhs(",
                 node.is_pub ? "pub " : "",
+                node.operator_kind != AST_OPERATOR_NONE ? astOperatorKindToString(node.operator_kind) : "",
                 modifierToString(node.modifier));
             printASTNode(*(node.lhs));
             printf(") type(");

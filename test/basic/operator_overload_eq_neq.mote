@@ -1,0 +1,19 @@
+Vec2i = struct {
+    x: i32,
+    y: i32,
+};
+
+@operator(==)
+vec2i_eq = fn(lhs: Vec2i, rhs: Vec2i) bool {
+    return lhs.x == rhs.x && lhs.y == rhs.y;
+};
+
+main = fn() i32 {
+    a = Vec2i{ .x = 1, .y = 2 };
+    b = Vec2i{ .x = 1, .y = 2 };
+    c = Vec2i{ .x = 2, .y = 3 };
+    if(a == b && a != c) {
+        return 0;
+    }
+    return 1;
+};

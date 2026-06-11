@@ -160,6 +160,7 @@ Mote 当前已经稳定可用的一批语法包括：
 - vendor 绑定：`@import("vendor/raylib")`、`@import("vendor/glfw")`、`@import("vendor/opengl")`
 - 内建：`@extern`、`@zero`、`@as`、`@slice`、`@len`、`@ptr_add`、`@ptr_diff`
 - FFI 句柄类型：`Name = opaque;`，通常配合 `*Name` 使用
+- 受限运算符重载：`@operator(+)`、`@operator(*)`、`@operator(==)`
 
 例如：
 
@@ -178,6 +179,39 @@ mut a: Vec2 = Vec2 { .x = 1, .y = 2 };
 b: Vec2 = Vec2 { .x = 3, .y = 4 };
 a.add(b);
 ```
+
+### `@operator` 当前规则
+
+顶层或局部独立函数声明使用：
+
+```mote
+@operator(+)
+add = fn(lhs: Vec2, rhs: Vec2) Vec2 {
+    return Vec2{
+        .x = lhs.x + rhs.x,
+        .y = lhs.y + rhs.y,
+    };
+};
+```
+
+结构体成员函数声明使用：
+
+```mote
+Vec2 = struct {
+    @operator(+)
+    add: fn(lhs: Vec2, rhs: Vec2) Vec2 {
+        return lhs;
+    },
+};
+```
+
+当前限制：
+
+- 第一版只支持 `+ - * / ==`，以及一元 `-`
+- `!=` 自动复用 `==`
+- 只做左操作数分派
+- 内建数值类型仍然优先走原生运算
+- 暂不支持泛型 `@operator`
 
 完整语法教程见：
 

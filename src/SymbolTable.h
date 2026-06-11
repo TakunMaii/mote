@@ -12,6 +12,7 @@ typedef struct VariableInfo {
     ASTDataType *type_value;
     ASTNode *function_value;
     ASTNode *extern_value;
+    ASTOperatorKind operator_kind;
     char identifier[MAX_IDENTIFIER_LENGTH];
 } VariableInfo;
 

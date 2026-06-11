@@ -778,6 +778,20 @@ static bool functionHasTypeParameters(ASTFunctionParameter *parameter)
     return false;
 }
 
+static ASTOperatorKind mirBinaryExprOperatorKind(ASTNodeKind kind)
+{
+    switch(kind)
+    {
+        case AST_EXPR_ADD: return AST_OPERATOR_ADD;
+        case AST_EXPR_SUB: return AST_OPERATOR_SUB;
+        case AST_EXPR_MUL: return AST_OPERATOR_MUL;
+        case AST_EXPR_DIV: return AST_OPERATOR_DIV;
+        case AST_EXPR_EQUAL:
+        case AST_EXPR_NOT_EQUAL: return AST_OPERATOR_EQ;
+        default: return AST_OPERATOR_NONE;
+    }
+}
+
 static bool functionParameterIsComptimeType(ASTFunctionParameter *parameter)
 {
     return parameter != NULL &&
@@ -1343,6 +1357,7 @@ static void mirDeclareVariableInfo(MirLowerScope *scope, ASTNode *assign_node, A
 {
     VariableInfo *variable_info = declareVariableInfo(&(scope->type_scope), assign_node->identifier);
     variable_info->mutable = assign_node->modifier.mutable;
+    variable_info->operator_kind = assign_node->operator_kind;
     variable_info->data_type = cloneDataType(declared_type);
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
         variable_info->type_value = cloneDataType(expr_type.data_type);
@@ -2619,6 +2634,53 @@ static MirValueId lowerCallExpr(MirFunctionState *state, MirLowerScope *scope, A
     return mirMaybeConvertValue(state, scope, node, call_value, expected_type);
 }
 
+static MirValueId lowerOperatorOverloadCall(MirFunctionState *state,
+                                            MirLowerScope *scope,
+                                            ASTNode *node,
+                                            ASTOperatorKind operator_kind,
+                                            ASTNode *lhs_expr,
+                                            ASTNode *rhs_expr,
+                                            ASTDataType *expected_type)
+{
+    ResolvedOperatorOverload overload = {0};
+    if(!resolveOperatorOverload(operator_kind, lhs_expr, rhs_expr, &(scope->type_scope), &overload))
+        return -1;
+
+    ASTDataType *function_type = overload.function_value->data_type;
+    ASTFunctionParameter *parameter = function_type->parameters;
+    int argument_count = lhs_expr != NULL ? 1 : 0;
+    if(rhs_expr != NULL)
+        argument_count++;
+    MirOperandList arguments = newMirOperandList(argument_count);
+    int argument_index = 0;
+
+    if(lhs_expr != NULL && parameter != NULL)
+    {
+        MirValueId lhs = lowerExprAsValue(state, scope, lhs_expr, parameter->data_type);
+        arguments.items[argument_index++] = lhs;
+        parameter = parameter->next;
+    }
+
+    if(rhs_expr != NULL && parameter != NULL)
+    {
+        MirValueId rhs = lowerExprAsValue(state, scope, rhs_expr, parameter->data_type);
+        arguments.items[argument_index++] = rhs;
+    }
+
+    MirValueId callee = lowerFunctionExprAsValue(state, scope, overload.function_value, "operator", NULL);
+    MirValueId call_value = mirEmitCall(state, callee, arguments, overload.result_type,
+                                        node->filename, node->line_number, node->column_number);
+    if(node->kind == AST_EXPR_NOT_EQUAL)
+    {
+        MirValueId negated = mirEmitUnary(state, MIR_INST_NOT, call_value, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL),
+                                          node->filename, node->line_number, node->column_number);
+        return mirMaybeConvertValue(state, scope, node, negated, expected_type);
+    }
+    if(mirIsValueTypeVoid(overload.result_type))
+        return call_value;
+    return mirMaybeConvertValue(state, scope, node, call_value, expected_type);
+}
+
 static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *node, ASTDataType *expected_type)
 {
     if(node->kind == AST_EXPR_ARRAY_LITERAL && node->lhs == NULL)
@@ -2810,6 +2872,11 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
             }
             return lowerExprAsValue(state, scope, node->lhs, expected_type);
         case AST_EXPR_UNARY_MINUS: {
+            MirValueId overload = lowerOperatorOverloadCall(state, scope, node,
+                                                            AST_OPERATOR_SUB,
+                                                            node->lhs, NULL, expected_type);
+            if(overload >= 0)
+                return overload;
             ASTDataType *result_type = mirPreferredExprValueType(node, &(scope->type_scope), expected_type);
             TypeSystemExprType operand_type = inferExprType(node->lhs, &(scope->type_scope));
             if(expected_type != NULL &&
@@ -2870,6 +2937,15 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
         case AST_EXPR_BIT_AND:
         case AST_EXPR_BIT_OR:
         case AST_EXPR_BIT_XOR: {
+            ASTOperatorKind operator_kind = mirBinaryExprOperatorKind(node->kind);
+            if(operator_kind != AST_OPERATOR_NONE)
+            {
+                MirValueId overload = lowerOperatorOverloadCall(state, scope, node,
+                                                                operator_kind,
+                                                                node->lhs, node->rhs, expected_type);
+                if(overload >= 0)
+                    return overload;
+            }
             ASTDataType *result_type = mirResolvedExprValueType(node, &(scope->type_scope));
             if(result_type != NULL && result_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
                 result_type = result_type->child;
@@ -2919,6 +2995,15 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
         case AST_EXPR_LESS_EQUAL:
         case AST_EXPR_GREATER:
         case AST_EXPR_GREATER_EQUAL: {
+            ASTOperatorKind operator_kind = mirBinaryExprOperatorKind(node->kind);
+            if(operator_kind != AST_OPERATOR_NONE)
+            {
+                MirValueId overload = lowerOperatorOverloadCall(state, scope, node,
+                                                                operator_kind,
+                                                                node->lhs, node->rhs, expected_type);
+                if(overload >= 0)
+                    return overload;
+            }
             ASTDataType *operand_type = inferComparisonOperandType(node->lhs, node->rhs, &(scope->type_scope));
             if((node->kind == AST_EXPR_EQUAL || node->kind == AST_EXPR_NOT_EQUAL) &&
                operand_type != NULL &&

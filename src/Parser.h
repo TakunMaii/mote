@@ -64,6 +64,63 @@ ASTAssignModifier parseModifier(Token **token)
     return modifier;
 }
 
+ASTOperatorKind parseOperatorKind(Token **token)
+{
+    if((*token)->kind == TK_PLUS)
+    {
+        (*token) = (*token)->next;
+        return AST_OPERATOR_ADD;
+    }
+    if((*token)->kind == TK_MINUS)
+    {
+        (*token) = (*token)->next;
+        return AST_OPERATOR_SUB;
+    }
+    if((*token)->kind == TK_STAR)
+    {
+        (*token) = (*token)->next;
+        return AST_OPERATOR_MUL;
+    }
+    if((*token)->kind == TK_SLASH)
+    {
+        (*token) = (*token)->next;
+        return AST_OPERATOR_DIV;
+    }
+    if((*token)->kind == TK_DOUBLE_EQUAL)
+    {
+        (*token) = (*token)->next;
+        return AST_OPERATOR_EQ;
+    }
+
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                           "P1006",
+                                           tokenSourceSpan(*token),
+                                           "unsupported operator annotation");
+    diagnosticSetPrimaryLabel(&diagnostic,
+                              "expected one of `+`, `-`, `*`, `/`, `==`");
+    diagnosticAbort(diagnostic);
+}
+
+ASTOperatorKind parseOperatorAnnotation(Token **token)
+{
+    if((*token)->kind != TK_AT)
+        return AST_OPERATOR_NONE;
+
+    Token *at_token = *token;
+    if(at_token->next == NULL ||
+       at_token->next->kind != TK_IDENTIFIER ||
+       strcmp(at_token->next->identifier, "operator") != 0)
+        return AST_OPERATOR_NONE;
+
+    (*token) = at_token->next->next;
+    expectToken(*token, TK_LEFT_PARENTHESIS);
+    (*token) = (*token)->next;
+    ASTOperatorKind kind = parseOperatorKind(token);
+    expectToken(*token, TK_RIGHT_PARENTHESIS);
+    (*token) = (*token)->next;
+    return kind;
+}
+
 ASTDataType* parsePrimaryDataType(Token **token)
 {
     if((*token)->kind == TK_LEFT_BRACKET && (*token)->next != NULL && (*token)->next->kind == TK_RIGHT_BRACKET)
@@ -421,6 +478,30 @@ ASTNode* parseLiteralValue(Token **token)
 
 bool isStatementAssign(Token *token)
 {
+    if(token != NULL &&
+       token->kind == TK_AT &&
+       token->next != NULL &&
+       token->next->kind == TK_IDENTIFIER &&
+       strcmp(token->next->identifier, "operator") == 0)
+    {
+        token = token->next->next;
+        if(token == NULL || token->kind != TK_LEFT_PARENTHESIS)
+            return false;
+        token = token->next;
+        if(token == NULL)
+            return false;
+        if(token->kind != TK_PLUS &&
+           token->kind != TK_MINUS &&
+           token->kind != TK_STAR &&
+           token->kind != TK_SLASH &&
+           token->kind != TK_DOUBLE_EQUAL)
+            return false;
+        token = token->next;
+        if(token == NULL || token->kind != TK_RIGHT_PARENTHESIS)
+            return false;
+        token = token->next;
+    }
+
     if(token->kind == TK_MUT)
         token = token->next;
 
@@ -662,7 +743,18 @@ ASTNode* parsePrimary(Token **token)
     }
 
     if((*token)->kind == TK_AT)
+    {
+        if((*token)->next != NULL &&
+           (*token)->next->kind == TK_IDENTIFIER &&
+           strcmp((*token)->next->identifier, "operator") == 0)
+        {
+            diagnosticAbortSimple("P1007",
+                                  "@operator is only valid before a declaration",
+                                  tokenSourceSpan(*token),
+                                  "move this annotation in front of a `name: fn(...) ...` declaration");
+        }
         return parseBuiltinExpr(token);
+    }
 
     return parseLiteralValue(token);
 }
@@ -1090,9 +1182,11 @@ ASTNode* parseStructExpr(Token **token)
 
     while((*token)->kind != TK_RIGHT_BRACE)
     {
+        ASTOperatorKind operator_kind = parseOperatorAnnotation(token);
         Token *member_token = expectToken(*token, TK_IDENTIFIER);
         ASTStructMember *member = newASTStructMemberFromToken(member_token);
         strcpy(member->identifier, member_token->identifier);
+        member->operator_kind = operator_kind;
         (*token) = (*token)->next;
 
         expectToken(*token, TK_COLON);
@@ -1179,6 +1273,7 @@ ASTNode* parseSimpleAssignNoSemicolon(Token **token)
 {
     ASTNode *node = newASTNodeFromToken(AST_ASSIGN, *token);
 
+    node->operator_kind = parseOperatorAnnotation(token);
     node->modifier = parseModifier(token);
     node->lhs = parseLValue(token);
     if(node->lhs->kind == AST_EXPR_VARIABLE)
@@ -1394,6 +1489,12 @@ ASTNode* parseStatement(Token **token)
     if((*token)->kind == TK_DEFER)
         return parseDeferStatement(token);
 
+    if((*token)->kind == TK_AT &&
+       (*token)->next != NULL &&
+       (*token)->next->kind == TK_IDENTIFIER &&
+       strcmp((*token)->next->identifier, "operator") == 0)
+        return parseAssign(token);
+
     if(isStatementAssign(*token))
         return parseAssign(token);
 
@@ -1448,7 +1549,15 @@ ASTNode* parse(Token *token)
             token = token->next;
         }
 
-        ASTNode *stmt = is_pub ? parseAssign(&token) : parseStatement(&token);
+        ASTNode *stmt = NULL;
+        if(is_pub ||
+           (token->kind == TK_AT &&
+            token->next != NULL &&
+            token->next->kind == TK_IDENTIFIER &&
+            strcmp(token->next->identifier, "operator") == 0))
+            stmt = parseAssign(&token);
+        else
+            stmt = parseStatement(&token);
         if(is_pub)
             stmt->is_pub = true;
         if(head == NULL)

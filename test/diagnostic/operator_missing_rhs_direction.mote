@@ -1,0 +1,16 @@
+Vec3 = struct {
+    x: f32,
+    y: f32,
+    z: f32,
+};
+
+@operator(*)
+vec3_mul_f32 = fn(lhs: Vec3, rhs: f32) Vec3 {
+    return lhs;
+};
+
+main = fn() i32 {
+    v = Vec3{ .x = 1.0, .y = 2.0, .z = 3.0 };
+    _ = 2.0 * v;
+    return 0;
+};

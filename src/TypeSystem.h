@@ -36,6 +36,17 @@ ASTNode* resolveExternValueExpr(ASTNode *expr, ScopeFrame *scope);
 bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType *target_type);
 bool canBindReferenceArgument(ASTNode *argument, ScopeFrame *scope, ASTDataType *parameter_type);
 
+typedef struct ResolvedOperatorOverload {
+    ASTNode *function_value;
+    ASTDataType *result_type;
+} ResolvedOperatorOverload;
+
+static bool resolveOperatorOverload(ASTOperatorKind operator_kind,
+                                    ASTNode *lhs_expr,
+                                    ASTNode *rhs_expr,
+                                    ScopeFrame *scope,
+                                    ResolvedOperatorOverload *out);
+
 typedef struct ResolveDataTypeEntry {
     ASTDataType *source;
     ASTDataType *resolved;
@@ -200,6 +211,16 @@ bool isFloatPrimary(ASTPrimaryDataType primary)
            primary == AST_PRIMARY_DATA_TYPE_F16 ||
            primary == AST_PRIMARY_DATA_TYPE_F32 ||
            primary == AST_PRIMARY_DATA_TYPE_F64;
+}
+
+static bool isBuiltinNumericOperandType(TypeSystemExprType expr_type)
+{
+    return expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_INTEGER ||
+           expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT ||
+           (expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+            expr_type.data_type != NULL &&
+            expr_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+            (isIntegerPrimary(expr_type.data_type->primary) || isFloatPrimary(expr_type.data_type->primary)));
 }
 
 bool isBoolPrimary(ASTPrimaryDataType primary)
@@ -1915,13 +1936,29 @@ bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType 
         {
             case AST_EXPR_UNARY_PLUS:
             case AST_EXPR_UNARY_MINUS:
+                if(expr->kind == AST_EXPR_UNARY_MINUS)
+                {
+                    ResolvedOperatorOverload overload = {0};
+                    if(resolveOperatorOverload(AST_OPERATOR_SUB, expr->lhs, NULL, scope, &overload))
+                        return isSameDataType(overload.result_type, target_type);
+                }
                 return canImplicitConvertExprToType(expr->lhs, scope, target_type);
             case AST_EXPR_ADD:
             case AST_EXPR_SUB:
             case AST_EXPR_MUL:
-            case AST_EXPR_DIV:
+            case AST_EXPR_DIV: {
+                ASTOperatorKind operator_kind = AST_OPERATOR_ADD;
+                if(expr->kind == AST_EXPR_SUB) operator_kind = AST_OPERATOR_SUB;
+                else if(expr->kind == AST_EXPR_MUL) operator_kind = AST_OPERATOR_MUL;
+                else if(expr->kind == AST_EXPR_DIV) operator_kind = AST_OPERATOR_DIV;
+
+                ResolvedOperatorOverload overload = {0};
+                if(resolveOperatorOverload(operator_kind, expr->lhs, expr->rhs, scope, &overload))
+                    return isSameDataType(overload.result_type, target_type);
+
                 return canImplicitConvertExprToType(expr->lhs, scope, target_type) &&
                        canImplicitConvertExprToType(expr->rhs, scope, target_type);
+            }
             default:
                 break;
         }
@@ -2387,6 +2424,87 @@ bool canBindMethodReceiver(ASTNode *receiver, ScopeFrame *scope, ASTDataType *pa
            isSameDataType(owner_type, parameter_type);
 }
 
+static bool operatorSignatureMatches(ASTNode *function_value,
+                                     ASTNode *lhs_expr,
+                                     ASTNode *rhs_expr,
+                                     ScopeFrame *scope,
+                                     ASTDataType **out_result_type)
+{
+    if(function_value == NULL || function_value->data_type == NULL)
+        return false;
+
+    ASTDataType *function_type = function_value->data_type;
+    if(function_type->kind != AST_DATA_TYPE_KIND_FUNCTION || function_type->is_variadic)
+        return false;
+
+    ASTFunctionParameter *parameter = function_type->parameters;
+    if(parameter == NULL)
+        return false;
+    ASTDataType *lhs_target_type = resolveNamedDataType(parameter->data_type, scope, NULL);
+    bool lhs_ok = canImplicitConvertExprToType(lhs_expr, scope, lhs_target_type);
+    if(!lhs_ok)
+        return false;
+
+    parameter = parameter->next;
+    if(rhs_expr == NULL)
+    {
+        if(parameter != NULL)
+            return false;
+    }
+    else
+    {
+        ASTDataType *rhs_target_type = parameter != NULL ? resolveNamedDataType(parameter->data_type, scope, NULL) : NULL;
+        bool rhs_ok = parameter != NULL && canImplicitConvertExprToType(rhs_expr, scope, rhs_target_type);
+        if(parameter == NULL || !rhs_ok)
+            return false;
+        parameter = parameter->next;
+        if(parameter != NULL)
+            return false;
+    }
+
+    if(out_result_type != NULL)
+        *out_result_type = cloneDataType(function_type->return_data_type);
+    return true;
+}
+
+static bool resolveOperatorOverload(ASTOperatorKind operator_kind,
+                                    ASTNode *lhs_expr,
+                                    ASTNode *rhs_expr,
+                                    ScopeFrame *scope,
+                                    ResolvedOperatorOverload *out)
+{
+    if(out != NULL)
+    {
+        out->function_value = NULL;
+        out->result_type = NULL;
+    }
+
+    ScopeFrame *current = scope;
+    while(current != NULL)
+    {
+        for(int i = 0; i < current->variable_count; i++)
+        {
+            VariableInfo *variable = &(current->variable_infos[i]);
+            if(variable->operator_kind != operator_kind || variable->function_value == NULL)
+                continue;
+
+            ASTDataType *result_type = NULL;
+            if(!operatorSignatureMatches(variable->function_value, lhs_expr, rhs_expr, scope, &result_type))
+                continue;
+
+            if(out != NULL)
+            {
+                out->function_value = variable->function_value;
+                out->result_type = result_type;
+            }
+            return true;
+        }
+        current = current->parent;
+    }
+
+    return false;
+}
+
 TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
 {
     switch(node->kind)
@@ -2708,6 +2826,12 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                operand_type.data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
                (isIntegerPrimary(operand_type.data_type->primary) || isFloatPrimary(operand_type.data_type->primary)))
                 return newValueExprType(operand_type.data_type);
+            if(node->kind == AST_EXPR_UNARY_MINUS)
+            {
+                ResolvedOperatorOverload overload = {0};
+                if(resolveOperatorOverload(AST_OPERATOR_SUB, node->lhs, NULL, scope, &overload))
+                    return newValueExprType(overload.result_type);
+            }
             typeErrorUnaryOperator(node, node->kind == AST_EXPR_UNARY_PLUS ? "+" : "-", operand_type);
         } break;
         case AST_EXPR_UNARY_LOGICAL_NOT: {
@@ -2794,9 +2918,20 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             TypeSystemExprType lhs_type = inferExprType(node->lhs, scope);
             TypeSystemExprType rhs_type = inferExprType(node->rhs, scope);
             const char *operator_name = "+";
+            ASTOperatorKind operator_kind = AST_OPERATOR_ADD;
             if(node->kind == AST_EXPR_MUL) operator_name = "*";
             else if(node->kind == AST_EXPR_DIV) operator_name = "/";
             else if(node->kind == AST_EXPR_SUB) operator_name = "-";
+            if(node->kind == AST_EXPR_MUL) operator_kind = AST_OPERATOR_MUL;
+            else if(node->kind == AST_EXPR_DIV) operator_kind = AST_OPERATOR_DIV;
+            else if(node->kind == AST_EXPR_SUB) operator_kind = AST_OPERATOR_SUB;
+
+            if(!isBuiltinNumericOperandType(lhs_type) || !isBuiltinNumericOperandType(rhs_type))
+            {
+                ResolvedOperatorOverload overload = {0};
+                if(resolveOperatorOverload(operator_kind, node->lhs, node->rhs, scope, &overload))
+                    return newValueExprType(overload.result_type);
+            }
             return getCommonNumericType(node, lhs_type, rhs_type, operator_name);
         }
         case AST_EXPR_MOD:
@@ -2852,6 +2987,13 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
                isSameDataType(lhs_type.data_type, rhs_type.data_type))
                 return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
+
+            if(node->kind == AST_EXPR_EQUAL || node->kind == AST_EXPR_NOT_EQUAL)
+            {
+                ResolvedOperatorOverload overload = {0};
+                if(resolveOperatorOverload(AST_OPERATOR_EQ, node->lhs, node->rhs, scope, &overload))
+                    return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
+            }
 
             getCommonNumericType(node, lhs_type, rhs_type, node->kind == AST_EXPR_EQUAL ? "==" : "!=");
             return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
