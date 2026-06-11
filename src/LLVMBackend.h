@@ -1310,6 +1310,29 @@ static void llvmEmitCompareInst(FILE *stream, LLVMFunctionEmitContext *context, 
                                 const char *signed_op, const char *unsigned_op)
 {
     ASTDataType *operand_type = llvmResolvedValueType(context, inst->data.binary.lhs);
+
+    if(operand_type != NULL && operand_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+    {
+        char lhs_code_name[32];
+        char rhs_code_name[32];
+        llvmMakeTempName(context, lhs_code_name, sizeof(lhs_code_name));
+        llvmMakeTempName(context, rhs_code_name, sizeof(rhs_code_name));
+
+        llvmEmitTempAssignPrefix(stream, lhs_code_name);
+        fprintf(stream, "extractvalue { ptr, ptr } ");
+        llvmEmitValueRef(stream, context, inst->data.binary.lhs);
+        fprintf(stream, ", 0\n");
+
+        llvmEmitTempAssignPrefix(stream, rhs_code_name);
+        fprintf(stream, "extractvalue { ptr, ptr } ");
+        llvmEmitValueRef(stream, context, inst->data.binary.rhs);
+        fprintf(stream, ", 0\n");
+
+        llvmEmitInstructionPrefix(stream, inst->result);
+        fprintf(stream, "icmp %s ptr %s, %s\n", unsigned_op, lhs_code_name, rhs_code_name);
+        return;
+    }
+
     llvmEmitInstructionPrefix(stream, inst->result);
 
     if(llvmIsFloatDataType(operand_type))

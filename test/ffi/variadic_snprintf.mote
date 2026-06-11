@@ -6,5 +6,5 @@ Buf = struct {
 
 main = fn() void {
     mut buf: Buf = @zero(Buf);
-    c.snprintf(&buf.data[0], 32, @as(*char, "Lv %d"), 7);
+    c.snprintf(&buf.data[0], 32, "Lv %d", 7);
 };

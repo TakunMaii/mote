@@ -368,49 +368,49 @@ pub init_empty_state = fn(state: &mut State) void {
 
 pub level_path = fn(level: i32) CharBuf64 {
     mut out: CharBuf64 = @zero(CharBuf64);
-    c.snprintf(&out.data[0], 64, @as(*char, "test/game/notgate/assets/maps/map%d.txt"), level);
+    c.snprintf(&out.data[0], 64, "test/game/notgate/assets/maps/map%d.txt", level);
     return out;
 };
 
 pub level_path_local = fn(level: i32) CharBuf64 {
     mut out: CharBuf64 = @zero(CharBuf64);
-    c.snprintf(&out.data[0], 64, @as(*char, "game/notgate/assets/maps/map%d.txt"), level);
+    c.snprintf(&out.data[0], 64, "game/notgate/assets/maps/map%d.txt", level);
     return out;
 };
 
 pub level_path_parent = fn(level: i32) CharBuf64 {
     mut out: CharBuf64 = @zero(CharBuf64);
-    c.snprintf(&out.data[0], 64, @as(*char, "assets/maps/map%d.txt"), level);
+    c.snprintf(&out.data[0], 64, "assets/maps/map%d.txt", level);
     return out;
 };
 
 pub asset_path = fn(path: *char) CharBuf128 {
     mut out: CharBuf128 = @zero(CharBuf128);
-    c.snprintf(&out.data[0], 128, @as(*char, "test/game/notgate/%s"), path);
+    c.snprintf(&out.data[0], 128, "test/game/notgate/%s", path);
     if(rl.FileExists(&out.data[0])) {
         return out;
     }
 
     c.memset(&out.data[0], 0, 128);
-    c.snprintf(&out.data[0], 128, @as(*char, "game/notgate/%s"), path);
+    c.snprintf(&out.data[0], 128, "game/notgate/%s", path);
     if(rl.FileExists(&out.data[0])) {
         return out;
     }
 
     c.memset(&out.data[0], 0, 128);
-    c.snprintf(&out.data[0], 128, @as(*char, "%s"), path);
+    c.snprintf(&out.data[0], 128, "%s", path);
     if(rl.FileExists(&out.data[0])) {
         return out;
     }
 
     c.memset(&out.data[0], 0, 128);
-    c.snprintf(&out.data[0], 128, @as(*char, "../game/notgate/%s"), path);
+    c.snprintf(&out.data[0], 128, "../game/notgate/%s", path);
     if(rl.FileExists(&out.data[0])) {
         return out;
     }
 
     c.memset(&out.data[0], 0, 128);
-    c.snprintf(&out.data[0], 128, @as(*char, "../../game/notgate/%s"), path);
+    c.snprintf(&out.data[0], 128, "../../game/notgate/%s", path);
     return out;
 };
 
@@ -466,10 +466,10 @@ pub init_audio_resources = fn() void {
     }
 
     if(!game_resources.sounds_loaded && rl.IsAudioDeviceReady()) {
-        game_resources.sfx_active = load_sound_asset(@as(*char, "assets/sounds/active.wav"));
-        game_resources.sfx_inactive = load_sound_asset(@as(*char, "assets/sounds/inactive.wav"));
-        game_resources.sfx_move = load_sound_asset(@as(*char, "assets/sounds/move.wav"));
-        game_resources.sfx_transport = load_sound_asset(@as(*char, "assets/sounds/transport.wav"));
+        game_resources.sfx_active = load_sound_asset("assets/sounds/active.wav");
+        game_resources.sfx_inactive = load_sound_asset("assets/sounds/inactive.wav");
+        game_resources.sfx_move = load_sound_asset("assets/sounds/move.wav");
+        game_resources.sfx_transport = load_sound_asset("assets/sounds/transport.wav");
         rl.SetSoundVolume(game_resources.sfx_active, SFX_ACTIVE_VOLUME);
         rl.SetSoundVolume(game_resources.sfx_inactive, SFX_INACTIVE_VOLUME);
         rl.SetSoundVolume(game_resources.sfx_move, SFX_MOVE_VOLUME);
@@ -478,7 +478,7 @@ pub init_audio_resources = fn() void {
     }
 
     if(!game_resources.bgm_loaded && rl.IsAudioDeviceReady()) {
-        mut full_path: CharBuf128 = asset_path(@as(*char, "assets/sounds/bgm.wav"));
+        mut full_path: CharBuf128 = asset_path("assets/sounds/bgm.wav");
         if(rl.FileExists(&full_path.data[0])) {
             game_resources.bgm = rl.LoadMusicStream(&full_path.data[0]);
             rl.SetMusicVolume(game_resources.bgm, BGM_VOLUME);
@@ -496,12 +496,12 @@ pub init_render_resources = fn() void {
     }
 
     if(!game_resources.use_postprocess && game_resources.postprocess_shader.id == 0) {
-        game_resources.postprocess_shader = load_shader_fragment_asset(@as(*char, "assets/shaders/postprocess.fs"));
+        game_resources.postprocess_shader = load_shader_fragment_asset("assets/shaders/postprocess.fs");
         if(game_resources.postprocess_shader.id != 0) {
             game_resources.use_postprocess = true;
-            game_resources.post_vignette_loc = rl.GetShaderLocation(game_resources.postprocess_shader, @as(*char, "uVignetteStrength"));
-            game_resources.post_bloom_threshold_loc = rl.GetShaderLocation(game_resources.postprocess_shader, @as(*char, "uBloomThreshold"));
-            game_resources.post_bloom_strength_loc = rl.GetShaderLocation(game_resources.postprocess_shader, @as(*char, "uBloomStrength"));
+            game_resources.post_vignette_loc = rl.GetShaderLocation(game_resources.postprocess_shader, "uVignetteStrength");
+            game_resources.post_bloom_threshold_loc = rl.GetShaderLocation(game_resources.postprocess_shader, "uBloomThreshold");
+            game_resources.post_bloom_strength_loc = rl.GetShaderLocation(game_resources.postprocess_shader, "uBloomStrength");
 
             vignette_strength: f32 = 0.35;
             bloom_threshold: f32 = 0.75;
@@ -521,49 +521,49 @@ pub init_render_resources = fn() void {
 
 pub init_visual_resources = fn() void {
     if(game_resources.wall_texture.id == 0) {
-        game_resources.wall_texture = load_texture_asset(@as(*char, "assets/art/wall.png"));
+        game_resources.wall_texture = load_texture_asset("assets/art/wall.png");
     }
     if(game_resources.box_texture.id == 0) {
-        game_resources.box_texture = load_texture_asset(@as(*char, "assets/art/box.png"));
+        game_resources.box_texture = load_texture_asset("assets/art/box.png");
     }
     if(game_resources.hero_texture.id == 0) {
-        game_resources.hero_texture = load_texture_asset(@as(*char, "assets/art/hero.png"));
+        game_resources.hero_texture = load_texture_asset("assets/art/hero.png");
     }
     if(game_resources.signal_source_texture.id == 0) {
-        game_resources.signal_source_texture = load_texture_asset(@as(*char, "assets/art/signal_source.png"));
+        game_resources.signal_source_texture = load_texture_asset("assets/art/signal_source.png");
     }
     if(game_resources.fixed_signal_source_texture.id == 0) {
-        game_resources.fixed_signal_source_texture = load_texture_asset(@as(*char, "assets/art/fixed_signal_source.png"));
+        game_resources.fixed_signal_source_texture = load_texture_asset("assets/art/fixed_signal_source.png");
     }
     if(game_resources.portal_inactive_texture.id == 0) {
-        game_resources.portal_inactive_texture = load_texture_asset(@as(*char, "assets/art/portal_inactive.png"));
+        game_resources.portal_inactive_texture = load_texture_asset("assets/art/portal_inactive.png");
     }
     if(game_resources.portal_active_texture.id == 0) {
-        game_resources.portal_active_texture = load_texture_asset(@as(*char, "assets/art/portal_active.png"));
+        game_resources.portal_active_texture = load_texture_asset("assets/art/portal_active.png");
     }
     if(game_resources.repeater_inactive_texture.id == 0) {
-        game_resources.repeater_inactive_texture = load_texture_asset(@as(*char, "assets/art/repeater_inactive.png"));
+        game_resources.repeater_inactive_texture = load_texture_asset("assets/art/repeater_inactive.png");
     }
     if(game_resources.repeater_active_texture.id == 0) {
-        game_resources.repeater_active_texture = load_texture_asset(@as(*char, "assets/art/repeater_active.png"));
+        game_resources.repeater_active_texture = load_texture_asset("assets/art/repeater_active.png");
     }
     if(game_resources.fixed_repeater_inactive_texture.id == 0) {
-        game_resources.fixed_repeater_inactive_texture = load_texture_asset(@as(*char, "assets/art/fixed_repeater_inactive.png"));
+        game_resources.fixed_repeater_inactive_texture = load_texture_asset("assets/art/fixed_repeater_inactive.png");
     }
     if(game_resources.fixed_repeater_active_texture.id == 0) {
-        game_resources.fixed_repeater_active_texture = load_texture_asset(@as(*char, "assets/art/fixed_repeater_active.png"));
+        game_resources.fixed_repeater_active_texture = load_texture_asset("assets/art/fixed_repeater_active.png");
     }
     if(game_resources.not_signal_inactive_texture.id == 0) {
-        game_resources.not_signal_inactive_texture = load_texture_asset(@as(*char, "assets/art/not_signal_inactive.png"));
+        game_resources.not_signal_inactive_texture = load_texture_asset("assets/art/not_signal_inactive.png");
     }
     if(game_resources.not_signal_active_texture.id == 0) {
-        game_resources.not_signal_active_texture = load_texture_asset(@as(*char, "assets/art/not_signal_active.png"));
+        game_resources.not_signal_active_texture = load_texture_asset("assets/art/not_signal_active.png");
     }
     if(game_resources.fixed_not_signal_inactive_texture.id == 0) {
-        game_resources.fixed_not_signal_inactive_texture = load_texture_asset(@as(*char, "assets/art/fixed_not_signal_inactive.png"));
+        game_resources.fixed_not_signal_inactive_texture = load_texture_asset("assets/art/fixed_not_signal_inactive.png");
     }
     if(game_resources.fixed_not_signal_active_texture.id == 0) {
-        game_resources.fixed_not_signal_active_texture = load_texture_asset(@as(*char, "assets/art/fixed_not_signal_active.png"));
+        game_resources.fixed_not_signal_active_texture = load_texture_asset("assets/art/fixed_not_signal_active.png");
     }
 };
 
@@ -638,28 +638,28 @@ pub open_level_file = fn(level: i32, mode: *char) *void {
     mut repo_path: CharBuf64 = level_path(level);
     mut file: *void = c.fopen(&repo_path.data[0], mode);
     if(file != null_file) {
-        c.fputs(@as(*char, "open repo\n"), c.stderr_handle());
+        c.fputs("open repo\n", c.stderr_handle());
         return file;
     }
 
     mut local_path: CharBuf64 = level_path_local(level);
     file = c.fopen(&local_path.data[0], mode);
     if(file != null_file) {
-        c.fputs(@as(*char, "open local\n"), c.stderr_handle());
+        c.fputs("open local\n", c.stderr_handle());
         return file;
     }
 
     mut parent_path: CharBuf64 = level_path_parent(level);
     file = c.fopen(&parent_path.data[0], mode);
     if(file != null_file) {
-        c.fputs(@as(*char, "open parent\n"), c.stderr_handle());
+        c.fputs("open parent\n", c.stderr_handle());
     }
     return file;
 };
 
 pub level_exists = fn(level: i32) bool {
     null_file: *void = 0;
-    file: *void = open_level_file(level, @as(*char, "rb"));
+    file: *void = open_level_file(level, "rb");
     if(file == null_file) {
         return false;
     }
@@ -1170,9 +1170,9 @@ pub recalculate_activation = fn(state: &mut State) void {
 
 pub load_level = fn(state: &mut State, level: i32) bool {
     null_file: *void = 0;
-    file: *void = open_level_file(level, @as(*char, "rb"));
+    file: *void = open_level_file(level, "rb");
     if(file == null_file) {
-        c.fputs(@as(*char, "load_open0\n"), c.stderr_handle());
+        c.fputs("load_open0\n", c.stderr_handle());
         return false;
     }
 
@@ -1192,7 +1192,7 @@ pub load_level = fn(state: &mut State, level: i32) bool {
     raw.data[read_count] = '\0';
 
     mut read_msg: CharBuf32 = @zero(CharBuf32);
-    c.snprintf(&read_msg.data[0], 32, @as(*char, "rct:%d\n"), read_count);
+    c.snprintf(&read_msg.data[0], 32, "rct:%d\n", read_count);
     c.fputs(&read_msg.data[0], c.stderr_handle());
 
     clear_map_arrays(state);
@@ -1230,7 +1230,7 @@ pub load_level = fn(state: &mut State, level: i32) bool {
     }
 
     mut size_msg: CharBuf32 = @zero(CharBuf32);
-    c.snprintf(&size_msg.data[0], 32, @as(*char, "w:%d h:%d\n"), width, height);
+    c.snprintf(&size_msg.data[0], 32, "w:%d h:%d\n", width, height);
     c.fputs(&size_msg.data[0], c.stderr_handle());
 
     if(width <= 0 || height <= 0 || width > MAP_MAX_WIDTH || height > MAP_MAX_HEIGHT) {
@@ -1416,7 +1416,7 @@ pub parse_level_command = fn(state: &State) i32 {
 
 pub submit_command = fn(state: &mut State) void {
     if(command_is_solve(state)) {
-        set_hint(state, @as(*char, "solver unavailable"), 18, 2.0);
+        set_hint(state, "solver unavailable", 18, 2.0);
         clear_command(state);
         return;
     }
@@ -1427,12 +1427,12 @@ pub submit_command = fn(state: &mut State) void {
             clear_command(state);
             return;
         }
-        set_hint(state, @as(*char, "level not found"), 15, 2.0);
+        set_hint(state, "level not found", 15, 2.0);
         clear_command(state);
         return;
     }
 
-    set_hint(state, @as(*char, "syntax error"), 12, 2.0);
+    set_hint(state, "syntax error", 12, 2.0);
     clear_command(state);
 };
 
@@ -1495,8 +1495,8 @@ pub draw_texture_cell = fn(texture: rl.Texture2D, px: i32, py: i32, cell_size: i
     src: rl.Rectangle = rl.Rectangle {
         .x = 0.0,
         .y = 0.0,
-        .width = @as(f32, texture.width),
-        .height = @as(f32, texture.height),
+        .width = texture.width,
+        .height = texture.height,
     };
     dst: rl.Rectangle = rl.Rectangle {
         .x = px,
@@ -1790,10 +1790,10 @@ pub draw_particles = fn(state: &State) void {
 
 pub draw_overlay = fn(state: &State) void {
     mut level_text: CharBuf32 = @zero(CharBuf32);
-    c.snprintf(&level_text.data[0], 32, @as(*char, "Level %d"), state.current_level);
+    c.snprintf(&level_text.data[0], 32, "Level %d", state.current_level);
     rl.DrawText(&level_text.data[0], 24, 24, 28, rl.RAYWHITE);
 
-    rl.DrawText(@as(*char, "WASD Z R /<n>"), 24, WINDOW_HEIGHT - 48, 20, rl.LIGHTGRAY);
+    rl.DrawText("WASD Z R /<n>", 24, WINDOW_HEIGHT - 48, 20, rl.LIGHTGRAY);
 
     if(state.hint_timer > 0.0 && state.hint_len > 0) {
         rl.DrawRectangle(20, 62, 260, 32, rl.Fade(rl.BLACK, 0.55));
@@ -1830,20 +1830,20 @@ pub draw_scene = fn(state: &State) void {
 };
 
 pub init_window = fn() void {
-    rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, @as(*char, "Notgate"));
+    rl.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Notgate");
     rl.SetTargetFPS(60);
     init_game_resources();
 };
 
 pub initial_load = fn(state: &mut State) void {
-    c.fputs(@as(*char, "notgate: initial_load begin"), c.stderr_handle());
+    c.fputs("notgate: initial_load begin", c.stderr_handle());
     if(!load_level(state, 1)) {
-        set_hint(state, @as(*char, "load failed"), 11, 60.0);
+        set_hint(state, "load failed", 11, 60.0);
     }
     mut init_msg: CharBuf32 = @zero(CharBuf32);
-    c.snprintf(&init_msg.data[0], 32, @as(*char, "il:%d,%d\n"), state.map_width, state.map_height);
+    c.snprintf(&init_msg.data[0], 32, "il:%d,%d\n", state.map_width, state.map_height);
     c.fputs(&init_msg.data[0], c.stderr_handle());
-    c.fputs(@as(*char, "notgate: initial_load end"), c.stderr_handle());
+    c.fputs("notgate: initial_load end", c.stderr_handle());
 };
 
 pub run_frame = fn(state: &mut State) void {
@@ -1858,8 +1858,8 @@ pub run_frame = fn(state: &mut State) void {
     source: rl.Rectangle = rl.Rectangle {
         .x = 0.0,
         .y = 0.0,
-        .width = @as(f32, game_resources.scene_target.texture.width),
-        .height = -@as(f32, game_resources.scene_target.texture.height),
+        .width = game_resources.scene_target.texture.width,
+        .height = -game_resources.scene_target.texture.height,
     };
     origin: rl.Vector2 = rl.Vector2 {.x = 0.0, .y = 0.0};
     if(game_resources.use_postprocess) {

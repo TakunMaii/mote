@@ -3,7 +3,7 @@ rl = @import("vendor/raylib");
 mut color_index: i32 = 0;
 mut pulse: f64 = 0.0;
 
-rl.InitWindow(960, 540, @as(*char, "mote + raylib"));
+rl.InitWindow(960, 540, "mote + raylib");
 rl.SetTargetFPS(60);
 
 while(!rl.WindowShouldClose()) {
@@ -32,7 +32,7 @@ while(!rl.WindowShouldClose()) {
     rl.ClearBackground(rl.RAYWHITE);
     rl.DrawRectangle(120, 100, 720, 320, rl.LIGHTGRAY);
     rl.DrawCircleV(rl.Vector2 {.x = 480.0, .y = 260.0}, 72.0, draw_color);
-    rl.DrawText(@as(*char, "SPACE changes color, ESC quits"), 180, 420, 20, rl.DARKGRAY);
+    rl.DrawText("SPACE changes color, ESC quits", 180, 420, 20, rl.DARKGRAY);
     rl.EndDrawing();
 }
 

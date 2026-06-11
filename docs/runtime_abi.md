@@ -62,7 +62,8 @@ This document defines the backend-facing runtime ABI that `MIR` assumes.
 
 ## String Literal To `*char`
 
-- `@as(*char, "...")` is a special supported explicit conversion for C interop
+- String literals can coerce to `*char` in pointer target contexts for C interop
+- `@as(*char, "...")` remains a supported explicit form
 - The backend materializes a global NUL-terminated byte buffer and returns a pointer to its first element
 - This does not change the default type of a string literal expression, which remains `Array(char, N)`
 

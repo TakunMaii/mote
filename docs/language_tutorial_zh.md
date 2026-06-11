@@ -31,7 +31,7 @@ Mote 当前有几个非常重要的语言事实：
 ```mote
 c = @import("c");
 
-c.printf(@as(*char, "hello, mote\n"));
+c.printf("hello, mote\n");
 ```
 
 如果你要使用仓库内置的 C FFI 包：
@@ -44,7 +44,7 @@ c.printf(@as(*char, "hello, mote\n"));
 
 - `@import("c")` 会导入内置 `c` 包
 - 字符串字面量默认不是 `*char`
-- 传给 `printf` 时要显式写 `@as(*char, "...")`
+- 但在 `*char` / `*mut char` 目标上下文里，现在通常可以自动隐式转换
 
 ## 3. 程序入口与执行模型
 
@@ -247,14 +247,14 @@ false
 因此：
 
 - 它不是 `*char`
-- 它不会自动退化为指针
-- 做 C FFI 时通常需要显式写 `@as(*char, "...")`
+- 它不会无条件退化为指针
+- 但在 `*char` / `*mut char` 的目标上下文里，做 C FFI 时通常已经可以直接传
 
 例如：
 
 ```mote
 c = @import("c");
-c.printf(@as(*char, "value=%d\n"), 42);
+c.printf("value=%d\n", 42);
 ```
 
 ### 8.2 `null`
@@ -977,13 +977,7 @@ y: f32 = @as(f32, x);
 z: i32 = @as(i32, y);
 ```
 
-当前最常见用途之一是字符串转 `*char`：
-
-```mote
-msg: *char = @as(*char, "hello\n");
-```
-
-另一个常见用途是“明确要求有损或重解释转换”的地方，例如：
+当前一个常见用途是“明确要求有损或重解释转换”的地方，例如：
 
 ```mote
 x: f32 = 3.5;
@@ -1011,7 +1005,7 @@ c_mem.free(heap);
 
 ```mote
 c = @import("c");
-c.printf(@as(*char, "val=%d %s\n"), 42, @as(*char, "ok"));
+c.printf("val=%d %s\n", 42, @as(*char, "ok"));
 ```
 
 如果你需要理解更底层的 ABI 和聚合类型传参规则，继续看：

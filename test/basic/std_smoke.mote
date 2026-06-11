@@ -7,7 +7,7 @@ main = fn() void {
     atoi_ok = std.string_to_int("42") == 42;
 
     if(len_ok && cmp_ok && cmp_n_ok && atoi_ok) {
-        std.io_put_char(@as(i32, 'O'));
+        std.io_put_char('O');
         std.io_put_str("std ok");
     }
 };

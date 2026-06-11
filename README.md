@@ -30,7 +30,7 @@ add = fn(a: i32, b: i32) i32 {
     return a + b;
 };
 
-c.printf(@as(*char, "1 + 2 = %d\n"), add(1, 2));
+c.printf("1 + 2 = %d\n", add(1, 2));
 ```
 
 ## 仓库结构

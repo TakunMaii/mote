@@ -156,11 +156,11 @@ This matters because top-level code is executable and may have side effects.
 ## Current String Interop
 
 - A plain string literal currently has type `Array(char, N)`.
-- It does not auto-coerce to `*char`.
-- For C-style NUL-terminated strings, use an explicit cast:
+- In `*char` / `*mut char` target contexts, it can now coerce implicitly for C-style string interop.
+- Explicit `@as(*char, "...")` is still accepted but usually unnecessary.
 
 ```mote
-c.printf(@as(*char, "hello %d\n"), 42);
+c.printf("hello %d\n", 42);
 ```
 
 ## Toolchain Requirement

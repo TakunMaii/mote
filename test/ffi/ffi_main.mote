@@ -12,12 +12,12 @@ mut copy: Array(char, 5) = ['\0', '\0', '\0', '\0', '\0'];
 c_mem.memcpy(&copy[0], &data[0], 5);
 c_mem.memset(&copy[0], 'x', 1);
 
-writer: *void = c_file.fopen(@as(*char, "ffi_out.txt"), @as(*char, "wb"));
+writer: *void = c_file.fopen("ffi_out.txt", "wb");
 written: i64 = c_file.fwrite(&copy[0], 1, 5, writer);
 c_file.fclose(writer);
 
 mut read_back: Array(char, 5) = ['\0', '\0', '\0', '\0', '\0'];
-reader: *void = c_file.fopen(@as(*char, "ffi_out.txt"), @as(*char, "rb"));
+reader: *void = c_file.fopen("ffi_out.txt", "rb");
 read_count: i64 = c_file.fread(&read_back[0], 1, 5, reader);
 c_file.fclose(reader);
 
@@ -27,4 +27,4 @@ if(written == 5 && read_count == 5 && read_back[0] == 'x' && read_back[1] == 'e'
 }
 
 c_io.putchar('\n');
-c_file.remove(@as(*char, "ffi_out.txt"));
+c_file.remove("ffi_out.txt");

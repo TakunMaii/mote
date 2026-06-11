@@ -7,7 +7,7 @@ main = fn() void {
     src_ptr: *char = &src[0];
     dst_ptr: *mut char = &mut dst[0];
 
-    mem.set(dst_ptr, @as(i32, 'x'), 4);
+    mem.set(dst_ptr, 'x', 4);
     mem.copy(dst_ptr, src_ptr, 4);
 
     ok = mem.compare(dst_ptr, src_ptr, 4) == 0;

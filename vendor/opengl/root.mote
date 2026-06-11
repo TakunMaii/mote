@@ -184,68 +184,68 @@ load_fn = fn(loader: Loader, name: *char) *void {
 };
 
 pub LoadWith = fn(loader: Loader) void {
-    ClearColor = @as(FnClearColor, load_fn(loader, @as(*char, "glClearColor")));
-    Clear = @as(FnClear, load_fn(loader, @as(*char, "glClear")));
-    Viewport = @as(FnViewport, load_fn(loader, @as(*char, "glViewport")));
-    Enable = @as(FnEnable, load_fn(loader, @as(*char, "glEnable")));
-    Disable = @as(FnDisable, load_fn(loader, @as(*char, "glDisable")));
-    BlendFunc = @as(FnBlendFunc, load_fn(loader, @as(*char, "glBlendFunc")));
-    DepthFunc = @as(FnDepthFunc, load_fn(loader, @as(*char, "glDepthFunc")));
+    ClearColor = @as(FnClearColor, load_fn(loader, "glClearColor"));
+    Clear = @as(FnClear, load_fn(loader, "glClear"));
+    Viewport = @as(FnViewport, load_fn(loader, "glViewport"));
+    Enable = @as(FnEnable, load_fn(loader, "glEnable"));
+    Disable = @as(FnDisable, load_fn(loader, "glDisable"));
+    BlendFunc = @as(FnBlendFunc, load_fn(loader, "glBlendFunc"));
+    DepthFunc = @as(FnDepthFunc, load_fn(loader, "glDepthFunc"));
 
-    GenVertexArrays = @as(FnGenVertexArrays, load_fn(loader, @as(*char, "glGenVertexArrays")));
-    BindVertexArray = @as(FnBindVertexArray, load_fn(loader, @as(*char, "glBindVertexArray")));
-    DeleteVertexArrays = @as(FnDeleteVertexArrays, load_fn(loader, @as(*char, "glDeleteVertexArrays")));
+    GenVertexArrays = @as(FnGenVertexArrays, load_fn(loader, "glGenVertexArrays"));
+    BindVertexArray = @as(FnBindVertexArray, load_fn(loader, "glBindVertexArray"));
+    DeleteVertexArrays = @as(FnDeleteVertexArrays, load_fn(loader, "glDeleteVertexArrays"));
 
-    GenBuffers = @as(FnGenBuffers, load_fn(loader, @as(*char, "glGenBuffers")));
-    BindBuffer = @as(FnBindBuffer, load_fn(loader, @as(*char, "glBindBuffer")));
-    BufferData = @as(FnBufferData, load_fn(loader, @as(*char, "glBufferData")));
-    BufferSubData = @as(FnBufferSubData, load_fn(loader, @as(*char, "glBufferSubData")));
-    DeleteBuffers = @as(FnDeleteBuffers, load_fn(loader, @as(*char, "glDeleteBuffers")));
+    GenBuffers = @as(FnGenBuffers, load_fn(loader, "glGenBuffers"));
+    BindBuffer = @as(FnBindBuffer, load_fn(loader, "glBindBuffer"));
+    BufferData = @as(FnBufferData, load_fn(loader, "glBufferData"));
+    BufferSubData = @as(FnBufferSubData, load_fn(loader, "glBufferSubData"));
+    DeleteBuffers = @as(FnDeleteBuffers, load_fn(loader, "glDeleteBuffers"));
 
-    VertexAttribPointer = @as(FnVertexAttribPointer, load_fn(loader, @as(*char, "glVertexAttribPointer")));
-    EnableVertexAttribArray = @as(FnEnableVertexAttribArray, load_fn(loader, @as(*char, "glEnableVertexAttribArray")));
-    DisableVertexAttribArray = @as(FnDisableVertexAttribArray, load_fn(loader, @as(*char, "glDisableVertexAttribArray")));
+    VertexAttribPointer = @as(FnVertexAttribPointer, load_fn(loader, "glVertexAttribPointer"));
+    EnableVertexAttribArray = @as(FnEnableVertexAttribArray, load_fn(loader, "glEnableVertexAttribArray"));
+    DisableVertexAttribArray = @as(FnDisableVertexAttribArray, load_fn(loader, "glDisableVertexAttribArray"));
 
-    CreateShader = @as(FnCreateShader, load_fn(loader, @as(*char, "glCreateShader")));
-    ShaderSource = @as(FnShaderSource, load_fn(loader, @as(*char, "glShaderSource")));
-    CompileShader = @as(FnCompileShader, load_fn(loader, @as(*char, "glCompileShader")));
-    GetShaderiv = @as(FnGetShaderiv, load_fn(loader, @as(*char, "glGetShaderiv")));
-    GetShaderInfoLog = @as(FnGetShaderInfoLog, load_fn(loader, @as(*char, "glGetShaderInfoLog")));
-    DeleteShader = @as(FnDeleteShader, load_fn(loader, @as(*char, "glDeleteShader")));
+    CreateShader = @as(FnCreateShader, load_fn(loader, "glCreateShader"));
+    ShaderSource = @as(FnShaderSource, load_fn(loader, "glShaderSource"));
+    CompileShader = @as(FnCompileShader, load_fn(loader, "glCompileShader"));
+    GetShaderiv = @as(FnGetShaderiv, load_fn(loader, "glGetShaderiv"));
+    GetShaderInfoLog = @as(FnGetShaderInfoLog, load_fn(loader, "glGetShaderInfoLog"));
+    DeleteShader = @as(FnDeleteShader, load_fn(loader, "glDeleteShader"));
 
-    CreateProgram = @as(FnCreateProgram, load_fn(loader, @as(*char, "glCreateProgram")));
-    AttachShader = @as(FnAttachShader, load_fn(loader, @as(*char, "glAttachShader")));
-    LinkProgram = @as(FnLinkProgram, load_fn(loader, @as(*char, "glLinkProgram")));
-    GetProgramiv = @as(FnGetProgramiv, load_fn(loader, @as(*char, "glGetProgramiv")));
-    GetProgramInfoLog = @as(FnGetProgramInfoLog, load_fn(loader, @as(*char, "glGetProgramInfoLog")));
-    UseProgram = @as(FnUseProgram, load_fn(loader, @as(*char, "glUseProgram")));
-    DeleteProgram = @as(FnDeleteProgram, load_fn(loader, @as(*char, "glDeleteProgram")));
-    GetAttribLocation = @as(FnGetAttribLocation, load_fn(loader, @as(*char, "glGetAttribLocation")));
+    CreateProgram = @as(FnCreateProgram, load_fn(loader, "glCreateProgram"));
+    AttachShader = @as(FnAttachShader, load_fn(loader, "glAttachShader"));
+    LinkProgram = @as(FnLinkProgram, load_fn(loader, "glLinkProgram"));
+    GetProgramiv = @as(FnGetProgramiv, load_fn(loader, "glGetProgramiv"));
+    GetProgramInfoLog = @as(FnGetProgramInfoLog, load_fn(loader, "glGetProgramInfoLog"));
+    UseProgram = @as(FnUseProgram, load_fn(loader, "glUseProgram"));
+    DeleteProgram = @as(FnDeleteProgram, load_fn(loader, "glDeleteProgram"));
+    GetAttribLocation = @as(FnGetAttribLocation, load_fn(loader, "glGetAttribLocation"));
 
-    GetUniformLocation = @as(FnGetUniformLocation, load_fn(loader, @as(*char, "glGetUniformLocation")));
-    Uniform1i = @as(FnUniform1i, load_fn(loader, @as(*char, "glUniform1i")));
-    Uniform1f = @as(FnUniform1f, load_fn(loader, @as(*char, "glUniform1f")));
-    Uniform2f = @as(FnUniform2f, load_fn(loader, @as(*char, "glUniform2f")));
-    Uniform3f = @as(FnUniform3f, load_fn(loader, @as(*char, "glUniform3f")));
-    Uniform4f = @as(FnUniform4f, load_fn(loader, @as(*char, "glUniform4f")));
-    UniformMatrix4fv = @as(FnUniformMatrix4fv, load_fn(loader, @as(*char, "glUniformMatrix4fv")));
+    GetUniformLocation = @as(FnGetUniformLocation, load_fn(loader, "glGetUniformLocation"));
+    Uniform1i = @as(FnUniform1i, load_fn(loader, "glUniform1i"));
+    Uniform1f = @as(FnUniform1f, load_fn(loader, "glUniform1f"));
+    Uniform2f = @as(FnUniform2f, load_fn(loader, "glUniform2f"));
+    Uniform3f = @as(FnUniform3f, load_fn(loader, "glUniform3f"));
+    Uniform4f = @as(FnUniform4f, load_fn(loader, "glUniform4f"));
+    UniformMatrix4fv = @as(FnUniformMatrix4fv, load_fn(loader, "glUniformMatrix4fv"));
 
-    ActiveTexture = @as(FnActiveTexture, load_fn(loader, @as(*char, "glActiveTexture")));
-    GenTextures = @as(FnGenTextures, load_fn(loader, @as(*char, "glGenTextures")));
-    BindTexture = @as(FnBindTexture, load_fn(loader, @as(*char, "glBindTexture")));
-    TexParameteri = @as(FnTexParameteri, load_fn(loader, @as(*char, "glTexParameteri")));
-    TexParameterfv = @as(FnTexParameterfv, load_fn(loader, @as(*char, "glTexParameterfv")));
-    TexImage2D = @as(FnTexImage2D, load_fn(loader, @as(*char, "glTexImage2D")));
-    GenerateMipmap = @as(FnGenerateMipmap, load_fn(loader, @as(*char, "glGenerateMipmap")));
-    DeleteTextures = @as(FnDeleteTextures, load_fn(loader, @as(*char, "glDeleteTextures")));
+    ActiveTexture = @as(FnActiveTexture, load_fn(loader, "glActiveTexture"));
+    GenTextures = @as(FnGenTextures, load_fn(loader, "glGenTextures"));
+    BindTexture = @as(FnBindTexture, load_fn(loader, "glBindTexture"));
+    TexParameteri = @as(FnTexParameteri, load_fn(loader, "glTexParameteri"));
+    TexParameterfv = @as(FnTexParameterfv, load_fn(loader, "glTexParameterfv"));
+    TexImage2D = @as(FnTexImage2D, load_fn(loader, "glTexImage2D"));
+    GenerateMipmap = @as(FnGenerateMipmap, load_fn(loader, "glGenerateMipmap"));
+    DeleteTextures = @as(FnDeleteTextures, load_fn(loader, "glDeleteTextures"));
 
-    GenFramebuffers = @as(FnGenFramebuffers, load_fn(loader, @as(*char, "glGenFramebuffers")));
-    BindFramebuffer = @as(FnBindFramebuffer, load_fn(loader, @as(*char, "glBindFramebuffer")));
-    FramebufferTexture2D = @as(FnFramebufferTexture2D, load_fn(loader, @as(*char, "glFramebufferTexture2D")));
-    CheckFramebufferStatus = @as(FnCheckFramebufferStatus, load_fn(loader, @as(*char, "glCheckFramebufferStatus")));
-    DeleteFramebuffers = @as(FnDeleteFramebuffers, load_fn(loader, @as(*char, "glDeleteFramebuffers")));
-    CullFace = @as(FnCullFace, load_fn(loader, @as(*char, "glCullFace")));
+    GenFramebuffers = @as(FnGenFramebuffers, load_fn(loader, "glGenFramebuffers"));
+    BindFramebuffer = @as(FnBindFramebuffer, load_fn(loader, "glBindFramebuffer"));
+    FramebufferTexture2D = @as(FnFramebufferTexture2D, load_fn(loader, "glFramebufferTexture2D"));
+    CheckFramebufferStatus = @as(FnCheckFramebufferStatus, load_fn(loader, "glCheckFramebufferStatus"));
+    DeleteFramebuffers = @as(FnDeleteFramebuffers, load_fn(loader, "glDeleteFramebuffers"));
+    CullFace = @as(FnCullFace, load_fn(loader, "glCullFace"));
 
-    DrawArrays = @as(FnDrawArrays, load_fn(loader, @as(*char, "glDrawArrays")));
-    DrawElements = @as(FnDrawElements, load_fn(loader, @as(*char, "glDrawElements")));
+    DrawArrays = @as(FnDrawArrays, load_fn(loader, "glDrawArrays"));
+    DrawElements = @as(FnDrawElements, load_fn(loader, "glDrawElements"));
 };

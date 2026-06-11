@@ -1,6 +1,6 @@
 c = @import("c");
 
 pub main = fn() void {
-    fmt: *char = @as(*char, "string-as-ptr ok\n");
+    fmt: *char = "string-as-ptr ok\n";
     c.printf(fmt);
 };

@@ -2,7 +2,7 @@ rl = @import("vendor/raylib");
 
 mut frames: i32 = 0;
 
-rl.InitWindow(320, 240, @as(*char, "bisect import const"));
+rl.InitWindow(320, 240, "bisect import const");
 rl.SetTargetFPS(60);
 
 while(!rl.WindowShouldClose() && frames < 2) {
