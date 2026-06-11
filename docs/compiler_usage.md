@@ -115,7 +115,7 @@ Compile a package-based multi-file program:
 Compile the `notgate` test package:
 
 ```powershell
-.\mote.exe test\game\notgate_main.mote -I . -I lib -I test\game -L test\game\notgate\build -lraylib -lopengl32 -lgdi32 -lwinmm -luser32 -lshell32 -o test\artifacts\notgate.exe
+.\mote.exe test\game\notgate_main.mote -I . -I lib -I test\game -o test\artifacts\notgate.exe
 ```
 
 ## Import Resolution
@@ -124,6 +124,7 @@ Compile the `notgate` test package:
 - Search-root imports like `@import("c/io")` require `-I <dir>` where `<dir>` contains `c\root.mote` or `c\io.mote`.
 - Official packages such as `@import("std")` and `@import("c")` are normally found through the compiler's automatic relative search roots.
 - Vendor imports like `@import("vendor/raylib")` or `@import("vendor/opengl")` typically use the repository root as a search root, for example `-I .`.
+- For officially vendored native libraries such as `vendor/raylib` and `vendor/glfw`, the compiler also searches prebuilt libraries relative to the compiler executable automatically.
 - Search roots may point to either a module file tree or a directory containing nested packages with `root.mote`.
 
 ## Vendor Packages

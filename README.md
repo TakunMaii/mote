@@ -128,7 +128,7 @@ mote [options] <input.mote>
 编译：
 
 ```powershell
-.\mote.exe test\game\notgate_main.mote -I . -I lib -I test\game -L test\game\notgate\build -lraylib -lopengl32 -lgdi32 -lwinmm -luser32 -lshell32 -o test\artifacts\notgate.exe
+.\mote.exe test\game\notgate_main.mote -I . -I lib -I test\game -o test\artifacts\notgate.exe
 ```
 
 运行：
@@ -142,7 +142,7 @@ mote [options] <input.mote>
 - 这个命令默认会把可执行文件输出到 `test\artifacts\notgate.exe`
 - `-I .` 让 `@import("vendor/...")` 能从仓库根目录解析第三方 vendor 包
 - 从仓库根目录运行最稳妥，因为 `notgate` 的资源路径优先按仓库内布局查找
-- `raylib.lib` 已经放在 `test\game\notgate\build\raylib.lib`
+- `vendor/raylib/lib` 和 `vendor/glfw/lib` 下的官方预编译库会由编译器自动按平台查找并链接
 
 ## 语言速览
 

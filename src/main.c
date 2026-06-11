@@ -233,6 +233,27 @@ static void add_driver_path_arg(const char **driver_args, int *driver_arg_count,
     add_driver_arg(driver_args, driver_arg_count, forwarded);
 }
 
+static bool resolve_vendor_library_dir(char *buffer, size_t buffer_size, const char *argv0,
+                                       const char *vendor_name, const char *platform_name)
+{
+    char executable_dir[CLI_PATH_BUFFER_SIZE] = {0};
+    char vendor_root[CLI_PATH_BUFFER_SIZE] = {0};
+    char vendor_lib_dir[CLI_PATH_BUFFER_SIZE] = {0};
+
+    if(!resolve_executable_directory(executable_dir, sizeof(executable_dir), argv0))
+        return false;
+    if(!join_path(vendor_root, sizeof(vendor_root), executable_dir, "vendor"))
+        return false;
+    if(!join_path(vendor_root, sizeof(vendor_root), vendor_root, vendor_name))
+        return false;
+    if(!join_path(vendor_lib_dir, sizeof(vendor_lib_dir), vendor_root, "lib"))
+        return false;
+    if(!join_path(buffer, buffer_size, vendor_lib_dir, platform_name))
+        return false;
+
+    return directory_exists(buffer);
+}
+
 static void add_default_official_search_roots(ModulePackage *packages, int *package_count, const char *argv0)
 {
     char executable_dir[CLI_PATH_BUFFER_SIZE] = {0};
@@ -246,25 +267,139 @@ static void add_default_official_search_roots(ModulePackage *packages, int *pack
         add_search_root_if_exists(packages, package_count, lib_dir);
 }
 
-static bool source_uses_import(const char *path, const char *needle)
+static bool module_tree_resolve_import_path(ModulePackage *packages, int package_count,
+                                            const char *importer_path, const char *import_path,
+                                            char *buffer, size_t buffer_size)
 {
+    (void) buffer_size;
+
+    if(import_path == NULL || import_path[0] == '\0')
+        return false;
+
+    if(moduleIsAbsolutePath(import_path) || moduleIsRelativeImportPath(import_path))
+    {
+        char importer_dir[MODULE_MAX_PATH_LENGTH] = {0};
+        moduleDirectoryName(importer_path, importer_dir);
+        return moduleTryResolveModuleFilePath(importer_dir, import_path, buffer);
+    }
+
+    for(int i = 0; i < package_count; i++)
+    {
+        ModulePackage *package = &(packages[i]);
+        if(!package->is_search_root)
+            continue;
+        if(moduleTryResolveModuleFilePath(package->root_path, import_path, buffer))
+            return true;
+    }
+
+    return false;
+}
+
+static bool module_tree_uses_import_impl(ModulePackage *packages, int package_count,
+                                         const char *path, const char *needle,
+                                         char visited_paths[][CLI_PATH_BUFFER_SIZE], int *visited_count)
+{
+    if(path == NULL)
+        return false;
+
+    for(int i = 0; i < *visited_count; i++)
+    {
+        if(strcmp(visited_paths[i], path) == 0)
+            return false;
+    }
+
+    if(*visited_count >= CLI_MAX_PACKAGES)
+        return false;
+    snprintf(visited_paths[*visited_count], CLI_PATH_BUFFER_SIZE, "%s", path);
+    (*visited_count)++;
+
     char *source = moduleReadFile(path);
     if(source == NULL)
         return false;
 
     bool found = strstr(source, needle) != NULL;
+    if(!found)
+    {
+        const char *cursor = source;
+        const char *import_prefix = "@import(\"";
+        size_t import_prefix_length = strlen(import_prefix);
+
+        while(!found)
+        {
+            const char *import_start = strstr(cursor, import_prefix);
+            if(import_start == NULL)
+                break;
+
+            const char *name_start = import_start + import_prefix_length;
+            const char *name_end = strchr(name_start, '"');
+            if(name_end == NULL)
+                break;
+
+            char import_name[CLI_PATH_BUFFER_SIZE] = {0};
+            size_t import_length = (size_t)(name_end - name_start);
+            if(import_length > 0 && import_length < sizeof(import_name))
+            {
+                memcpy(import_name, name_start, import_length);
+                import_name[import_length] = '\0';
+
+                char resolved_path[CLI_PATH_BUFFER_SIZE] = {0};
+                if(module_tree_resolve_import_path(packages, package_count, path, import_name,
+                                                  resolved_path, sizeof(resolved_path)))
+                {
+                    found = module_tree_uses_import_impl(packages, package_count, resolved_path, needle,
+                                                         visited_paths, visited_count);
+                }
+            }
+
+            cursor = name_end + 1;
+        }
+    }
+
     free(source);
     return found;
 }
 
-static void add_default_official_link_args(const char *input_path,
+static bool module_tree_uses_import(ModulePackage *packages, int package_count,
+                                    const char *path, const char *needle)
+{
+    char visited_paths[CLI_MAX_PACKAGES][CLI_PATH_BUFFER_SIZE];
+    memset(visited_paths, 0, sizeof(visited_paths));
+    int visited_count = 0;
+    return module_tree_uses_import_impl(packages, package_count, path, needle, visited_paths, &visited_count);
+}
+
+static void add_default_vendor_link_search_paths(const char *argv0, bool uses_glfw, bool uses_raylib,
+                                                 const char **driver_args, int *driver_arg_count)
+{
+    char vendor_lib_dir[CLI_PATH_BUFFER_SIZE] = {0};
+
+#if defined(_WIN32)
+    if(uses_glfw && resolve_vendor_library_dir(vendor_lib_dir, sizeof(vendor_lib_dir), argv0, "glfw", "windows"))
+        add_driver_path_arg(driver_args, driver_arg_count, "-L", vendor_lib_dir);
+    if(uses_raylib && resolve_vendor_library_dir(vendor_lib_dir, sizeof(vendor_lib_dir), argv0, "raylib", "windows"))
+        add_driver_path_arg(driver_args, driver_arg_count, "-L", vendor_lib_dir);
+#elif defined(__APPLE__)
+    if(uses_glfw && resolve_vendor_library_dir(vendor_lib_dir, sizeof(vendor_lib_dir), argv0, "glfw", "macos"))
+        add_driver_path_arg(driver_args, driver_arg_count, "-L", vendor_lib_dir);
+    if(uses_raylib && resolve_vendor_library_dir(vendor_lib_dir, sizeof(vendor_lib_dir), argv0, "raylib", "macos"))
+        add_driver_path_arg(driver_args, driver_arg_count, "-L", vendor_lib_dir);
+#else
+    if(uses_raylib && resolve_vendor_library_dir(vendor_lib_dir, sizeof(vendor_lib_dir), argv0, "raylib", "linux"))
+        add_driver_path_arg(driver_args, driver_arg_count, "-L", vendor_lib_dir);
+#endif
+}
+
+static void add_default_official_link_args(const char *argv0, ModulePackage *packages, int package_count,
+                                           const char *input_path,
                                            const char **driver_args, int *driver_arg_count)
 {
-    bool uses_glfw = source_uses_import(input_path, "@import(\"vendor/glfw\")");
-    bool uses_raylib = source_uses_import(input_path, "@import(\"vendor/raylib\")");
-    bool uses_std_math = source_uses_import(input_path, "@import(\"std/math\")");
-    bool uses_std_linalg = source_uses_import(input_path, "@import(\"std/linalg\")");
-    bool uses_c_math = source_uses_import(input_path, "@import(\"c/math\")");
+    bool uses_glfw = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor/glfw\")");
+    bool uses_raylib = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor/raylib\")");
+    bool uses_std_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"std/math\")");
+    bool uses_std_linalg = module_tree_uses_import(packages, package_count, input_path, "@import(\"std/linalg\")");
+    bool uses_c_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"c/math\")");
+
+    add_default_vendor_link_search_paths(argv0, uses_glfw, uses_raylib, driver_args, driver_arg_count);
 
 #if defined(__APPLE__)
     if(directory_exists("/opt/homebrew/lib"))
@@ -281,9 +416,15 @@ static void add_default_official_link_args(const char *input_path,
 
     if(uses_glfw)
     {
-        add_driver_arg(driver_args, driver_arg_count, "-lglfw");
+        add_driver_arg(driver_args, driver_arg_count, "-lglfw3");
 #if defined(__APPLE__)
         add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,OpenGL");
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,Cocoa");
+        add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,IOKit");
+#elif defined(_WIN32)
+        add_driver_arg(driver_args, driver_arg_count, "-lgdi32");
+        add_driver_arg(driver_args, driver_arg_count, "-luser32");
+        add_driver_arg(driver_args, driver_arg_count, "-lshell32");
 #endif
     }
 
@@ -298,6 +439,14 @@ static void add_default_official_link_args(const char *input_path,
         add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,CoreAudio");
         add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,AudioToolbox");
         add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,AudioUnit");
+#elif defined(_WIN32)
+        add_driver_arg(driver_args, driver_arg_count, "-lgdi32");
+        add_driver_arg(driver_args, driver_arg_count, "-lwinmm");
+        add_driver_arg(driver_args, driver_arg_count, "-luser32");
+        add_driver_arg(driver_args, driver_arg_count, "-lshell32");
+#else
+        add_driver_arg(driver_args, driver_arg_count, "-ldl");
+        add_driver_arg(driver_args, driver_arg_count, "-lpthread");
 #endif
     }
 
@@ -615,7 +764,7 @@ int main(int argn, char** argv)
         exit(1);
     }
 
-    add_default_official_link_args(input_path, driver_args, &driver_arg_count);
+    add_default_official_link_args(argv[0], packages, package_count, input_path, driver_args, &driver_arg_count);
 
     char default_llvm_output_path[1024] = {0};
     char default_exe_output_path[1024] = {0};
