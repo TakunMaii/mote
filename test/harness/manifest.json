@@ -163,6 +163,16 @@
       ]
     },
     {
+      "name": "std-linalg-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_linalg_api.mote",
+      "args": [
+        "-I",
+        "lib"
+      ]
+    },
+    {
       "name": "std-fs-api-llvm",
       "expect": "success",
       "mode": "llvm",

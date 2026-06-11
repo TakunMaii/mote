@@ -256,6 +256,10 @@ gl.LoadWith(glfw.GetProcAddress);
   - 当前以显式浮点 API 为主
   - 命名采用 `_f32` / `_f64` 后缀，例如 `sqrt_f32`、`pow_f64`
   - 另有纯语言级 `min/max/clamp` 泛型 helper
+- `std/linalg`
+  - 面向游戏 / 图形的向量与矩阵
+  - 当前提供 `Vec2/Vec3/Vec4/IVec2/Mat4`
+  - 支持常用 operator、dot/cross、normalize、`Mat4` 变换、`look_at`、`perspective`
 
 ## 当前执行模型
 

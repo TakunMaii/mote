@@ -575,6 +575,17 @@ neg = -v;
 scaled = 2.0 * v;
 ```
 
+`std/linalg` 里的 `Vec2/Vec3/Vec4/Mat4` 就会用到这套能力，例如：
+
+```mote
+linalg = @import("std/linalg");
+
+a = linalg.vec3(1.0, 2.0, 3.0);
+b = linalg.vec3(4.0, 5.0, 6.0);
+c = a + b;
+d = a * 2.0;
+```
+
 ## 11. 控制流
 
 ### 11.1 `if / else if / else`

@@ -258,6 +258,7 @@ static void add_default_official_link_args(const char *input_path,
     bool uses_glfw = source_uses_import(input_path, "@import(\"vendor/glfw\")");
     bool uses_raylib = source_uses_import(input_path, "@import(\"vendor/raylib\")");
     bool uses_std_math = source_uses_import(input_path, "@import(\"std/math\")");
+    bool uses_std_linalg = source_uses_import(input_path, "@import(\"std/linalg\")");
     bool uses_c_math = source_uses_import(input_path, "@import(\"c/math\")");
 
 #if defined(__APPLE__)
@@ -295,7 +296,7 @@ static void add_default_official_link_args(const char *input_path,
 #endif
     }
 
-    if(uses_std_math || uses_c_math)
+    if(uses_std_math || uses_std_linalg || uses_c_math)
         add_driver_arg(driver_args, driver_arg_count, "-lm");
 }
 

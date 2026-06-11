@@ -1,0 +1,549 @@
+math = @import("std/math");
+
+pub Vec2 = struct {
+    x: f32,
+    y: f32,
+};
+
+pub Vec3 = struct {
+    x: f32,
+    y: f32,
+    z: f32,
+};
+
+pub Vec4 = struct {
+    x: f32,
+    y: f32,
+    z: f32,
+    w: f32,
+};
+
+pub IVec2 = struct {
+    x: i32,
+    y: i32,
+};
+
+pub Mat4 = struct {
+    data: Array(f32, 16),
+};
+
+pub vec2 = fn(x: f32, y: f32) Vec2 {
+    return Vec2{ .x = x, .y = y };
+};
+
+pub vec3 = fn(x: f32, y: f32, z: f32) Vec3 {
+    return Vec3{ .x = x, .y = y, .z = z };
+};
+
+pub vec4 = fn(x: f32, y: f32, z: f32, w: f32) Vec4 {
+    return Vec4{ .x = x, .y = y, .z = z, .w = w };
+};
+
+pub ivec2 = fn(x: i32, y: i32) IVec2 {
+    return IVec2{ .x = x, .y = y };
+};
+
+pub splat2 = fn(value: f32) Vec2 {
+    return vec2(value, value);
+};
+
+pub splat3 = fn(value: f32) Vec3 {
+    return vec3(value, value, value);
+};
+
+pub splat4 = fn(value: f32) Vec4 {
+    return vec4(value, value, value, value);
+};
+
+pub zero2 = fn() Vec2 {
+    return splat2(0.0);
+};
+
+pub zero3 = fn() Vec3 {
+    return splat3(0.0);
+};
+
+pub zero4 = fn() Vec4 {
+    return splat4(0.0);
+};
+
+pub one2 = fn() Vec2 {
+    return splat2(1.0);
+};
+
+pub one3 = fn() Vec3 {
+    return splat3(1.0);
+};
+
+pub one4 = fn() Vec4 {
+    return splat4(1.0);
+};
+
+@operator(+)
+pub vec2_add = fn(lhs: Vec2, rhs: Vec2) Vec2 {
+    return vec2(lhs.x + rhs.x, lhs.y + rhs.y);
+};
+
+@operator(-)
+pub vec2_sub = fn(lhs: Vec2, rhs: Vec2) Vec2 {
+    return vec2(lhs.x - rhs.x, lhs.y - rhs.y);
+};
+
+@operator(-)
+pub vec2_neg = fn(v: Vec2) Vec2 {
+    return vec2(-v.x, -v.y);
+};
+
+@operator(*)
+pub vec2_mul = fn(lhs: Vec2, rhs: f32) Vec2 {
+    return vec2(lhs.x * rhs, lhs.y * rhs);
+};
+
+@operator(/)
+pub vec2_div = fn(lhs: Vec2, rhs: f32) Vec2 {
+    return vec2(lhs.x / rhs, lhs.y / rhs);
+};
+
+@operator(==)
+pub vec2_eq = fn(lhs: Vec2, rhs: Vec2) bool {
+    return lhs.x == rhs.x && lhs.y == rhs.y;
+};
+
+@operator(+)
+pub vec3_add = fn(lhs: Vec3, rhs: Vec3) Vec3 {
+    return vec3(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z);
+};
+
+@operator(-)
+pub vec3_sub = fn(lhs: Vec3, rhs: Vec3) Vec3 {
+    return vec3(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z);
+};
+
+@operator(-)
+pub vec3_neg = fn(v: Vec3) Vec3 {
+    return vec3(-v.x, -v.y, -v.z);
+};
+
+@operator(*)
+pub vec3_mul = fn(lhs: Vec3, rhs: f32) Vec3 {
+    return vec3(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs);
+};
+
+@operator(/)
+pub vec3_div = fn(lhs: Vec3, rhs: f32) Vec3 {
+    return vec3(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs);
+};
+
+@operator(==)
+pub vec3_eq = fn(lhs: Vec3, rhs: Vec3) bool {
+    return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+};
+
+@operator(+)
+pub vec4_add = fn(lhs: Vec4, rhs: Vec4) Vec4 {
+    return vec4(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w);
+};
+
+@operator(-)
+pub vec4_sub = fn(lhs: Vec4, rhs: Vec4) Vec4 {
+    return vec4(lhs.x - rhs.x, lhs.y - rhs.y, lhs.z - rhs.z, lhs.w - rhs.w);
+};
+
+@operator(-)
+pub vec4_neg = fn(v: Vec4) Vec4 {
+    return vec4(-v.x, -v.y, -v.z, -v.w);
+};
+
+@operator(*)
+pub vec4_mul = fn(lhs: Vec4, rhs: f32) Vec4 {
+    return vec4(lhs.x * rhs, lhs.y * rhs, lhs.z * rhs, lhs.w * rhs);
+};
+
+@operator(/)
+pub vec4_div = fn(lhs: Vec4, rhs: f32) Vec4 {
+    return vec4(lhs.x / rhs, lhs.y / rhs, lhs.z / rhs, lhs.w / rhs);
+};
+
+@operator(==)
+pub vec4_eq = fn(lhs: Vec4, rhs: Vec4) bool {
+    return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z && lhs.w == rhs.w;
+};
+
+@operator(+)
+pub ivec2_add = fn(lhs: IVec2, rhs: IVec2) IVec2 {
+    return ivec2(lhs.x + rhs.x, lhs.y + rhs.y);
+};
+
+@operator(-)
+pub ivec2_sub = fn(lhs: IVec2, rhs: IVec2) IVec2 {
+    return ivec2(lhs.x - rhs.x, lhs.y - rhs.y);
+};
+
+@operator(-)
+pub ivec2_neg = fn(v: IVec2) IVec2 {
+    return ivec2(-v.x, -v.y);
+};
+
+@operator(==)
+pub ivec2_eq = fn(lhs: IVec2, rhs: IVec2) bool {
+    return lhs.x == rhs.x && lhs.y == rhs.y;
+};
+
+pub hadamard2 = fn(lhs: Vec2, rhs: Vec2) Vec2 {
+    return vec2(lhs.x * rhs.x, lhs.y * rhs.y);
+};
+
+pub hadamard3 = fn(lhs: Vec3, rhs: Vec3) Vec3 {
+    return vec3(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z);
+};
+
+pub hadamard4 = fn(lhs: Vec4, rhs: Vec4) Vec4 {
+    return vec4(lhs.x * rhs.x, lhs.y * rhs.y, lhs.z * rhs.z, lhs.w * rhs.w);
+};
+
+pub dot2 = fn(lhs: Vec2, rhs: Vec2) f32 {
+    return lhs.x * rhs.x + lhs.y * rhs.y;
+};
+
+pub dot3 = fn(lhs: Vec3, rhs: Vec3) f32 {
+    return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z;
+};
+
+pub dot4 = fn(lhs: Vec4, rhs: Vec4) f32 {
+    return lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z + lhs.w * rhs.w;
+};
+
+pub cross3 = fn(lhs: Vec3, rhs: Vec3) Vec3 {
+    return vec3(
+        lhs.y * rhs.z - lhs.z * rhs.y,
+        lhs.z * rhs.x - lhs.x * rhs.z,
+        lhs.x * rhs.y - lhs.y * rhs.x
+    );
+};
+
+pub length_sq2 = fn(v: Vec2) f32 {
+    return dot2(v, v);
+};
+
+pub length_sq3 = fn(v: Vec3) f32 {
+    return dot3(v, v);
+};
+
+pub length_sq4 = fn(v: Vec4) f32 {
+    return dot4(v, v);
+};
+
+pub length2 = fn(v: Vec2) f32 {
+    return math.sqrt_f32(length_sq2(v));
+};
+
+pub length3 = fn(v: Vec3) f32 {
+    return math.sqrt_f32(length_sq3(v));
+};
+
+pub length4 = fn(v: Vec4) f32 {
+    return math.sqrt_f32(length_sq4(v));
+};
+
+pub normalize2 = fn(v: Vec2) Vec2 {
+    len = length2(v);
+    if(len == 0.0) {
+        return zero2();
+    }
+    return v / len;
+};
+
+pub normalize3 = fn(v: Vec3) Vec3 {
+    len = length3(v);
+    if(len == 0.0) {
+        return zero3();
+    }
+    return v / len;
+};
+
+pub normalize4 = fn(v: Vec4) Vec4 {
+    len = length4(v);
+    if(len == 0.0) {
+        return zero4();
+    }
+    return v / len;
+};
+
+pub lerp2 = fn(a: Vec2, b: Vec2, t: f32) Vec2 {
+    return a + (b - a) * t;
+};
+
+pub lerp3 = fn(a: Vec3, b: Vec3, t: f32) Vec3 {
+    return a + (b - a) * t;
+};
+
+pub lerp4 = fn(a: Vec4, b: Vec4, t: f32) Vec4 {
+    return a + (b - a) * t;
+};
+
+pub min2 = fn(a: Vec2, b: Vec2) Vec2 {
+    return vec2(math.min_f32(a.x, b.x), math.min_f32(a.y, b.y));
+};
+
+pub max2 = fn(a: Vec2, b: Vec2) Vec2 {
+    return vec2(math.max_f32(a.x, b.x), math.max_f32(a.y, b.y));
+};
+
+pub min3 = fn(a: Vec3, b: Vec3) Vec3 {
+    return vec3(math.min_f32(a.x, b.x), math.min_f32(a.y, b.y), math.min_f32(a.z, b.z));
+};
+
+pub max3 = fn(a: Vec3, b: Vec3) Vec3 {
+    return vec3(math.max_f32(a.x, b.x), math.max_f32(a.y, b.y), math.max_f32(a.z, b.z));
+};
+
+pub approx_eq_f32 = fn(a: f32, b: f32, eps: f32) bool {
+    return math.abs_f32(a - b) <= eps;
+};
+
+pub approx_eq2 = fn(a: Vec2, b: Vec2, eps: f32) bool {
+    return approx_eq_f32(a.x, b.x, eps) && approx_eq_f32(a.y, b.y, eps);
+};
+
+pub approx_eq3 = fn(a: Vec3, b: Vec3, eps: f32) bool {
+    return approx_eq_f32(a.x, b.x, eps) &&
+           approx_eq_f32(a.y, b.y, eps) &&
+           approx_eq_f32(a.z, b.z, eps);
+};
+
+pub approx_eq4 = fn(a: Vec4, b: Vec4, eps: f32) bool {
+    return approx_eq_f32(a.x, b.x, eps) &&
+           approx_eq_f32(a.y, b.y, eps) &&
+           approx_eq_f32(a.z, b.z, eps) &&
+           approx_eq_f32(a.w, b.w, eps);
+};
+
+pub mat4 = fn(
+    m00: f32, m01: f32, m02: f32, m03: f32,
+    m10: f32, m11: f32, m12: f32, m13: f32,
+    m20: f32, m21: f32, m22: f32, m23: f32,
+    m30: f32, m31: f32, m32: f32, m33: f32
+) Mat4 {
+    return Mat4{
+        .data = [
+            m00, m10, m20, m30,
+            m01, m11, m21, m31,
+            m02, m12, m22, m32,
+            m03, m13, m23, m33,
+        ],
+    };
+};
+
+pub identity4 = fn() Mat4 {
+    return mat4(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    );
+};
+
+pub from_cols4 = fn(c0: Vec4, c1: Vec4, c2: Vec4, c3: Vec4) Mat4 {
+    return Mat4{
+        .data = [
+            c0.x, c0.y, c0.z, c0.w,
+            c1.x, c1.y, c1.z, c1.w,
+            c2.x, c2.y, c2.z, c2.w,
+            c3.x, c3.y, c3.z, c3.w,
+        ],
+    };
+};
+
+pub col4 = fn(m: Mat4, col_index: i32) Vec4 {
+    base = col_index * 4;
+    return vec4(m.data[base], m.data[base + 1], m.data[base + 2], m.data[base + 3]);
+};
+
+pub row4 = fn(m: Mat4, row_index: i32) Vec4 {
+    return vec4(
+        m.data[row_index],
+        m.data[row_index + 4],
+        m.data[row_index + 8],
+        m.data[row_index + 12]
+    );
+};
+
+pub ptr4 = fn(m: &Mat4) *f32 {
+    return &m.data[0];
+};
+
+@operator(==)
+pub mat4_eq = fn(lhs: Mat4, rhs: Mat4) bool {
+    mut i: i32 = 0;
+    while(i < 16) {
+        if(lhs.data[i] != rhs.data[i]) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+};
+
+@operator(*)
+pub mat4_mul = fn(lhs: Mat4, rhs: Mat4) Mat4 {
+    mut out = identity4();
+    mut col: i32 = 0;
+    while(col < 4) {
+        mut row: i32 = 0;
+        while(row < 4) {
+            out.data[col * 4 + row] =
+                lhs.data[0 * 4 + row] * rhs.data[col * 4 + 0] +
+                lhs.data[1 * 4 + row] * rhs.data[col * 4 + 1] +
+                lhs.data[2 * 4 + row] * rhs.data[col * 4 + 2] +
+                lhs.data[3 * 4 + row] * rhs.data[col * 4 + 3];
+            row = row + 1;
+        }
+        col = col + 1;
+    }
+    return out;
+};
+
+pub mul_mat4_vec4 = fn(lhs: Mat4, rhs: Vec4) Vec4 {
+    return vec4(
+        lhs.data[0] * rhs.x + lhs.data[4] * rhs.y + lhs.data[8] * rhs.z + lhs.data[12] * rhs.w,
+        lhs.data[1] * rhs.x + lhs.data[5] * rhs.y + lhs.data[9] * rhs.z + lhs.data[13] * rhs.w,
+        lhs.data[2] * rhs.x + lhs.data[6] * rhs.y + lhs.data[10] * rhs.z + lhs.data[14] * rhs.w,
+        lhs.data[3] * rhs.x + lhs.data[7] * rhs.y + lhs.data[11] * rhs.z + lhs.data[15] * rhs.w
+    );
+};
+
+pub transform_point3 = fn(m: Mat4, p: Vec3) Vec3 {
+    out = mul_mat4_vec4(m, vec4(p.x, p.y, p.z, 1.0));
+    if(out.w == 0.0) {
+        return vec3(out.x, out.y, out.z);
+    }
+    inv_w = 1.0 / out.w;
+    return vec3(out.x * inv_w, out.y * inv_w, out.z * inv_w);
+};
+
+pub transform_vector3 = fn(m: Mat4, v: Vec3) Vec3 {
+    out = mul_mat4_vec4(m, vec4(v.x, v.y, v.z, 0.0));
+    return vec3(out.x, out.y, out.z);
+};
+
+pub translation4 = fn(offset: Vec3) Mat4 {
+    mut result = identity4();
+    result.data[12] = offset.x;
+    result.data[13] = offset.y;
+    result.data[14] = offset.z;
+    return result;
+};
+
+pub scaling4 = fn(scale: Vec3) Mat4 {
+    mut result = identity4();
+    result.data[0] = scale.x;
+    result.data[5] = scale.y;
+    result.data[10] = scale.z;
+    return result;
+};
+
+pub rotation_x4 = fn(radians: f32) Mat4 {
+    c = math.cos_f32(radians);
+    s = math.sin_f32(radians);
+    return mat4(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, c, -s, 0.0,
+        0.0, s, c, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    );
+};
+
+pub rotation_y4 = fn(radians: f32) Mat4 {
+    c = math.cos_f32(radians);
+    s = math.sin_f32(radians);
+    return mat4(
+        c, 0.0, s, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        -s, 0.0, c, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    );
+};
+
+pub rotation_z4 = fn(radians: f32) Mat4 {
+    c = math.cos_f32(radians);
+    s = math.sin_f32(radians);
+    return mat4(
+        c, -s, 0.0, 0.0,
+        s, c, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    );
+};
+
+pub rotation_axis4 = fn(axis: Vec3, radians: f32) Mat4 {
+    n = normalize3(axis);
+    c = math.cos_f32(radians);
+    s = math.sin_f32(radians);
+    one_minus_c = 1.0 - c;
+
+    xx = n.x * n.x;
+    yy = n.y * n.y;
+    zz = n.z * n.z;
+    xy = n.x * n.y;
+    xz = n.x * n.z;
+    yz = n.y * n.z;
+
+    return mat4(
+        c + xx * one_minus_c,
+        xy * one_minus_c - n.z * s,
+        xz * one_minus_c + n.y * s,
+        0.0,
+
+        xy * one_minus_c + n.z * s,
+        c + yy * one_minus_c,
+        yz * one_minus_c - n.x * s,
+        0.0,
+
+        xz * one_minus_c - n.y * s,
+        yz * one_minus_c + n.x * s,
+        c + zz * one_minus_c,
+        0.0,
+
+        0.0, 0.0, 0.0, 1.0
+    );
+};
+
+pub trs4 = fn(translation: Vec3, rotation: Mat4, scale: Vec3) Mat4 {
+    return translation4(translation) * rotation * scaling4(scale);
+};
+
+pub perspective4 = fn(fovy_radians: f32, aspect: f32, z_near: f32, z_far: f32) Mat4 {
+    f = 1.0 / math.tan_f32(fovy_radians * 0.5);
+    inv_range = 1.0 / (z_near - z_far);
+    return mat4(
+        f / aspect, 0.0, 0.0, 0.0,
+        0.0, f, 0.0, 0.0,
+        0.0, 0.0, (z_far + z_near) * inv_range, (2.0 * z_far * z_near) * inv_range,
+        0.0, 0.0, -1.0, 0.0
+    );
+};
+
+pub ortho4 = fn(left: f32, right: f32, bottom: f32, top: f32, z_near: f32, z_far: f32) Mat4 {
+    rl = right - left;
+    tb = top - bottom;
+    fnz = z_far - z_near;
+    return mat4(
+        2.0 / rl, 0.0, 0.0, -(right + left) / rl,
+        0.0, 2.0 / tb, 0.0, -(top + bottom) / tb,
+        0.0, 0.0, -2.0 / fnz, -(z_far + z_near) / fnz,
+        0.0, 0.0, 0.0, 1.0
+    );
+};
+
+pub look_at4 = fn(eye: Vec3, center: Vec3, up: Vec3) Mat4 {
+    forward = normalize3(center - eye);
+    side = normalize3(cross3(forward, up));
+    up_dir = cross3(side, forward);
+
+    return mat4(
+        side.x, side.y, side.z, -dot3(side, eye),
+        up_dir.x, up_dir.y, up_dir.z, -dot3(up_dir, eye),
+        -forward.x, -forward.y, -forward.z, dot3(forward, eye),
+        0.0, 0.0, 0.0, 1.0
+    );
+};

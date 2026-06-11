@@ -502,6 +502,9 @@ bool isStatementAssign(Token *token)
         token = token->next;
     }
 
+    if(token != NULL && token->kind == TK_PUB)
+        token = token->next;
+
     if(token->kind == TK_MUT)
         token = token->next;
 
@@ -1274,6 +1277,11 @@ ASTNode* parseSimpleAssignNoSemicolon(Token **token)
     ASTNode *node = newASTNodeFromToken(AST_ASSIGN, *token);
 
     node->operator_kind = parseOperatorAnnotation(token);
+    if((*token)->kind == TK_PUB)
+    {
+        node->is_pub = true;
+        (*token) = (*token)->next;
+    }
     node->modifier = parseModifier(token);
     node->lhs = parseLValue(token);
     if(node->lhs->kind == AST_EXPR_VARIABLE)
@@ -1548,7 +1556,6 @@ ASTNode* parse(Token *token)
             is_pub = true;
             token = token->next;
         }
-
         ASTNode *stmt = NULL;
         if(is_pub ||
            (token->kind == TK_AT &&
