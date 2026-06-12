@@ -117,7 +117,7 @@ $failed = 0
 foreach($case in $cases) {
     $inputPath = New-GeneratedTestInput $case $ArtifactsDir
     $compilerArgs = @()
-    if($case.mode -eq "llvm") {
+    if($case.mode -eq "llvm" -or ([string]$case.expect -eq "failure" -and [string]$case.run_mode -ne "exe")) {
         $outputName = [System.IO.Path]::GetFileNameWithoutExtension($inputPath) + ".ll"
         $outputPath = Join-Path $ArtifactsDir $outputName
         $compilerArgs += "-S"

@@ -49,6 +49,7 @@ struct ModuleSourceFile {
     char canonical_path[MODULE_MAX_PATH_LENGTH];
     char directory[MODULE_MAX_PATH_LENGTH];
     char package_name[MAX_IDENTIFIER_LENGTH];
+    char primary_source_path[MODULE_MAX_PATH_LENGTH];
     char symbol_prefix[32];
     ASTNode *ast_root;
     int visit_state;
@@ -459,7 +460,14 @@ static ASTNode* moduleParsePackageDirectory(const char *directory_path, char *pa
             moduleSystemError("source file is missing a package declaration", file_paths[i], 0, 0);
 
         if(package_name_buffer[0] == '\0')
+        {
             strcpy(package_name_buffer, file_root->package_name);
+            root->filename = file_root->filename;
+            root->line_number = file_root->line_number;
+            root->column_number = file_root->column_number;
+            root->end_line_number = file_root->end_line_number;
+            root->end_column_number = file_root->end_column_number;
+        }
         else if(strcmp(package_name_buffer, file_root->package_name) != 0)
             moduleSystemError("all files in a package directory must declare the same package name",
                               file_paths[i], file_root->line_number, file_root->column_number);
@@ -652,6 +660,8 @@ static ModuleSourceFile* moduleLoadRecursive(ModuleCompileContext *context, cons
     moduleDirectoryName(canonical_path, module->directory);
     module->visit_state = 1;
     module->ast_root = moduleParsePackageDirectory(canonical_path, module->package_name);
+    if(module->ast_root->filename != NULL)
+        snprintf(module->primary_source_path, sizeof(module->primary_source_path), "%s", module->ast_root->filename);
 
     moduleScanImports(context, module);
     module->visit_state = 2;
@@ -725,7 +735,9 @@ static ModuleTopLevelBinding* moduleFindEntryBinding(ModuleSourceFile *module, b
     {
         if(required)
             moduleSystemError("target package does not define a top-level main binding",
-                              module->canonical_path, 0, 0);
+                              module->primary_source_path[0] != '\0' ? module->primary_source_path : module->canonical_path,
+                              module->ast_root != NULL ? module->ast_root->line_number : 0,
+                              module->ast_root != NULL ? module->ast_root->column_number : 0);
         return NULL;
     }
     if(!required)

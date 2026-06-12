@@ -339,7 +339,7 @@ def build_case_args(case: dict, input_path: pathlib.Path, artifacts_dir: pathlib
     output_path: pathlib.Path | None = None
 
     mode = case.get("mode")
-    if mode == "llvm" or case.get("expect") == "failure":
+    if mode == "llvm" or (case.get("expect") == "failure" and case.get("run_mode") != "exe"):
         output_name = input_path.name + ".ll"
         output_path = artifacts_dir / output_name
         compiler_args.extend(["-S", str(input_path), "-o", str(output_path)])

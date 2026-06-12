@@ -117,7 +117,7 @@ Token* newToken(TokenKind kind, const char* filename, int line, int column)
     if(token == NULL)
         diagnosticAbortInternal("token allocation failed", NULL);
     token->kind = kind;
-    token->filename = filename;
+    token->filename = diagnosticCloneString(filename);
     token->line_number = line;
     token->column_number = column;
     token->end_line_number = line;

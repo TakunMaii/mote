@@ -49,6 +49,19 @@
       "input": "test\\pkg\\mismatch_dir"
     },
     {
+      "name": "package-missing-main-has-source-location",
+      "expect": "failure",
+      "run_mode": "exe",
+      "input": "test\\pkg\\mismatch_dir",
+      "contains": [
+        "error[M1001]",
+        "target package does not define a top-level main binding",
+        "test/pkg/mismatch_dir/main.mote:1:1",
+        "@package(\"custom_name\");",
+        "^ module error occurred here"
+      ]
+    },
+    {
       "name": "import-call-arg-min-llvm",
       "expect": "success",
       "mode": "llvm",

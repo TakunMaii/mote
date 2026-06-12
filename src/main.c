@@ -35,6 +35,22 @@ static bool starts_with(const char *value, const char *prefix)
     return strncmp(value, prefix, strlen(prefix)) == 0;
 }
 
+static MOTE_NORETURN void cliError(const char *message)
+{
+    diagnosticAbortSimple("C1001", message, makeSourceSpan(NULL, 0, 0, 0, 0), NULL);
+}
+
+static MOTE_NORETURN void cliErrorFormatted(const char *format, ...)
+{
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, "C1001",
+                                           makeSourceSpan(NULL, 0, 0, 0, 0), "");
+    va_list args;
+    va_start(args, format);
+    diagnosticVFormat(diagnostic.message, sizeof(diagnostic.message), format, args);
+    va_end(args);
+    diagnosticAbort(diagnostic);
+}
+
 static void print_usage(const char *argv0)
 {
     printf("Usage:\n");
@@ -174,10 +190,7 @@ static void add_search_root(ModulePackage *packages, int *package_count, const c
     }
 
     if(*package_count >= CLI_MAX_PACKAGES)
-    {
-        printf("Too many module search roots\n");
-        exit(1);
-    }
+        cliError("too many module search roots");
 
     memset(&(packages[*package_count]), 0, sizeof(ModulePackage));
     strcpy(packages[*package_count].root_path, path);
@@ -197,10 +210,7 @@ static void add_collection_root(ModulePackage *packages, int *package_count, con
     }
 
     if(*package_count >= CLI_MAX_PACKAGES)
-    {
-        printf("Too many module search roots\n");
-        exit(1);
-    }
+        cliError("too many module search roots");
 
     memset(&(packages[*package_count]), 0, sizeof(ModulePackage));
     strcpy(packages[*package_count].name, name);
@@ -230,10 +240,7 @@ static void add_driver_arg(const char **driver_args, int *driver_arg_count, cons
     }
 
     if(*driver_arg_count >= CLI_MAX_LINK_ARGS)
-    {
-        printf("Too many linker arguments\n");
-        exit(1);
-    }
+        cliError("too many linker arguments");
 
     driver_args[(*driver_arg_count)++] = value;
 }
@@ -242,10 +249,7 @@ static void add_driver_path_arg(const char **driver_args, int *driver_arg_count,
 {
     char *forwarded = (char*) malloc(MODULE_MAX_PATH_LENGTH);
     if(forwarded == NULL)
-    {
-        printf("Failed to allocate linker argument\n");
-        exit(1);
-    }
+        cliError("failed to allocate linker argument");
 
     snprintf(forwarded, MODULE_MAX_PATH_LENGTH, "%s%s", prefix, path);
     add_driver_arg(driver_args, driver_arg_count, forwarded);
@@ -535,10 +539,7 @@ static void append_shell_escaped(char *command, size_t command_size, const char 
 {
     size_t used = strlen(command);
     if(used + 4 >= command_size)
-    {
-        printf("Link command is too long\n");
-        exit(1);
-    }
+        cliError("link command is too long");
 
     command[used++] = ' ';
     command[used++] = '"';
@@ -549,26 +550,17 @@ static void append_shell_escaped(char *command, size_t command_size, const char 
         if(*p == '"')
         {
             if(used + 2 >= command_size)
-            {
-                printf("Link command is too long\n");
-                exit(1);
-            }
+                cliError("link command is too long");
             command[used++] = '\\';
         }
 
         if(used + 1 >= command_size)
-        {
-            printf("Link command is too long\n");
-            exit(1);
-        }
+            cliError("link command is too long");
         command[used++] = *p;
     }
 
     if(used + 2 >= command_size)
-    {
-        printf("Link command is too long\n");
-        exit(1);
-    }
+        cliError("link command is too long");
     command[used++] = '"';
     command[used] = '\0';
 }
@@ -577,10 +569,7 @@ static void append_shell_quoted_fragment(char *command, size_t command_size, con
 {
     size_t used = strlen(command);
     if(used + 3 >= command_size)
-    {
-        printf("Link command is too long\n");
-        exit(1);
-    }
+        cliError("link command is too long");
 
     command[used++] = '"';
     command[used] = '\0';
@@ -590,26 +579,17 @@ static void append_shell_quoted_fragment(char *command, size_t command_size, con
         if(*p == '"')
         {
             if(used + 2 >= command_size)
-            {
-                printf("Link command is too long\n");
-                exit(1);
-            }
+                cliError("link command is too long");
             command[used++] = '\\';
         }
 
         if(used + 1 >= command_size)
-        {
-            printf("Link command is too long\n");
-            exit(1);
-        }
+            cliError("link command is too long");
         command[used++] = *p;
     }
 
     if(used + 2 >= command_size)
-    {
-        printf("Link command is too long\n");
-        exit(1);
-    }
+        cliError("link command is too long");
     command[used++] = '"';
     command[used] = '\0';
 }
@@ -689,10 +669,7 @@ int main(int argn, char** argv)
     int positional_count = 0;
 
     if(packages == NULL || driver_args == NULL || linker_args == NULL || positionals == NULL)
-    {
-        printf("Failed to allocate CLI argument buffers\n");
-        exit(1);
-    }
+        cliError("failed to allocate CLI argument buffers");
 
     add_default_official_search_roots(packages, &package_count, argv[0]);
 
@@ -757,18 +734,12 @@ int main(int argn, char** argv)
             const char *mapping = argv[++i];
             const char *equals = strchr(mapping, '=');
             if(equals == NULL || equals == mapping || equals[1] == '\0')
-            {
-                printf("Invalid collection mapping `%s`; expected name=dir\n", mapping);
-                exit(1);
-            }
+                cliErrorFormatted("invalid collection mapping `%s`; expected name=dir", mapping);
 
             char collection_name[MAX_IDENTIFIER_LENGTH] = {0};
             size_t name_length = (size_t)(equals - mapping);
             if(name_length >= sizeof(collection_name))
-            {
-                printf("Collection name is too long in mapping `%s`\n", mapping);
-                exit(1);
-            }
+                cliErrorFormatted("collection name is too long in mapping `%s`", mapping);
             memcpy(collection_name, mapping, name_length);
             collection_name[name_length] = '\0';
             add_collection_root(packages, &package_count, collection_name, equals + 1);
@@ -783,16 +754,10 @@ int main(int argn, char** argv)
                 exit(1);
             }
             if(driver_arg_count >= CLI_MAX_LINK_ARGS)
-            {
-                printf("Too many linker arguments\n");
-                exit(1);
-            }
+                cliError("too many linker arguments");
             char *forwarded = (char*) malloc(MODULE_MAX_PATH_LENGTH);
             if(forwarded == NULL)
-            {
-                printf("Failed to allocate linker argument\n");
-                exit(1);
-            }
+                cliError("failed to allocate linker argument");
             snprintf(forwarded, MODULE_MAX_PATH_LENGTH, "-L%s", argv[++i]);
             driver_args[driver_arg_count++] = forwarded;
             continue;
@@ -806,10 +771,7 @@ int main(int argn, char** argv)
                 exit(1);
             }
             if(driver_arg_count >= CLI_MAX_LINK_ARGS)
-            {
-                printf("Too many linker arguments\n");
-                exit(1);
-            }
+                cliError("too many linker arguments");
             driver_args[driver_arg_count++] = argv[i];
             continue;
         }
@@ -824,16 +786,10 @@ int main(int argn, char** argv)
                 if(length == 0)
                     moduleSystemError("empty -Wl argument is not allowed", NULL, 0, 0);
                 if(linker_arg_count >= CLI_MAX_LINKER_ARGS)
-                {
-                    printf("Too many linker arguments\n");
-                    exit(1);
-                }
+                    cliError("too many linker arguments");
                 char *forwarded = (char*) malloc(length + 1);
                 if(forwarded == NULL)
-                {
-                    printf("Failed to allocate linker argument\n");
-                    exit(1);
-                }
+                    cliError("failed to allocate linker argument");
                 memcpy(forwarded, cursor, length);
                 forwarded[length] = '\0';
                 linker_args[linker_arg_count++] = forwarded;
@@ -847,9 +803,12 @@ int main(int argn, char** argv)
         if(strcmp(argv[i], "--pkg") == 0 || strcmp(argv[i], "--emit-llvm") == 0 ||
            strcmp(argv[i], "--emit-exe") == 0 || strcmp(argv[i], "--link-arg") == 0)
         {
-            printf("Legacy option %s is no longer supported in this CLI mode\n", argv[i]);
-            printf("Use -I, -S, -L, -l, -Wl and default executable emission instead\n");
-            exit(1);
+            Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR, "C1001",
+                                                   makeSourceSpan(NULL, 0, 0, 0, 0),
+                                                   "legacy CLI option is no longer supported");
+            diagnosticAddNote(&diagnostic, "option: %s", argv[i]);
+            diagnosticAddNote(&diagnostic, "use -I, -S, -L, -l, -Wl and default executable emission instead");
+            diagnosticAbort(diagnostic);
             continue;
         }
 
@@ -870,10 +829,7 @@ int main(int argn, char** argv)
         exit(1);
     }
     if(!directory_exists(input_path))
-    {
-        printf("Input path must be a package directory: %s\n", input_path);
-        exit(1);
-    }
+        cliErrorFormatted("input path must be a package directory: %s", input_path);
 
     add_default_official_link_args(argv[0], packages, package_count, input_path, driver_args, &driver_arg_count);
 
@@ -947,15 +903,9 @@ int main(int argn, char** argv)
         char runtime_source_path[CLI_PATH_BUFFER_SIZE] = {0};
         char clang_log_path[CLI_PATH_BUFFER_SIZE] = {0};
         if(!resolve_runtime_source_path(runtime_source_path, sizeof(runtime_source_path), argv[0]))
-        {
-            printf("Failed to resolve runtime path relative to the compiler executable\n");
-            exit(1);
-        }
+            cliError("failed to resolve runtime path relative to the compiler executable");
         if(!file_exists(runtime_source_path))
-        {
-            printf("Failed to locate runtime source at %s\n", runtime_source_path);
-            exit(1);
-        }
+            cliErrorFormatted("failed to locate runtime source at %s", runtime_source_path);
 
         if(!emit_llvm)
         {
@@ -974,8 +924,7 @@ int main(int argn, char** argv)
             remove(llvm_output_path);
             print_file_if_exists(clang_log_path);
             remove(clang_log_path);
-            printf("LLVM link failed\n");
-            exit(1);
+            cliError("LLVM link failed");
         }
 
         remove(llvm_output_path);

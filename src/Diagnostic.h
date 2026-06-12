@@ -51,6 +51,7 @@ typedef struct SourceFileCacheEntry {
 } SourceFileCacheEntry;
 
 static SourceFileCacheEntry *g_source_file_cache_head = NULL;
+static void diagnosticAbortInternal(const char *context, const char *detail);
 
 static SourceSpan makeSourceSpan(const char *filename, int start_line, int start_column, int end_line, int end_column)
 {
@@ -115,6 +116,19 @@ static void diagnosticFormat(char *buffer, size_t buffer_size, const char *forma
     va_start(args, format);
     diagnosticVFormat(buffer, buffer_size, format, args);
     va_end(args);
+}
+
+static char* diagnosticCloneString(const char *value)
+{
+    if(value == NULL)
+        return NULL;
+
+    size_t length = strlen(value);
+    char *copy = (char*) malloc(length + 1);
+    if(copy == NULL)
+        diagnosticAbortInternal("string allocation failed while building diagnostic context", value);
+    memcpy(copy, value, length + 1);
+    return copy;
 }
 
 static char* diagnosticReadFileContent(const char *filename)
