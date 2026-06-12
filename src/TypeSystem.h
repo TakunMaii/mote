@@ -918,15 +918,18 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
         case AST_DATA_TYPE_KIND_OPAQUE:
             return cloneDataType(data_type);
         case AST_DATA_TYPE_KIND_STRUCT: {
-            if(data_type->identifier[0] != '\0' && data_type->members == NULL)
+            if(data_type->identifier[0] != '\0')
             {
                 TypeInfo *type_info = findTypeInfo(scope, data_type->identifier);
                 if(type_info != NULL &&
                    type_info->data_type != NULL &&
-                   type_info->data_type != data_type &&
                    type_info->data_type->kind == AST_DATA_TYPE_KIND_STRUCT)
+                {
+                    if(type_info->data_type == data_type)
+                        return cloneDataType(data_type);
                     return resolveNamedDataTypeInternal(type_info->data_type, scope, self_data_type, memo,
                                                         allow_recursive_factory_result);
+                }
             }
 
             ASTDataType *resolved_struct = newStructDataType(data_type->identifier, NULL);
@@ -970,15 +973,18 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
             return cloneDataType(type_info->data_type);
         }
         case AST_DATA_TYPE_KIND_ENUM: {
-            if(data_type->identifier[0] != '\0' && data_type->variants == NULL)
+            if(data_type->identifier[0] != '\0')
             {
                 TypeInfo *type_info = findTypeInfo(scope, data_type->identifier);
                 if(type_info != NULL &&
                    type_info->data_type != NULL &&
-                   type_info->data_type != data_type &&
                    type_info->data_type->kind == AST_DATA_TYPE_KIND_ENUM)
+                {
+                    if(type_info->data_type == data_type)
+                        return cloneDataType(data_type);
                     return resolveNamedDataTypeInternal(type_info->data_type, scope, self_data_type, memo,
                                                         allow_recursive_factory_result);
+                }
             }
             return cloneDataType(data_type);
         }
@@ -2888,7 +2894,9 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                                          "use `@len(slice)` or `@as(*T, slice)` instead of `.%s`",
                                          astUserFacingIdentifier(node->identifier));
 
-            ASTDataType *struct_type = resolveNamedDataType(owner_data_type, scope, NULL);
+            ASTDataType *struct_type = owner_data_type;
+            if(!isStructDataType(struct_type) || struct_type->members == NULL)
+                struct_type = resolveNamedDataType(owner_data_type, scope, NULL);
             if(!isStructDataType(struct_type))
             {
                 typeSystemAbortNode("T1237", node,

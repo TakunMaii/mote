@@ -932,6 +932,20 @@ static void declareRewriteImportBinding(RewriteScope *scope, const char *alias, 
     binding->imported_module = imported_module;
 }
 
+static void declareModuleImportsInRewriteScope(RewriteScope *scope, ModuleSourceFile *module)
+{
+    if(scope == NULL || module == NULL)
+        return;
+
+    for(int i = 0; i < module->import_count; i++)
+    {
+        RewriteValueBinding *existing = findRewriteValueBindingInScope(scope, module->imports[i].alias);
+        if(existing != NULL)
+            continue;
+        declareRewriteImportBinding(scope, module->imports[i].alias, module->imports[i].module);
+    }
+}
+
 static void declareRewriteTypedValueBinding(RewriteScope *scope, const char *original, const char *rewritten)
 {
     declareRewriteValueBinding(scope, original, rewritten);
@@ -1342,6 +1356,10 @@ static void rewriteStatement(ModuleSourceFile *module, RewriteScope *scope, ASTN
         case AST_ASSIGN: {
             if(moduleIsImportDecl(node))
             {
+                RewriteValueBinding *existing = findRewriteValueBindingInScope(scope, node->identifier);
+                if(existing != NULL && existing->is_import_alias)
+                    return;
+
                 for(int i = 0; i < module->import_count; i++)
                 {
                     if(strcmp(module->imports[i].alias, node->identifier) == 0)
@@ -1460,6 +1478,7 @@ static void moduleRewrite(ModuleSourceFile *module)
 
     RewriteScope *top_scope = (RewriteScope*) malloc(sizeof(RewriteScope));
     initRewriteScope(top_scope, NULL);
+    declareModuleImportsInRewriteScope(top_scope, module);
     rewriteStatementList(module, top_scope, moduleStatements(module->ast_root));
     freeRewriteScopeStorage(top_scope);
     free(top_scope);

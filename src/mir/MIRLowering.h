@@ -2093,6 +2093,43 @@ static void mirPredeclareTopLevelBindings(MirLowerScope *scope, ASTNode *block_n
     }
 }
 
+static void mirResolveTopLevelTypes(MirLowerScope *scope, ASTNode *block_node)
+{
+    if(scope == NULL || block_node == NULL)
+        return;
+
+    for(ASTNode *statement = block_node->lhs; statement != NULL; statement = statement->next)
+    {
+        if(statement->kind != AST_ASSIGN ||
+           statement->lhs == NULL ||
+           statement->lhs->kind != AST_EXPR_VARIABLE)
+            continue;
+
+        const char *binding_name = statement->lhs->identifier;
+        if(statement->rhs != NULL && statement->rhs->kind == AST_EXPR_STRUCT)
+        {
+            TypeInfo *type_info = findTypeInfo(&(scope->type_scope), binding_name);
+            if(type_info != NULL && type_info->predeclared)
+            {
+                ASTDataType *struct_type = declareStructType(statement, &(scope->type_scope));
+                semanticBindTypeDeclarationValue(statement, &(scope->type_scope), struct_type);
+            }
+            continue;
+        }
+
+        if(statement->rhs != NULL && statement->rhs->kind == AST_EXPR_ENUM)
+        {
+            TypeInfo *type_info = findTypeInfo(&(scope->type_scope), binding_name);
+            if(type_info != NULL && type_info->predeclared)
+            {
+                ASTDataType *enum_type = declareEnumType(statement, &(scope->type_scope));
+                semanticBindTypeDeclarationValue(statement, &(scope->type_scope), enum_type);
+            }
+            continue;
+        }
+    }
+}
+
 static void mirPredeclareTopLevelRuntimeBindings(MirLowering *lowering, MirLowerScope *scope, ASTNode *block_node)
 {
     if(lowering == NULL || scope == NULL || block_node == NULL)
@@ -4001,13 +4038,29 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
 {
     if(isStructDeclAssign(node))
     {
-        declareStructType(node, &(scope->type_scope));
+        const char *binding_name = semanticAssignIdentifier(node);
+        TypeInfo *existing_type_info = findTypeInfoInScope(&(scope->type_scope), binding_name) >= 0
+            ? &(scope->type_scope.type_infos[findTypeInfoInScope(&(scope->type_scope), binding_name)])
+            : NULL;
+        if(existing_type_info == NULL || existing_type_info->predeclared)
+        {
+            ASTDataType *struct_type = declareStructType(node, &(scope->type_scope));
+            semanticBindTypeDeclarationValue(node, &(scope->type_scope), struct_type);
+        }
         return;
     }
 
     if(isEnumDeclAssign(node))
     {
-        declareEnumType(node, &(scope->type_scope));
+        const char *binding_name = semanticAssignIdentifier(node);
+        TypeInfo *existing_type_info = findTypeInfoInScope(&(scope->type_scope), binding_name) >= 0
+            ? &(scope->type_scope.type_infos[findTypeInfoInScope(&(scope->type_scope), binding_name)])
+            : NULL;
+        if(existing_type_info == NULL || existing_type_info->predeclared)
+        {
+            ASTDataType *enum_type = declareEnumType(node, &(scope->type_scope));
+            semanticBindTypeDeclarationValue(node, &(scope->type_scope), enum_type);
+        }
         return;
     }
 
@@ -4151,9 +4204,6 @@ static void lowerBlockNode(MirFunctionState *state, MirLowerScope *parent_scope,
     MirLowerScope *block_scope = (MirLowerScope*) malloc(sizeof(MirLowerScope));
     initMirLowerScope(block_scope, parent_scope, false);
     block_scope->self_data_type = parent_scope->self_data_type;
-
-    if(parent_scope != NULL && parent_scope->parent == NULL)
-        mirPredeclareTopLevelBindings(block_scope, block_node);
 
     MirCleanupFrame cleanup = {0};
     cleanup.parent = state->cleanup_top;
@@ -4390,6 +4440,8 @@ MirProgram* lowerASTToMIR(ASTNode *root)
     MirLowerScope *top_scope = (MirLowerScope*) malloc(sizeof(MirLowerScope));
     initMirLowerScope(top_scope, NULL, true);
     mirPredeclareTopLevelBindings(top_scope, root->lhs);
+    mirResolveTopLevelTypes(top_scope, root->lhs);
+    predeclareTopLevelFunctionTypes(root->lhs, &(top_scope->type_scope), NULL);
     mirPredeclareTopLevelRuntimeBindings(&lowering, top_scope, root->lhs);
 
     MirCleanupFrame cleanup = {0};

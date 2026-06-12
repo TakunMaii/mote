@@ -1,0 +1,6 @@
+@package("shared_param_struct");
+
+pub Pair = struct {
+    left: i32,
+    right: i32,
+};
