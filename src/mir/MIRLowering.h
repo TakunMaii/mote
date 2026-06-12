@@ -134,6 +134,7 @@ typedef struct MirInst {
     const char *filename;
     int line_number;
     int column_number;
+    int debug_scope_id;
     union {
         struct {
             bool value;
@@ -224,6 +225,7 @@ typedef struct MirTerminator {
     const char *filename;
     int line_number;
     int column_number;
+    int debug_scope_id;
     union {
         struct {
             MirBlockId target;
@@ -273,7 +275,15 @@ typedef struct MirDebugLocal {
     MirValueId slot_value;
     bool is_parameter;
     int argument_index;
+    int debug_scope_id;
 } MirDebugLocal;
+
+typedef struct MirDebugScope {
+    int parent_scope_id;
+    const char *filename;
+    int line_number;
+    int column_number;
+} MirDebugScope;
 
 typedef struct MirFunction {
     char name[MIR_MAX_NAME_LENGTH];
@@ -286,6 +296,8 @@ typedef struct MirFunction {
     int parameter_count;
     MirDebugLocal *debug_locals;
     int debug_local_count;
+    MirDebugScope *debug_scopes;
+    int debug_scope_count;
     MirValueInfo *values;
     int value_count;
     MirBlock *blocks;
@@ -391,6 +403,8 @@ typedef struct MirFunctionState {
     MirBlockId current_block;
     MirCleanupFrame *cleanup_top;
     MirLoopContext *loop_top;
+    int current_debug_scope_id;
+    bool suppress_next_block_debug_scope;
     bool is_top_level_init;
 } MirFunctionState;
 
@@ -896,9 +910,27 @@ static MirValueId mirCreateInput(MirFunction *function, ASTDataType *data_type, 
     return mirAppendValue(function, data_type, name, true);
 }
 
+static int mirAppendDebugScope(MirFunction *function, int parent_scope_id,
+                               const char *filename, int line_number, int column_number)
+{
+    if(function == NULL)
+        return -1;
+    function->debug_scopes = (MirDebugScope*) realloc(function->debug_scopes,
+                                                      sizeof(MirDebugScope) * (size_t) (function->debug_scope_count + 1));
+    if(function->debug_scopes == NULL)
+        diagnosticAbortInternal("mirAppendDebugScope", "allocation failed");
+    MirDebugScope *scope = &(function->debug_scopes[function->debug_scope_count]);
+    memset(scope, 0, sizeof(*scope));
+    scope->parent_scope_id = parent_scope_id;
+    scope->filename = filename;
+    scope->line_number = line_number;
+    scope->column_number = column_number;
+    return function->debug_scope_count++;
+}
+
 static void mirRecordDebugLocalEx(MirFunction *function, const char *identifier, const char *filename,
                                   int line_number, int column_number, ASTDataType *data_type,
-                                  MirValueId slot_value, bool is_parameter, int argument_index)
+                                  MirValueId slot_value, bool is_parameter, int argument_index, int debug_scope_id)
 {
     if(function == NULL || identifier == NULL || filename == NULL || slot_value < 0)
         return;
@@ -916,20 +948,23 @@ static void mirRecordDebugLocalEx(MirFunction *function, const char *identifier,
     local->slot_value = slot_value;
     local->is_parameter = is_parameter;
     local->argument_index = argument_index;
+    local->debug_scope_id = debug_scope_id;
 }
 
 static void mirRecordDebugLocal(MirFunction *function, const char *identifier, const char *filename,
-                                int line_number, int column_number, ASTDataType *data_type, MirValueId slot_value)
+                                int line_number, int column_number, ASTDataType *data_type,
+                                MirValueId slot_value, int debug_scope_id)
 {
-    mirRecordDebugLocalEx(function, identifier, filename, line_number, column_number, data_type, slot_value, false, 0);
+    mirRecordDebugLocalEx(function, identifier, filename, line_number, column_number,
+                          data_type, slot_value, false, 0, debug_scope_id);
 }
 
 static void mirRecordDebugParameter(MirFunction *function, const char *identifier, const char *filename,
                                     int line_number, int column_number, ASTDataType *data_type,
-                                    MirValueId slot_value, int argument_index)
+                                    MirValueId slot_value, int argument_index, int debug_scope_id)
 {
     mirRecordDebugLocalEx(function, identifier, filename, line_number, column_number, data_type,
-                          slot_value, true, argument_index);
+                          slot_value, true, argument_index, debug_scope_id);
 }
 
 static MirValueId mirEmitResultInst(MirFunctionState *state, MirInstKind kind, ASTDataType *result_type,
@@ -943,6 +978,7 @@ static MirValueId mirEmitResultInst(MirFunctionState *state, MirInstKind kind, A
     inst->filename = filename;
     inst->line_number = line_number;
     inst->column_number = column_number;
+    inst->debug_scope_id = state->current_debug_scope_id;
     inst->result = mirAppendValue(function, result_type, NULL, false);
     return inst->result;
 }
@@ -1070,6 +1106,7 @@ static void mirEmitStore(MirFunctionState *state, MirValueId address, MirValueId
     inst->filename = filename;
     inst->line_number = line;
     inst->column_number = column;
+    inst->debug_scope_id = state->current_debug_scope_id;
     inst->data.store.address = address;
     inst->data.store.value = value;
 }
@@ -1218,6 +1255,7 @@ static MirValueId mirEmitCall(MirFunctionState *state, MirValueId callee, MirOpe
         inst->filename = filename;
         inst->line_number = line;
         inst->column_number = column;
+        inst->debug_scope_id = state->current_debug_scope_id;
     }
 
     MirInst *inst = mirGetLastInst(state);
@@ -1243,6 +1281,7 @@ static MirValueId mirEmitExternCall(MirFunctionState *state, const char *symbol_
         inst->filename = filename;
         inst->line_number = line;
         inst->column_number = column;
+        inst->debug_scope_id = state->current_debug_scope_id;
     }
 
     MirInst *inst = mirGetLastInst(state);
@@ -1259,6 +1298,7 @@ static void mirEmitBr(MirFunctionState *state, MirBlockId target)
     term->filename = NULL;
     term->line_number = -1;
     term->column_number = -1;
+    term->debug_scope_id = state->current_debug_scope_id;
     term->data.br.target = target;
 }
 
@@ -1269,6 +1309,7 @@ static void mirEmitBrAt(MirFunctionState *state, MirBlockId target, const char *
     term->filename = filename;
     term->line_number = line;
     term->column_number = column;
+    term->debug_scope_id = state->current_debug_scope_id;
     term->data.br.target = target;
 }
 
@@ -1279,6 +1320,7 @@ static void mirEmitCondBr(MirFunctionState *state, MirValueId condition, MirBloc
     term->filename = NULL;
     term->line_number = -1;
     term->column_number = -1;
+    term->debug_scope_id = state->current_debug_scope_id;
     term->data.cond_br.condition = condition;
     term->data.cond_br.then_block = then_block;
     term->data.cond_br.else_block = else_block;
@@ -1292,6 +1334,7 @@ static void mirEmitCondBrAt(MirFunctionState *state, MirValueId condition, MirBl
     term->filename = filename;
     term->line_number = line;
     term->column_number = column;
+    term->debug_scope_id = state->current_debug_scope_id;
     term->data.cond_br.condition = condition;
     term->data.cond_br.then_block = then_block;
     term->data.cond_br.else_block = else_block;
@@ -1304,6 +1347,7 @@ static void mirEmitRetVoid(MirFunctionState *state)
     term->filename = NULL;
     term->line_number = -1;
     term->column_number = -1;
+    term->debug_scope_id = state->current_debug_scope_id;
     term->data.ret.has_value = false;
 }
 
@@ -1314,6 +1358,7 @@ static void mirEmitRetVoidAt(MirFunctionState *state, const char *filename, int 
     term->filename = filename;
     term->line_number = line;
     term->column_number = column;
+    term->debug_scope_id = state->current_debug_scope_id;
     term->data.ret.has_value = false;
 }
 
@@ -1324,6 +1369,7 @@ static void mirEmitRetValueAt(MirFunctionState *state, MirValueId value, const c
     term->filename = filename;
     term->line_number = line;
     term->column_number = column;
+    term->debug_scope_id = state->current_debug_scope_id;
     term->data.ret.has_value = true;
     term->data.ret.value = value;
 }
@@ -1335,6 +1381,7 @@ static void mirEmitUnreachable(MirFunctionState *state)
     term->filename = NULL;
     term->line_number = -1;
     term->column_number = -1;
+    term->debug_scope_id = state->current_debug_scope_id;
 }
 
 static bool mirIsCharPointerTarget(ASTDataType *data_type)
@@ -2186,7 +2233,8 @@ static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirL
             MirValueId slot = mirEmitAlloca(state, resolved_parameter_type,
                                             argument->filename, argument->line_number, argument->column_number);
             mirRecordDebugLocal(mirCurrentFunction(state), parameter->identifier, parameter->filename,
-                                parameter->line_number, parameter->column_number, resolved_parameter_type, slot);
+                                parameter->line_number, parameter->column_number, resolved_parameter_type, slot,
+                                state->current_debug_scope_id);
             mirEmitStore(state, slot, argument_value, argument->filename, argument->line_number, argument->column_number);
 
             MirRuntimeBinding *binding = declareMirRuntimeBinding(inst_scope, parameter->identifier);
@@ -2556,6 +2604,11 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
     state.lowering = lowering;
     state.function_index = function_index;
     state.current_block = function->entry_block;
+    state.current_debug_scope_id = mirAppendDebugScope(function,
+                                                       -1,
+                                                       function_expr->filename,
+                                                       function_expr->line_number,
+                                                       function_expr->column_number);
 
     capture = function_expr->captures;
     while(capture)
@@ -2669,7 +2722,7 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
                                                  parameter->filename, parameter->line_number, parameter->column_number);
             mirRecordDebugParameter(function, parameter->identifier, parameter->filename,
                                     parameter->line_number, parameter->column_number, resolved_type,
-                                    binding->local_value, function->parameter_count);
+                                    binding->local_value, function->parameter_count, state.current_debug_scope_id);
             mirEmitStore(&state, binding->local_value, desc->input_value,
                          parameter->filename, parameter->line_number, parameter->column_number);
         }
@@ -2680,6 +2733,7 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
     MirCleanupFrame function_cleanup = {0};
     state.cleanup_top = &function_cleanup;
     state.loop_top = NULL;
+    state.suppress_next_block_debug_scope = true;
 
     lowerStatement(&state, function_scope, function_expr->body);
 
@@ -4040,7 +4094,8 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
                 binding->local_value = mirEmitAlloca(state, declared_type,
                                                      node->filename, node->line_number, node->column_number);
                 mirRecordDebugLocal(mirCurrentFunction(state), node->identifier, node->filename,
-                                    node->line_number, node->column_number, declared_type, binding->local_value);
+                                    node->line_number, node->column_number, declared_type, binding->local_value,
+                                    state->current_debug_scope_id);
                 mirEmitStore(state, binding->local_value, value, node->filename, node->line_number, node->column_number);
             }
             return;
@@ -4082,6 +4137,17 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
 
 static void lowerBlockNode(MirFunctionState *state, MirLowerScope *parent_scope, ASTNode *block_node)
 {
+    int saved_debug_scope_id = state->current_debug_scope_id;
+    bool suppress_debug_scope = state != NULL && state->suppress_next_block_debug_scope;
+    if(state != NULL)
+        state->suppress_next_block_debug_scope = false;
+    if(block_node != NULL && !suppress_debug_scope)
+        state->current_debug_scope_id = mirAppendDebugScope(mirCurrentFunction(state),
+                                                            saved_debug_scope_id,
+                                                            block_node->filename,
+                                                            block_node->line_number,
+                                                            block_node->column_number);
+
     MirLowerScope *block_scope = (MirLowerScope*) malloc(sizeof(MirLowerScope));
     initMirLowerScope(block_scope, parent_scope, false);
     block_scope->self_data_type = parent_scope->self_data_type;
@@ -4106,6 +4172,7 @@ static void lowerBlockNode(MirFunctionState *state, MirLowerScope *parent_scope,
         emitCleanupRange(state, block_scope, &cleanup, cleanup.parent);
 
     state->cleanup_top = cleanup.parent;
+    state->current_debug_scope_id = saved_debug_scope_id;
 }
 
 static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNode *node)
@@ -4317,6 +4384,7 @@ MirProgram* lowerASTToMIR(ASTNode *root)
     init_state.lowering = &lowering;
     init_state.function_index = 0;
     init_state.current_block = init_function->entry_block;
+    init_state.current_debug_scope_id = mirAppendDebugScope(init_function, -1, root->filename, root->line_number, root->column_number);
     init_state.is_top_level_init = true;
 
     MirLowerScope *top_scope = (MirLowerScope*) malloc(sizeof(MirLowerScope));

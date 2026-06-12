@@ -45,12 +45,22 @@ typedef struct LLVMDebugSubprogramEntry {
     int subprogram_md;
 } LLVMDebugSubprogramEntry;
 
+typedef struct LLVMDebugLexicalBlockEntry {
+    int mir_scope_id;
+    int parent_scope_md;
+    int file_md;
+    int line;
+    int column;
+    int lexical_block_md;
+} LLVMDebugLexicalBlockEntry;
+
 typedef struct LLVMDebugLocalEntry {
     const char *filename;
     const char *function_name;
     const char *variable_name;
     int line;
     int scope_md;
+    int mir_scope_id;
     int file_md;
     ASTDataType *data_type;
     bool is_parameter;
@@ -78,6 +88,9 @@ typedef struct LLVMDebugBuilder {
     LLVMDebugSubprogramEntry *subprograms;
     int subprogram_count;
     int subprogram_capacity;
+    LLVMDebugLexicalBlockEntry *lexical_blocks;
+    int lexical_block_count;
+    int lexical_block_capacity;
     LLVMDebugLocalEntry *locals;
     int local_count;
     int local_capacity;
@@ -292,6 +305,43 @@ static int llvmDebugGetLocationMetadata(LLVMDebugBuilder *debug, const char *fil
     return entry->location_md;
 }
 
+static int llvmDebugGetScopeMetadata(LLVMDebugBuilder *debug, MirFunction *function, int mir_scope_id, int fallback_scope_md)
+{
+    if(!debug->enabled || function == NULL || mir_scope_id < 0)
+        return fallback_scope_md;
+
+    if(function->debug_scopes == NULL || mir_scope_id >= function->debug_scope_count)
+        return fallback_scope_md;
+
+    MirDebugScope *scope = &(function->debug_scopes[mir_scope_id]);
+    if(scope->parent_scope_id < 0)
+        return fallback_scope_md;
+
+    for(int i = 0; i < debug->lexical_block_count; i++)
+    {
+        LLVMDebugLexicalBlockEntry *entry = &(debug->lexical_blocks[i]);
+        if(entry->mir_scope_id == mir_scope_id)
+            return entry->lexical_block_md;
+    }
+
+    int parent_scope_md = scope->parent_scope_id >= 0
+        ? llvmDebugGetScopeMetadata(debug, function, scope->parent_scope_id, fallback_scope_md)
+        : fallback_scope_md;
+    int file_md = llvmDebugGetFileMetadata(debug, scope->filename);
+
+    llvmDebugEnsureCapacity((void**) &(debug->lexical_blocks), &(debug->lexical_block_capacity), debug->lexical_block_count + 1,
+                            sizeof(LLVMDebugLexicalBlockEntry), "llvmDebugGetScopeMetadata");
+    LLVMDebugLexicalBlockEntry *entry = &(debug->lexical_blocks[debug->lexical_block_count++]);
+    memset(entry, 0, sizeof(*entry));
+    entry->mir_scope_id = mir_scope_id;
+    entry->parent_scope_md = parent_scope_md;
+    entry->file_md = file_md;
+    entry->line = scope->line_number + 1;
+    entry->column = scope->column_number + 1;
+    entry->lexical_block_md = llvmDebugNextMetadataId(debug);
+    return entry->lexical_block_md;
+}
+
 static int llvmDebugGetLocalVariableMetadata(LLVMDebugBuilder *debug,
                                              const char *filename,
                                              const char *function_name,
@@ -300,6 +350,7 @@ static int llvmDebugGetLocalVariableMetadata(LLVMDebugBuilder *debug,
                                              bool is_parameter,
                                              int argument_index,
                                              int line,
+                                             int mir_scope_id,
                                              int scope_md)
 {
     if(!debug->enabled || filename == NULL || function_name == NULL || variable_name == NULL || scope_md <= 0)
@@ -325,12 +376,26 @@ static int llvmDebugGetLocalVariableMetadata(LLVMDebugBuilder *debug,
     entry->variable_name = diagnosticCloneString(variable_name);
     entry->line = line + 1;
     entry->scope_md = scope_md;
+    entry->mir_scope_id = mir_scope_id;
     entry->file_md = llvmDebugGetFileMetadata(debug, filename);
     entry->data_type = data_type != NULL ? cloneDataType(data_type) : NULL;
     entry->is_parameter = is_parameter;
     entry->argument_index = argument_index;
     entry->local_md = llvmDebugNextMetadataId(debug);
     return entry->local_md;
+}
+
+static MirFunction* llvmFindProgramFunctionByName(MirProgram *program, const char *function_name)
+{
+    if(program == NULL || function_name == NULL)
+        return NULL;
+    for(int i = 0; i < program->function_count; i++)
+    {
+        MirFunction *function = program->functions[i];
+        if(function != NULL && strcmp(function->name, function_name) == 0)
+            return function;
+    }
+    return NULL;
 }
 
 static const char* llvmDebugPrimaryEncoding(ASTPrimaryDataType primary)
@@ -1036,14 +1101,21 @@ static void llvmEmitTempAssignPrefix(FILE *stream, const char *name)
     fprintf(stream, "    %s = ", name);
 }
 
-static void llvmEmitDebugLocationSuffix(FILE *stream, LLVMFunctionEmitContext *context, const char *filename, int line, int column)
+static void llvmEmitDebugLocationSuffixInScope(FILE *stream, LLVMFunctionEmitContext *context,
+                                               const char *filename, int line, int column, int mir_scope_id)
 {
     if(context == NULL || !context->emit_debug_info || context->debug_subprogram_md <= 0)
         return;
+    int scope_md = llvmDebugGetScopeMetadata(context->debug, context->function, mir_scope_id, context->debug_subprogram_md);
     int location_md = llvmDebugGetLocationMetadata(context->debug, filename, line, column,
-                                                   context->debug_subprogram_md);
+                                                   scope_md);
     if(location_md > 0)
         fprintf(stream, ", !dbg !%d", location_md);
+}
+
+static void llvmEmitDebugLocationSuffix(FILE *stream, LLVMFunctionEmitContext *context, const char *filename, int line, int column)
+{
+    llvmEmitDebugLocationSuffixInScope(stream, context, filename, line, column, -1);
 }
 
 static void llvmEmitDebugMetadata(FILE *stream, LLVMDebugBuilder *debug, MirProgram *program)
@@ -1133,13 +1205,17 @@ static void llvmEmitDebugMetadata(FILE *stream, LLVMDebugBuilder *debug, MirProg
     {
         LLVMDebugLocalEntry *entry = &(debug->locals[i]);
         int type_md = llvmDebugGetTypeMetadata(debug, entry->data_type);
+        MirFunction *scope_function = llvmFindProgramFunctionByName(program, entry->function_name);
+        int scope_md = entry->mir_scope_id >= 0
+            ? llvmDebugGetScopeMetadata(debug, scope_function, entry->mir_scope_id, entry->scope_md)
+            : entry->scope_md;
         if(entry->is_parameter)
             fprintf(stream,
                     "!%d = !DILocalVariable(name: \"%s\", arg: %d, scope: !%d, file: !%d, line: %d, type: !%d)\n",
                     entry->local_md,
                     entry->variable_name,
                     entry->argument_index,
-                    entry->scope_md,
+                    scope_md,
                     entry->file_md,
                     entry->line,
                     type_md > 0 ? type_md : debug->compile_unit_md);
@@ -1148,7 +1224,7 @@ static void llvmEmitDebugMetadata(FILE *stream, LLVMDebugBuilder *debug, MirProg
                     "!%d = !DILocalVariable(name: \"%s\", scope: !%d, file: !%d, line: %d, type: !%d)\n",
                     entry->local_md,
                     entry->variable_name,
-                    entry->scope_md,
+                    scope_md,
                     entry->file_md,
                     entry->line,
                     type_md > 0 ? type_md : debug->compile_unit_md);
@@ -1190,6 +1266,17 @@ static void llvmEmitDebugMetadata(FILE *stream, LLVMDebugBuilder *debug, MirProg
         fprintf(stream, "!%d = !DILocation(line: %d, column: %d, scope: !%d)\n",
                 entry->location_md, entry->line, entry->column, entry->scope_md);
     }
+
+    for(int i = 0; i < debug->lexical_block_count; i++)
+    {
+        LLVMDebugLexicalBlockEntry *entry = &(debug->lexical_blocks[i]);
+        fprintf(stream, "!%d = distinct !DILexicalBlock(scope: !%d, file: !%d, line: %d, column: %d)\n",
+                entry->lexical_block_md,
+                entry->parent_scope_md,
+                entry->file_md,
+                entry->line,
+                entry->column);
+    }
 }
 
 static MirDebugLocal* llvmFindDebugLocalBySlot(LLVMFunctionEmitContext *context, int slot_value_id)
@@ -1221,12 +1308,14 @@ static void llvmEmitDebugDeclare(FILE *stream, LLVMFunctionEmitContext *context,
                                                      local->is_parameter,
                                                      local->argument_index,
                                                      local->line_number,
+                                                     local->debug_scope_id,
                                                      context->debug_subprogram_md);
     if(local_md <= 0)
         return;
     fprintf(stream, "    call void @llvm.dbg.declare(metadata ptr %%v%d, metadata !%d, metadata !%d)",
             slot_value_id, local_md, context->debug->expression_md);
-    llvmEmitDebugLocationSuffix(stream, context, local->filename, local->line_number, local->column_number);
+    llvmEmitDebugLocationSuffixInScope(stream, context, local->filename, local->line_number, local->column_number,
+                                       local->debug_scope_id);
     fprintf(stream, "\n");
 }
 
@@ -1447,7 +1536,7 @@ static void llvmEmitArrayLiteral(FILE *stream, LLVMFunctionEmitContext *context,
         fprintf(stream, "%s", stored_element_ref);
         fprintf(stream, ", %d", i);
         if(i + 1 == inst->data.array_literal.elements.count)
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
         fprintf(stream, "\n");
         if(i + 1 != inst->data.array_literal.elements.count)
             strcpy(current_name, next_name);
@@ -1534,7 +1623,7 @@ static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context
         fprintf(stream, "%s", stored_field_ref);
         fprintf(stream, ", %d", field_index);
         if(i + 1 == field_count)
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
         fprintf(stream, "\n");
         if(i + 1 != field_count)
             strcpy(current_name, next_name);
@@ -1835,7 +1924,7 @@ static void llvmEmitBinaryInst(FILE *stream, LLVMFunctionEmitContext *context, M
     llvmEmitValueRef(stream, context, inst->data.binary.lhs);
     fprintf(stream, ", ");
     llvmEmitValueRef(stream, context, inst->data.binary.rhs);
-    llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+    llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
     fprintf(stream, "\n");
 }
 
@@ -1880,7 +1969,7 @@ static void llvmEmitCompareInst(FILE *stream, LLVMFunctionEmitContext *context, 
     llvmEmitValueRef(stream, context, inst->data.binary.lhs);
     fprintf(stream, ", ");
     llvmEmitValueRef(stream, context, inst->data.binary.rhs);
-    llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+    llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
     fprintf(stream, "\n");
 }
 
@@ -2002,7 +2091,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
         case MIR_INST_CONST_BOOL:
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "or i1 false, %s", inst->data.const_bool.value ? "true" : "false");
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_INST_CONST_CHAR:
@@ -2014,7 +2103,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                         inst->kind == MIR_INST_CONST_CHAR
                             ? (long long int)(unsigned char)inst->data.const_char.value
                             : inst->data.const_int.value);
-                llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+                llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
                 fprintf(stream, "\n");
                 return;
             }
@@ -2045,7 +2134,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             fprintf(stream, " 0, %llu", inst->kind == MIR_INST_CONST_CHAR
                     ? (long long int)(unsigned char)inst->data.const_char.value
                     : inst->data.const_int.value);
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_INST_CONST_FLOAT:
@@ -2082,7 +2171,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                     fprintf(stream, " %s, ", current_name);
                 fprintf(stream, "i8 %d, %d", (unsigned char)inst->data.const_string.value[i], i);
                 if(i + 1 == length)
-                    llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+                    llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
                 fprintf(stream, "\n");
                 if(i + 1 != length)
                     strcpy(current_name, next_name);
@@ -2108,7 +2197,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 fprintf(stream, "0, ");
                 llvmEmitValueRef(stream, context, inst->data.unary.operand);
             }
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_INST_NOT:
@@ -2116,7 +2205,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             fprintf(stream, "xor i1 ");
             llvmEmitValueRef(stream, context, inst->data.unary.operand);
             fprintf(stream, ", true");
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_INST_BIT_NOT:
@@ -2127,7 +2216,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitValueRef(stream, context, inst->data.unary.operand);
             fprintf(stream, ", ");
             llvmEmitConstAllOnes(stream, inst->result_type);
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_INST_ADD: llvmEmitBinaryInst(stream, context, inst, "fadd", "add", "add"); return;
@@ -2150,7 +2239,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "alloca ");
             llvmEmitStorageType(stream, inst->data.alloca_inst.alloca_type);
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             llvmEmitDebugDeclare(stream, context, inst->result);
             return;
@@ -2165,7 +2254,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 fprintf(stream, "\n");
                 llvmEmitInstructionPrefix(stream, inst->result);
                 fprintf(stream, "trunc i8 %s to i1", load_name);
-                llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+                llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
                 fprintf(stream, "\n");
             }
             else
@@ -2175,7 +2264,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 llvmEmitType(stream, inst->result_type);
                 fprintf(stream, ", ptr ");
                 llvmEmitValueRef(stream, context, inst->data.load.address);
-                llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+                llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
                 fprintf(stream, "\n");
             }
             return;
@@ -2196,7 +2285,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 fprintf(stream, "%s", stored_value_ref);
             fprintf(stream, ", ptr ");
             llvmEmitValueRef(stream, context, inst->data.store.address);
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         }
@@ -2205,7 +2294,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             fprintf(stream, "getelementptr ");
             llvmEmitStorageType(stream, llvmPointeeType(inst->result_type));
             fprintf(stream, ", ptr @%s, i32 0", inst->data.global_addr.global_name);
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_INST_FUNCTION_REF:
@@ -2233,7 +2322,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             fprintf(stream, ", ptr ");
             llvmEmitValueRef(stream, context, inst->data.field_ptr.base_address);
             fprintf(stream, ", i32 0, i32 %d", inst->data.field_ptr.field_index);
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         }
@@ -2251,7 +2340,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitType(stream, llvmResolvedValueType(context, inst->data.index_ptr.index_value));
             fprintf(stream, " ");
             llvmEmitValueRef(stream, context, inst->data.index_ptr.index_value);
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         }
@@ -2276,7 +2365,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "sdiv i64 %s, %d", byte_diff_name,
                     (int) llvmExternABITypeSize(llvmPointeeType(llvmResolvedValueType(context, inst->data.ptr_diff.lhs))));
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         }
@@ -2289,7 +2378,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
         case MIR_INST_ENUM_LITERAL:
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "add i32 0, %d", inst->data.enum_literal.ordinal);
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_INST_CALL: {
@@ -2329,7 +2418,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                     parameter = parameter->next;
             }
             fprintf(stream, ")");
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         }
@@ -2460,7 +2549,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                     parameter = parameter->next;
             }
             fprintf(stream, ")");
-            llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
 
             if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER && inst->result >= 0)
@@ -2469,7 +2558,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 fprintf(stream, "load ");
                 llvmEmitType(stream, inst->result_type);
                 fprintf(stream, ", ptr %%v%d_ret_slot", temp_base);
-                llvmEmitDebugLocationSuffix(stream, context, inst->filename, inst->line_number, inst->column_number);
+                llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
                 fprintf(stream, "\n");
             }
             return;
@@ -2485,7 +2574,7 @@ static void llvmEmitTerminator(FILE *stream, LLVMFunctionEmitContext *context, M
     {
         case MIR_TERM_BR:
             fprintf(stream, "    br label %%%s", context->function->blocks[terminator->data.br.target].name);
-            llvmEmitDebugLocationSuffix(stream, context, terminator->filename, terminator->line_number, terminator->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, terminator->filename, terminator->line_number, terminator->column_number, terminator->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_TERM_COND_BR:
@@ -2494,7 +2583,7 @@ static void llvmEmitTerminator(FILE *stream, LLVMFunctionEmitContext *context, M
             fprintf(stream, ", label %%%s, label %%%s",
                     context->function->blocks[terminator->data.cond_br.then_block].name,
                     context->function->blocks[terminator->data.cond_br.else_block].name);
-            llvmEmitDebugLocationSuffix(stream, context, terminator->filename, terminator->line_number, terminator->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, terminator->filename, terminator->line_number, terminator->column_number, terminator->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_TERM_RET:
@@ -2504,19 +2593,19 @@ static void llvmEmitTerminator(FILE *stream, LLVMFunctionEmitContext *context, M
                 llvmEmitType(stream, llvmResolvedValueType(context, terminator->data.ret.value));
                 fprintf(stream, " ");
                 llvmEmitValueRef(stream, context, terminator->data.ret.value);
-                llvmEmitDebugLocationSuffix(stream, context, terminator->filename, terminator->line_number, terminator->column_number);
+                llvmEmitDebugLocationSuffixInScope(stream, context, terminator->filename, terminator->line_number, terminator->column_number, terminator->debug_scope_id);
                 fprintf(stream, "\n");
             }
             else
             {
                 fprintf(stream, "    ret void");
-                llvmEmitDebugLocationSuffix(stream, context, terminator->filename, terminator->line_number, terminator->column_number);
+                llvmEmitDebugLocationSuffixInScope(stream, context, terminator->filename, terminator->line_number, terminator->column_number, terminator->debug_scope_id);
                 fprintf(stream, "\n");
             }
             return;
         case MIR_TERM_UNREACHABLE:
             fprintf(stream, "    unreachable");
-            llvmEmitDebugLocationSuffix(stream, context, terminator->filename, terminator->line_number, terminator->column_number);
+            llvmEmitDebugLocationSuffixInScope(stream, context, terminator->filename, terminator->line_number, terminator->column_number, terminator->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_TERM_NONE:

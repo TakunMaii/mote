@@ -98,6 +98,22 @@
       ]
     },
     {
+      "name": "debug-info-lexical-block-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\debug_lexical_block",
+      "output_contains": [
+        "!DILexicalBlock(",
+        "!DILocalVariable(name: \"outer\"",
+        "!DILocalVariable(name: \"inner\"",
+        "call void @llvm.dbg.declare(metadata ptr %v",
+        "!DILocation(line: 6, column: 9, scope: !"
+      ],
+      "args": [
+        "-g"
+      ]
+    },
+    {
       "name": "package-dir-name-mismatch-llvm",
       "expect": "success",
       "mode": "llvm",
