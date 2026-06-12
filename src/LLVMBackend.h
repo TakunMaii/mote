@@ -9,13 +9,105 @@
 #include <math.h>
 #include "MIR.h"
 
+typedef struct LLVMDebugBuilder LLVMDebugBuilder;
+
 typedef struct LLVMFunctionEmitContext {
     FILE *stream;
     MirProgram *program;
     MirFunction *function;
+    LLVMDebugBuilder *debug;
     int *aliases;
     int temp_counter;
+    bool emit_debug_info;
+    int debug_subprogram_md;
 } LLVMFunctionEmitContext;
+
+typedef struct LLVMDebugFileEntry {
+    char *path;
+    char *directory;
+    char *basename;
+    int file_md;
+} LLVMDebugFileEntry;
+
+typedef struct LLVMDebugLocationEntry {
+    const char *filename;
+    int line;
+    int column;
+    int scope_md;
+    int location_md;
+} LLVMDebugLocationEntry;
+
+typedef struct LLVMDebugSubprogramEntry {
+    const char *filename;
+    const char *function_name;
+    int line;
+    int file_md;
+    int subprogram_md;
+} LLVMDebugSubprogramEntry;
+
+typedef struct LLVMDebugLexicalBlockEntry {
+    int mir_scope_id;
+    int parent_scope_md;
+    int file_md;
+    int line;
+    int column;
+    int lexical_block_md;
+} LLVMDebugLexicalBlockEntry;
+
+typedef struct LLVMDebugLocalEntry {
+    const char *filename;
+    const char *function_name;
+    const char *variable_name;
+    int line;
+    int scope_md;
+    int mir_scope_id;
+    int file_md;
+    ASTDataType *data_type;
+    bool is_parameter;
+    int argument_index;
+    int local_md;
+} LLVMDebugLocalEntry;
+
+typedef struct LLVMDebugTypeEntry {
+    char *key;
+    char *display_name;
+    ASTDataType *data_type;
+    int type_md;
+    bool is_derived;
+} LLVMDebugTypeEntry;
+
+typedef struct LLVMDebugBuilder {
+    bool enabled;
+    int next_md_id;
+    LLVMDebugFileEntry *files;
+    int file_count;
+    int file_capacity;
+    LLVMDebugLocationEntry *locations;
+    int location_count;
+    int location_capacity;
+    LLVMDebugSubprogramEntry *subprograms;
+    int subprogram_count;
+    int subprogram_capacity;
+    LLVMDebugLexicalBlockEntry *lexical_blocks;
+    int lexical_block_count;
+    int lexical_block_capacity;
+    LLVMDebugLocalEntry *locals;
+    int local_count;
+    int local_capacity;
+    LLVMDebugTypeEntry *types;
+    int type_count;
+    int type_capacity;
+    int compile_unit_md;
+    int globals_md;
+    int imported_entities_md;
+    int enum_types_md;
+    int retained_types_md;
+    int file_enums_md;
+    int file_retained_types_md;
+    int file_globals_md;
+    int file_imported_entities_md;
+    int expression_md;
+} LLVMDebugBuilder;
 
 typedef enum LLVMExternABIKind {
     LLVM_EXTERN_ABI_DIRECT,
@@ -55,6 +147,360 @@ static const char* llvmHostTargetTriple(void)
 #else
     return NULL;
 #endif
+}
+
+static char* llvmDebugCloneRange(const char *start, size_t length)
+{
+    char *copy = (char*) malloc(length + 1);
+    if(copy == NULL)
+        diagnosticAbortInternal("llvmDebugCloneRange", "allocation failed");
+    memcpy(copy, start, length);
+    copy[length] = '\0';
+    return copy;
+}
+
+static void llvmDebugSplitPath(const char *path, char **directory_out, char **basename_out)
+{
+    const char *separator = NULL;
+    const char *last_backslash = path != NULL ? strrchr(path, '\\') : NULL;
+    const char *last_slash = path != NULL ? strrchr(path, '/') : NULL;
+    separator = last_backslash;
+    if(separator == NULL || (last_slash != NULL && last_slash > separator))
+        separator = last_slash;
+
+    if(path == NULL || path[0] == '\0')
+    {
+        *directory_out = diagnosticCloneString(".");
+        *basename_out = diagnosticCloneString("<unknown>");
+        return;
+    }
+
+    if(separator == NULL)
+    {
+        *directory_out = diagnosticCloneString(".");
+        *basename_out = diagnosticCloneString(path);
+        return;
+    }
+
+    if(separator == path)
+        *directory_out = llvmDebugCloneRange(path, 1);
+    else
+        *directory_out = llvmDebugCloneRange(path, (size_t) (separator - path));
+    *basename_out = diagnosticCloneString(separator + 1);
+}
+
+static void llvmDebugEnsureCapacity(void **items, int *capacity, int min_capacity, size_t item_size, const char *label)
+{
+    if(*capacity >= min_capacity)
+        return;
+    int next_capacity = *capacity == 0 ? 8 : *capacity;
+    while(next_capacity < min_capacity)
+        next_capacity *= 2;
+    void *grown = realloc(*items, item_size * (size_t) next_capacity);
+    if(grown == NULL)
+        diagnosticAbortInternal(label, "allocation failed");
+    *items = grown;
+    *capacity = next_capacity;
+}
+
+static int llvmDebugNextMetadataId(LLVMDebugBuilder *debug)
+{
+    return debug->next_md_id++;
+}
+
+static int llvmDebugGetFileMetadata(LLVMDebugBuilder *debug, const char *filename)
+{
+    if(!debug->enabled)
+        return 0;
+
+    const char *effective = (filename != NULL && filename[0] != '\0') ? filename : "<unknown>";
+    for(int i = 0; i < debug->file_count; i++)
+    {
+        if(strcmp(debug->files[i].path, effective) == 0)
+            return debug->files[i].file_md;
+    }
+
+    llvmDebugEnsureCapacity((void**) &(debug->files), &(debug->file_capacity), debug->file_count + 1,
+                            sizeof(LLVMDebugFileEntry), "llvmDebugGetFileMetadata");
+    LLVMDebugFileEntry *entry = &(debug->files[debug->file_count++]);
+    memset(entry, 0, sizeof(*entry));
+    entry->path = diagnosticCloneString(effective);
+    llvmDebugSplitPath(effective, &(entry->directory), &(entry->basename));
+    entry->file_md = llvmDebugNextMetadataId(debug);
+    return entry->file_md;
+}
+
+static void llvmDebugInit(LLVMDebugBuilder *debug, bool enabled)
+{
+    memset(debug, 0, sizeof(*debug));
+    debug->enabled = enabled;
+    debug->next_md_id = 1;
+    if(!enabled)
+        return;
+
+    debug->globals_md = llvmDebugNextMetadataId(debug);
+    debug->imported_entities_md = llvmDebugNextMetadataId(debug);
+    debug->enum_types_md = llvmDebugNextMetadataId(debug);
+    debug->retained_types_md = llvmDebugNextMetadataId(debug);
+    debug->file_enums_md = llvmDebugNextMetadataId(debug);
+    debug->file_retained_types_md = llvmDebugNextMetadataId(debug);
+    debug->file_globals_md = llvmDebugNextMetadataId(debug);
+    debug->file_imported_entities_md = llvmDebugNextMetadataId(debug);
+    debug->expression_md = llvmDebugNextMetadataId(debug);
+    debug->compile_unit_md = llvmDebugNextMetadataId(debug);
+}
+
+static int llvmDebugCreateSubprogram(LLVMDebugBuilder *debug, const char *filename, const char *function_name, int line)
+{
+    if(!debug->enabled)
+        return 0;
+    const char *effective_filename = filename != NULL ? filename : "<unknown>";
+    const char *effective_function_name = function_name != NULL ? function_name : "<anon>";
+    for(int i = 0; i < debug->subprogram_count; i++)
+    {
+        LLVMDebugSubprogramEntry *existing = &(debug->subprograms[i]);
+        if(existing->line == line &&
+           strcmp(existing->filename, effective_filename) == 0 &&
+           strcmp(existing->function_name, effective_function_name) == 0)
+            return existing->subprogram_md;
+    }
+    int file_md = llvmDebugGetFileMetadata(debug, effective_filename);
+    int subprogram_md = llvmDebugNextMetadataId(debug);
+    llvmDebugEnsureCapacity((void**) &(debug->subprograms), &(debug->subprogram_capacity), debug->subprogram_count + 1,
+                            sizeof(LLVMDebugSubprogramEntry), "llvmDebugCreateSubprogram");
+    LLVMDebugSubprogramEntry *entry = &(debug->subprograms[debug->subprogram_count++]);
+    memset(entry, 0, sizeof(*entry));
+    entry->filename = diagnosticCloneString(effective_filename);
+    entry->function_name = diagnosticCloneString(effective_function_name);
+    entry->line = line;
+    entry->file_md = file_md;
+    entry->subprogram_md = subprogram_md;
+    return subprogram_md;
+}
+
+static int llvmDebugGetLocationMetadata(LLVMDebugBuilder *debug, const char *filename, int line, int column, int scope_md)
+{
+    if(!debug->enabled || filename == NULL || line < 0 || column < 0 || scope_md <= 0)
+        return 0;
+
+    for(int i = 0; i < debug->location_count; i++)
+    {
+        LLVMDebugLocationEntry *entry = &(debug->locations[i]);
+        if(entry->scope_md == scope_md &&
+           entry->line == line + 1 &&
+           entry->column == column + 1 &&
+           strcmp(entry->filename, filename) == 0)
+            return entry->location_md;
+    }
+
+    llvmDebugEnsureCapacity((void**) &(debug->locations), &(debug->location_capacity), debug->location_count + 1,
+                            sizeof(LLVMDebugLocationEntry), "llvmDebugGetLocationMetadata");
+    LLVMDebugLocationEntry *entry = &(debug->locations[debug->location_count++]);
+    memset(entry, 0, sizeof(*entry));
+    entry->filename = diagnosticCloneString(filename);
+    entry->line = line + 1;
+    entry->column = column + 1;
+    entry->scope_md = scope_md;
+    entry->location_md = llvmDebugNextMetadataId(debug);
+    return entry->location_md;
+}
+
+static int llvmDebugGetScopeMetadata(LLVMDebugBuilder *debug, MirFunction *function, int mir_scope_id, int fallback_scope_md)
+{
+    if(!debug->enabled || function == NULL || mir_scope_id < 0)
+        return fallback_scope_md;
+
+    if(function->debug_scopes == NULL || mir_scope_id >= function->debug_scope_count)
+        return fallback_scope_md;
+
+    MirDebugScope *scope = &(function->debug_scopes[mir_scope_id]);
+    if(scope->parent_scope_id < 0)
+        return fallback_scope_md;
+
+    for(int i = 0; i < debug->lexical_block_count; i++)
+    {
+        LLVMDebugLexicalBlockEntry *entry = &(debug->lexical_blocks[i]);
+        if(entry->mir_scope_id == mir_scope_id)
+            return entry->lexical_block_md;
+    }
+
+    int parent_scope_md = scope->parent_scope_id >= 0
+        ? llvmDebugGetScopeMetadata(debug, function, scope->parent_scope_id, fallback_scope_md)
+        : fallback_scope_md;
+    int file_md = llvmDebugGetFileMetadata(debug, scope->filename);
+
+    llvmDebugEnsureCapacity((void**) &(debug->lexical_blocks), &(debug->lexical_block_capacity), debug->lexical_block_count + 1,
+                            sizeof(LLVMDebugLexicalBlockEntry), "llvmDebugGetScopeMetadata");
+    LLVMDebugLexicalBlockEntry *entry = &(debug->lexical_blocks[debug->lexical_block_count++]);
+    memset(entry, 0, sizeof(*entry));
+    entry->mir_scope_id = mir_scope_id;
+    entry->parent_scope_md = parent_scope_md;
+    entry->file_md = file_md;
+    entry->line = scope->line_number + 1;
+    entry->column = scope->column_number + 1;
+    entry->lexical_block_md = llvmDebugNextMetadataId(debug);
+    return entry->lexical_block_md;
+}
+
+static int llvmDebugGetLocalVariableMetadata(LLVMDebugBuilder *debug,
+                                             const char *filename,
+                                             const char *function_name,
+                                             const char *variable_name,
+                                             ASTDataType *data_type,
+                                             bool is_parameter,
+                                             int argument_index,
+                                             int line,
+                                             int mir_scope_id,
+                                             int scope_md)
+{
+    if(!debug->enabled || filename == NULL || function_name == NULL || variable_name == NULL || scope_md <= 0)
+        return 0;
+
+    for(int i = 0; i < debug->local_count; i++)
+    {
+        LLVMDebugLocalEntry *entry = &(debug->locals[i]);
+        if(entry->line == line + 1 &&
+           entry->scope_md == scope_md &&
+           strcmp(entry->filename, filename) == 0 &&
+           strcmp(entry->function_name, function_name) == 0 &&
+           strcmp(entry->variable_name, variable_name) == 0)
+            return entry->local_md;
+    }
+
+    llvmDebugEnsureCapacity((void**) &(debug->locals), &(debug->local_capacity), debug->local_count + 1,
+                            sizeof(LLVMDebugLocalEntry), "llvmDebugGetLocalVariableMetadata");
+    LLVMDebugLocalEntry *entry = &(debug->locals[debug->local_count++]);
+    memset(entry, 0, sizeof(*entry));
+    entry->filename = diagnosticCloneString(filename);
+    entry->function_name = diagnosticCloneString(function_name);
+    entry->variable_name = diagnosticCloneString(variable_name);
+    entry->line = line + 1;
+    entry->scope_md = scope_md;
+    entry->mir_scope_id = mir_scope_id;
+    entry->file_md = llvmDebugGetFileMetadata(debug, filename);
+    entry->data_type = data_type != NULL ? cloneDataType(data_type) : NULL;
+    entry->is_parameter = is_parameter;
+    entry->argument_index = argument_index;
+    entry->local_md = llvmDebugNextMetadataId(debug);
+    return entry->local_md;
+}
+
+static MirFunction* llvmFindProgramFunctionByName(MirProgram *program, const char *function_name)
+{
+    if(program == NULL || function_name == NULL)
+        return NULL;
+    for(int i = 0; i < program->function_count; i++)
+    {
+        MirFunction *function = program->functions[i];
+        if(function != NULL && strcmp(function->name, function_name) == 0)
+            return function;
+    }
+    return NULL;
+}
+
+static const char* llvmDebugPrimaryEncoding(ASTPrimaryDataType primary)
+{
+    switch(primary)
+    {
+        case AST_PRIMARY_DATA_TYPE_BOOL: return "DW_ATE_boolean";
+        case AST_PRIMARY_DATA_TYPE_F16:
+        case AST_PRIMARY_DATA_TYPE_F32:
+        case AST_PRIMARY_DATA_TYPE_F64: return "DW_ATE_float";
+        case AST_PRIMARY_DATA_TYPE_CHAR:
+        case AST_PRIMARY_DATA_TYPE_U8:
+        case AST_PRIMARY_DATA_TYPE_U16:
+        case AST_PRIMARY_DATA_TYPE_U32:
+        case AST_PRIMARY_DATA_TYPE_U64: return "DW_ATE_unsigned";
+        case AST_PRIMARY_DATA_TYPE_I8:
+        case AST_PRIMARY_DATA_TYPE_I16:
+        case AST_PRIMARY_DATA_TYPE_I32:
+        case AST_PRIMARY_DATA_TYPE_I64: return "DW_ATE_signed";
+        default: return "DW_ATE_unsigned";
+    }
+}
+
+static int llvmDebugGetTypeMetadata(LLVMDebugBuilder *debug, ASTDataType *data_type)
+{
+    if(!debug->enabled || data_type == NULL)
+        return 0;
+
+    char key[512] = {0};
+    appendASTDataTypeString(data_type, key, sizeof(key));
+    for(int i = 0; i < debug->type_count; i++)
+    {
+        if(strcmp(debug->types[i].key, key) == 0)
+            return debug->types[i].type_md;
+    }
+
+    llvmDebugEnsureCapacity((void**) &(debug->types), &(debug->type_capacity), debug->type_count + 1,
+                            sizeof(LLVMDebugTypeEntry), "llvmDebugGetTypeMetadata");
+    LLVMDebugTypeEntry *entry = &(debug->types[debug->type_count++]);
+    memset(entry, 0, sizeof(*entry));
+    entry->key = diagnosticCloneString(key);
+    entry->display_name = diagnosticCloneString(key);
+    entry->data_type = data_type;
+    entry->type_md = llvmDebugNextMetadataId(debug);
+
+    if(data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       data_type->primary != AST_PRIMARY_DATA_TYPE_VOID &&
+       data_type->primary != AST_PRIMARY_DATA_TYPE_TYPE &&
+       data_type->primary != AST_PRIMARY_DATA_TYPE_F8)
+    {
+        entry->is_derived = false;
+        return entry->type_md;
+    }
+
+    if(data_type->kind == AST_DATA_TYPE_KIND_POINTER || data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+    {
+        entry->is_derived = true;
+        (void) llvmDebugGetTypeMetadata(debug, data_type->child);
+        return entry->type_md;
+    }
+
+    if(data_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+    {
+        entry->is_derived = true;
+        return entry->type_md;
+    }
+
+    entry->is_derived = false;
+    return entry->type_md;
+}
+
+static void llvmDebugDispose(LLVMDebugBuilder *debug)
+{
+    if(debug == NULL)
+        return;
+    for(int i = 0; i < debug->file_count; i++)
+    {
+        free(debug->files[i].path);
+        free(debug->files[i].directory);
+        free(debug->files[i].basename);
+    }
+    for(int i = 0; i < debug->location_count; i++)
+        free((char*) debug->locations[i].filename);
+    for(int i = 0; i < debug->subprogram_count; i++)
+    {
+        free((char*) debug->subprograms[i].filename);
+        free((char*) debug->subprograms[i].function_name);
+    }
+    for(int i = 0; i < debug->local_count; i++)
+    {
+        free((char*) debug->locals[i].filename);
+        free((char*) debug->locals[i].function_name);
+        free((char*) debug->locals[i].variable_name);
+    }
+    for(int i = 0; i < debug->type_count; i++)
+    {
+        free(debug->types[i].key);
+        free(debug->types[i].display_name);
+    }
+    free(debug->files);
+    free(debug->locations);
+    free(debug->subprograms);
+    free(debug->locals);
+    free(debug->types);
+    memset(debug, 0, sizeof(*debug));
 }
 
 static void llvmBackendError(const char *message, const char *filename, int line, int column)
@@ -655,6 +1101,224 @@ static void llvmEmitTempAssignPrefix(FILE *stream, const char *name)
     fprintf(stream, "    %s = ", name);
 }
 
+static void llvmEmitDebugLocationSuffixInScope(FILE *stream, LLVMFunctionEmitContext *context,
+                                               const char *filename, int line, int column, int mir_scope_id)
+{
+    if(context == NULL || !context->emit_debug_info || context->debug_subprogram_md <= 0)
+        return;
+    int scope_md = llvmDebugGetScopeMetadata(context->debug, context->function, mir_scope_id, context->debug_subprogram_md);
+    int location_md = llvmDebugGetLocationMetadata(context->debug, filename, line, column,
+                                                   scope_md);
+    if(location_md > 0)
+        fprintf(stream, ", !dbg !%d", location_md);
+}
+
+static void llvmEmitDebugLocationSuffix(FILE *stream, LLVMFunctionEmitContext *context, const char *filename, int line, int column)
+{
+    llvmEmitDebugLocationSuffixInScope(stream, context, filename, line, column, -1);
+}
+
+static void llvmEmitDebugMetadata(FILE *stream, LLVMDebugBuilder *debug, MirProgram *program)
+{
+    if(debug == NULL || !debug->enabled)
+        return;
+
+    (void) program;
+
+    fprintf(stream, "!llvm.dbg.cu = !{!%d}\n", debug->compile_unit_md);
+    int debug_version_md = llvmDebugNextMetadataId(debug);
+    int dwarf_version_md = llvmDebugNextMetadataId(debug);
+    fprintf(stream, "!llvm.module.flags = !{!%d, !%d}\n", debug_version_md, dwarf_version_md);
+    fprintf(stream, "!%d = !{i32 2, !\"Debug Info Version\", i32 3}\n", debug_version_md);
+    fprintf(stream, "!%d = !{i32 7, !\"Dwarf Version\", i32 4}\n", dwarf_version_md);
+
+    for(int i = 0; i < debug->file_count; i++)
+    {
+        LLVMDebugFileEntry *entry = &(debug->files[i]);
+        fprintf(stream, "!%d = !DIFile(filename: \"%s\", directory: \"%s\")\n",
+                entry->file_md, entry->basename, entry->directory);
+    }
+
+    fprintf(stream, "!%d = !{}\n", debug->globals_md);
+    fprintf(stream, "!%d = !{}\n", debug->imported_entities_md);
+    fprintf(stream, "!%d = !{}\n", debug->enum_types_md);
+    fprintf(stream, "!%d = !{}\n", debug->retained_types_md);
+    fprintf(stream, "!%d = !{}\n", debug->file_enums_md);
+    fprintf(stream, "!%d = !{}\n", debug->file_retained_types_md);
+    fprintf(stream, "!%d = !{}\n", debug->file_globals_md);
+    fprintf(stream, "!%d = !{}\n", debug->file_imported_entities_md);
+    fprintf(stream, "!%d = !DIExpression()\n", debug->expression_md);
+
+    if(debug->file_count > 0)
+    {
+        int primary_file_md = debug->files[0].file_md;
+        fprintf(stream,
+                "!%d = distinct !DICompileUnit(language: DW_LANG_C, file: !%d, producer: \"mote\", isOptimized: false, "
+                "runtimeVersion: 0, emissionKind: FullDebug, enums: !%d, retainedTypes: !%d, globals: !%d, imports: !%d)\n",
+                debug->compile_unit_md, primary_file_md, debug->enum_types_md, debug->retained_types_md,
+                debug->globals_md, debug->imported_entities_md);
+    }
+
+    for(int i = 0; i < program->function_count; i++)
+    {
+        MirFunction *function = program->functions[i];
+        if(function == NULL || function->source_function == NULL)
+            continue;
+        int return_type_md = llvmDebugGetTypeMetadata(debug, function->return_data_type);
+        int subroutine_types_md = llvmDebugNextMetadataId(debug);
+        int subroutine_type_md = llvmDebugNextMetadataId(debug);
+        int file_md = llvmDebugGetFileMetadata(debug, function->source_function->filename);
+        int subprogram_md = llvmDebugCreateSubprogram(debug,
+                                                      function->source_function->filename,
+                                                      function->name,
+                                                      function->source_function->line_number + 1);
+        fprintf(stream, "!%d = !{", subroutine_types_md);
+        if(return_type_md > 0)
+            fprintf(stream, "!%d", return_type_md);
+        else
+            fprintf(stream, "null");
+        for(int parameter_index = 0; parameter_index < function->parameter_count; parameter_index++)
+        {
+            int parameter_type_md = llvmDebugGetTypeMetadata(debug, function->parameters[parameter_index].source_data_type);
+            if(parameter_type_md > 0)
+                fprintf(stream, ", !%d", parameter_type_md);
+            else
+                fprintf(stream, ", null");
+        }
+        fprintf(stream, "}\n");
+        fprintf(stream, "!%d = !DISubroutineType(types: !%d)\n", subroutine_type_md, subroutine_types_md);
+        fprintf(stream,
+                "!%d = distinct !DISubprogram(name: \"%s\", linkageName: \"%s\", scope: !%d, file: !%d, line: %d, "
+                "type: !%d, scopeLine: %d, spFlags: DISPFlagDefinition, unit: !%d)\n",
+                subprogram_md,
+                function->name,
+                function->name,
+                file_md,
+                file_md,
+                function->source_function->line_number + 1,
+                subroutine_type_md,
+                function->source_function->line_number + 1,
+                debug->compile_unit_md);
+    }
+
+    for(int i = 0; i < debug->local_count; i++)
+    {
+        LLVMDebugLocalEntry *entry = &(debug->locals[i]);
+        int type_md = llvmDebugGetTypeMetadata(debug, entry->data_type);
+        MirFunction *scope_function = llvmFindProgramFunctionByName(program, entry->function_name);
+        int scope_md = entry->mir_scope_id >= 0
+            ? llvmDebugGetScopeMetadata(debug, scope_function, entry->mir_scope_id, entry->scope_md)
+            : entry->scope_md;
+        if(entry->is_parameter)
+            fprintf(stream,
+                    "!%d = !DILocalVariable(name: \"%s\", arg: %d, scope: !%d, file: !%d, line: %d, type: !%d)\n",
+                    entry->local_md,
+                    entry->variable_name,
+                    entry->argument_index,
+                    scope_md,
+                    entry->file_md,
+                    entry->line,
+                    type_md > 0 ? type_md : debug->compile_unit_md);
+        else
+            fprintf(stream,
+                    "!%d = !DILocalVariable(name: \"%s\", scope: !%d, file: !%d, line: %d, type: !%d)\n",
+                    entry->local_md,
+                    entry->variable_name,
+                    scope_md,
+                    entry->file_md,
+                    entry->line,
+                    type_md > 0 ? type_md : debug->compile_unit_md);
+    }
+
+    for(int i = 0; i < debug->type_count; i++)
+    {
+        LLVMDebugTypeEntry *entry = &(debug->types[i]);
+        if(entry->data_type == NULL)
+            continue;
+        if(entry->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           entry->data_type->primary != AST_PRIMARY_DATA_TYPE_VOID &&
+           entry->data_type->primary != AST_PRIMARY_DATA_TYPE_TYPE &&
+           entry->data_type->primary != AST_PRIMARY_DATA_TYPE_F8)
+        {
+            fprintf(stream,
+                    "!%d = !DIBasicType(name: \"%s\", size: %zu, encoding: %s)\n",
+                    entry->type_md,
+                    entry->display_name,
+                    llvmExternABIPrimaryTypeSize(entry->data_type->primary) * 8,
+                    llvmDebugPrimaryEncoding(entry->data_type->primary));
+            continue;
+        }
+        if(entry->data_type->kind == AST_DATA_TYPE_KIND_POINTER || entry->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+        {
+            int base_type_md = llvmDebugGetTypeMetadata(debug, entry->data_type->child);
+            fprintf(stream,
+                    "!%d = !DIDerivedType(tag: DW_TAG_pointer_type, name: \"%s\", baseType: !%d, size: %zu)\n",
+                    entry->type_md,
+                    entry->display_name,
+                    base_type_md,
+                    sizeof(void*) * 8);
+        }
+    }
+
+    for(int i = 0; i < debug->location_count; i++)
+    {
+        LLVMDebugLocationEntry *entry = &(debug->locations[i]);
+        fprintf(stream, "!%d = !DILocation(line: %d, column: %d, scope: !%d)\n",
+                entry->location_md, entry->line, entry->column, entry->scope_md);
+    }
+
+    for(int i = 0; i < debug->lexical_block_count; i++)
+    {
+        LLVMDebugLexicalBlockEntry *entry = &(debug->lexical_blocks[i]);
+        fprintf(stream, "!%d = distinct !DILexicalBlock(scope: !%d, file: !%d, line: %d, column: %d)\n",
+                entry->lexical_block_md,
+                entry->parent_scope_md,
+                entry->file_md,
+                entry->line,
+                entry->column);
+    }
+}
+
+static MirDebugLocal* llvmFindDebugLocalBySlot(LLVMFunctionEmitContext *context, int slot_value_id)
+{
+    if(context == NULL || context->function == NULL)
+        return NULL;
+    for(int i = 0; i < context->function->debug_local_count; i++)
+    {
+        if(context->function->debug_locals[i].slot_value == slot_value_id)
+            return &(context->function->debug_locals[i]);
+    }
+    return NULL;
+}
+
+static void llvmEmitDebugDeclare(FILE *stream, LLVMFunctionEmitContext *context, int slot_value_id)
+{
+    if(context == NULL || !context->emit_debug_info || context->debug_subprogram_md <= 0)
+        return;
+    MirDebugLocal *local = llvmFindDebugLocalBySlot(context, slot_value_id);
+    if(local == NULL || local->filename == NULL)
+        return;
+    int local_md = llvmDebugGetLocalVariableMetadata(context->debug,
+                                                     local->filename,
+                                                     context->function->name,
+                                                     local->identifier,
+                                                     context->function->values[slot_value_id].data_type != NULL
+                                                         ? llvmPointeeType(context->function->values[slot_value_id].data_type)
+                                                         : NULL,
+                                                     local->is_parameter,
+                                                     local->argument_index,
+                                                     local->line_number,
+                                                     local->debug_scope_id,
+                                                     context->debug_subprogram_md);
+    if(local_md <= 0)
+        return;
+    fprintf(stream, "    call void @llvm.dbg.declare(metadata ptr %%v%d, metadata !%d, metadata !%d)",
+            slot_value_id, local_md, context->debug->expression_md);
+    llvmEmitDebugLocationSuffixInScope(stream, context, local->filename, local->line_number, local->column_number,
+                                       local->debug_scope_id);
+    fprintf(stream, "\n");
+}
+
 static void llvmEmitDoubleLiteral(FILE *stream, long double value)
 {
     if(isnan((double)value))
@@ -675,7 +1339,9 @@ static void llvmEmitDoubleLiteral(FILE *stream, long double value)
     fprintf(stream, "%.17e", (double)value);
 }
 
-static void llvmEmitFloatConstantInst(FILE *stream, int result_value_id, ASTDataType *data_type, long double value)
+static void llvmEmitFloatConstantInst(FILE *stream, LLVMFunctionEmitContext *context, int result_value_id,
+                                      ASTDataType *data_type, long double value,
+                                      const char *filename, int line, int column)
 {
     if(data_type != NULL &&
        data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
@@ -687,6 +1353,7 @@ static void llvmEmitFloatConstantInst(FILE *stream, int result_value_id, ASTData
         llvmEmitDoubleLiteral(stream, value);
         fprintf(stream, " to ");
         llvmEmitType(stream, data_type);
+        llvmEmitDebugLocationSuffix(stream, context, filename, line, column);
         fprintf(stream, "\n");
         return;
     }
@@ -696,10 +1363,12 @@ static void llvmEmitFloatConstantInst(FILE *stream, int result_value_id, ASTData
     llvmEmitType(stream, data_type);
     fprintf(stream, " 0.0, ");
     llvmEmitDoubleLiteral(stream, value);
+    llvmEmitDebugLocationSuffix(stream, context, filename, line, column);
     fprintf(stream, "\n");
 }
 
-static void llvmEmitZeroValueInst(FILE *stream, LLVMFunctionEmitContext *context, int result_value_id, ASTDataType *data_type)
+static void llvmEmitZeroValueInst(FILE *stream, LLVMFunctionEmitContext *context, int result_value_id, ASTDataType *data_type,
+                                  const char *filename, int line, int column)
 {
     char slot_name[32];
     llvmMakeTempName(context, slot_name, sizeof(slot_name));
@@ -720,14 +1389,18 @@ static void llvmEmitZeroValueInst(FILE *stream, LLVMFunctionEmitContext *context
         llvmEmitTempAssignPrefix(stream, load_name);
         fprintf(stream, "load i8, ptr %s\n", slot_name);
         llvmEmitInstructionPrefix(stream, result_value_id);
-        fprintf(stream, "trunc i8 %s to i1\n", load_name);
+        fprintf(stream, "trunc i8 %s to i1", load_name);
+        llvmEmitDebugLocationSuffix(stream, context, filename, line, column);
+        fprintf(stream, "\n");
     }
     else
     {
         llvmEmitInstructionPrefix(stream, result_value_id);
         fprintf(stream, "load ");
         llvmEmitType(stream, data_type);
-        fprintf(stream, ", ptr %s\n", slot_name);
+        fprintf(stream, ", ptr %s", slot_name);
+        llvmEmitDebugLocationSuffix(stream, context, filename, line, column);
+        fprintf(stream, "\n");
     }
 }
 
@@ -812,7 +1485,8 @@ static void llvmEmitEnvAllocation(FILE *stream, LLVMFunctionEmitContext *context
 }
 
 static void llvmEmitClosureAggregate(FILE *stream, LLVMFunctionEmitContext *context, int result_value_id,
-                                     const char *function_name, const char *env_name)
+                                     const char *function_name, const char *env_name,
+                                     const char *filename, int line, int column)
 {
     char first_name[32];
     llvmMakeTempName(context, first_name, sizeof(first_name));
@@ -820,14 +1494,17 @@ static void llvmEmitClosureAggregate(FILE *stream, LLVMFunctionEmitContext *cont
     fprintf(stream, "insertvalue { ptr, ptr } undef, ptr @%s, 0\n", function_name);
 
     llvmEmitInstructionPrefix(stream, result_value_id);
-    fprintf(stream, "insertvalue { ptr, ptr } %s, ptr %s, 1\n", first_name, env_name != NULL ? env_name : "null");
+    fprintf(stream, "insertvalue { ptr, ptr } %s, ptr %s, 1", first_name, env_name != NULL ? env_name : "null");
+    llvmEmitDebugLocationSuffix(stream, context, filename, line, column);
+    fprintf(stream, "\n");
 }
 
 static void llvmEmitArrayLiteral(FILE *stream, LLVMFunctionEmitContext *context, MirInst *inst)
 {
     if(inst->data.array_literal.elements.count == 0)
     {
-        llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type);
+        llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type,
+                              inst->filename, inst->line_number, inst->column_number);
         return;
     }
 
@@ -857,7 +1534,10 @@ static void llvmEmitArrayLiteral(FILE *stream, LLVMFunctionEmitContext *context,
         llvmEmitStorageType(stream, inst->result_type->child);
         fprintf(stream, " ");
         fprintf(stream, "%s", stored_element_ref);
-        fprintf(stream, ", %d\n", i);
+        fprintf(stream, ", %d", i);
+        if(i + 1 == inst->data.array_literal.elements.count)
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+        fprintf(stream, "\n");
         if(i + 1 != inst->data.array_literal.elements.count)
             strcpy(current_name, next_name);
         has_current = true;
@@ -869,7 +1549,8 @@ static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context
     int field_count = inst->data.struct_literal.fields.count;
     if(field_count == 0)
     {
-        llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type);
+        llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type,
+                              inst->filename, inst->line_number, inst->column_number);
         return;
     }
 
@@ -940,7 +1621,10 @@ static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context
         llvmEmitStorageType(stream, field_type);
         fprintf(stream, " ");
         fprintf(stream, "%s", stored_field_ref);
-        fprintf(stream, ", %d\n", field_index);
+        fprintf(stream, ", %d", field_index);
+        if(i + 1 == field_count)
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+        fprintf(stream, "\n");
         if(i + 1 != field_count)
             strcpy(current_name, next_name);
         has_current = true;
@@ -1240,6 +1924,7 @@ static void llvmEmitBinaryInst(FILE *stream, LLVMFunctionEmitContext *context, M
     llvmEmitValueRef(stream, context, inst->data.binary.lhs);
     fprintf(stream, ", ");
     llvmEmitValueRef(stream, context, inst->data.binary.rhs);
+    llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
     fprintf(stream, "\n");
 }
 
@@ -1284,6 +1969,7 @@ static void llvmEmitCompareInst(FILE *stream, LLVMFunctionEmitContext *context, 
     llvmEmitValueRef(stream, context, inst->data.binary.lhs);
     fprintf(stream, ", ");
     llvmEmitValueRef(stream, context, inst->data.binary.rhs);
+    llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
     fprintf(stream, "\n");
 }
 
@@ -1399,21 +2085,26 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
     switch(inst->kind)
     {
         case MIR_INST_ZERO:
-            llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type);
+            llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type,
+                                  inst->filename, inst->line_number, inst->column_number);
             return;
         case MIR_INST_CONST_BOOL:
             llvmEmitInstructionPrefix(stream, inst->result);
-            fprintf(stream, "or i1 false, %s\n", inst->data.const_bool.value ? "true" : "false");
+            fprintf(stream, "or i1 false, %s", inst->data.const_bool.value ? "true" : "false");
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+            fprintf(stream, "\n");
             return;
         case MIR_INST_CONST_CHAR:
         case MIR_INST_CONST_INT:
             if(inst->result_type != NULL && inst->result_type->kind == AST_DATA_TYPE_KIND_POINTER)
             {
                 llvmEmitInstructionPrefix(stream, inst->result);
-                fprintf(stream, "inttoptr i64 %llu to ptr\n",
+                fprintf(stream, "inttoptr i64 %llu to ptr",
                         inst->kind == MIR_INST_CONST_CHAR
                             ? (long long int)(unsigned char)inst->data.const_char.value
                             : inst->data.const_int.value);
+                llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+                fprintf(stream, "\n");
                 return;
             }
 
@@ -1422,34 +2113,40 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                inst->kind == MIR_INST_CONST_INT &&
                inst->data.const_int.value == 0ull)
             {
-                llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type);
+                llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type,
+                                      inst->filename, inst->line_number, inst->column_number);
                 return;
             }
 
             if(llvmIsFloatDataType(inst->result_type))
             {
-                llvmEmitFloatConstantInst(stream, inst->result, inst->result_type,
-                                         inst->kind == MIR_INST_CONST_CHAR
-                                              ? (long double)(unsigned char)inst->data.const_char.value
-                                              : (long double)inst->data.const_int.value);
+                llvmEmitFloatConstantInst(stream, context, inst->result, inst->result_type,
+                                          inst->kind == MIR_INST_CONST_CHAR
+                                               ? (long double)(unsigned char)inst->data.const_char.value
+                                               : (long double)inst->data.const_int.value,
+                                          inst->filename, inst->line_number, inst->column_number);
                 return;
             }
 
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "add ");
             llvmEmitType(stream, inst->result_type);
-            fprintf(stream, " 0, %llu\n", inst->kind == MIR_INST_CONST_CHAR
+            fprintf(stream, " 0, %llu", inst->kind == MIR_INST_CONST_CHAR
                     ? (long long int)(unsigned char)inst->data.const_char.value
                     : inst->data.const_int.value);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+            fprintf(stream, "\n");
             return;
         case MIR_INST_CONST_FLOAT:
-            llvmEmitFloatConstantInst(stream, inst->result, inst->result_type, inst->data.const_float.value);
+            llvmEmitFloatConstantInst(stream, context, inst->result, inst->result_type, inst->data.const_float.value,
+                                      inst->filename, inst->line_number, inst->column_number);
             return;
         case MIR_INST_CONST_STRING: {
             int length = (int)inst->result_type->array_length;
             if(length == 0)
             {
-                llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type);
+                llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type,
+                                      inst->filename, inst->line_number, inst->column_number);
                 return;
             }
 
@@ -1472,7 +2169,10 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                     fprintf(stream, " zeroinitializer, ");
                 else
                     fprintf(stream, " %s, ", current_name);
-                fprintf(stream, "i8 %d, %d\n", (unsigned char)inst->data.const_string.value[i], i);
+                fprintf(stream, "i8 %d, %d", (unsigned char)inst->data.const_string.value[i], i);
+                if(i + 1 == length)
+                    llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+                fprintf(stream, "\n");
                 if(i + 1 != length)
                     strcpy(current_name, next_name);
                 has_current = true;
@@ -1497,13 +2197,16 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 fprintf(stream, "0, ");
                 llvmEmitValueRef(stream, context, inst->data.unary.operand);
             }
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_INST_NOT:
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "xor i1 ");
             llvmEmitValueRef(stream, context, inst->data.unary.operand);
-            fprintf(stream, ", true\n");
+            fprintf(stream, ", true");
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+            fprintf(stream, "\n");
             return;
         case MIR_INST_BIT_NOT:
             llvmEmitInstructionPrefix(stream, inst->result);
@@ -1513,6 +2216,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitValueRef(stream, context, inst->data.unary.operand);
             fprintf(stream, ", ");
             llvmEmitConstAllOnes(stream, inst->result_type);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         case MIR_INST_ADD: llvmEmitBinaryInst(stream, context, inst, "fadd", "add", "add"); return;
@@ -1535,7 +2239,9 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "alloca ");
             llvmEmitStorageType(stream, inst->data.alloca_inst.alloca_type);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
+            llvmEmitDebugDeclare(stream, context, inst->result);
             return;
         case MIR_INST_LOAD:
             if(llvmIsBoolDataType(inst->result_type))
@@ -1547,7 +2253,9 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 llvmEmitValueRef(stream, context, inst->data.load.address);
                 fprintf(stream, "\n");
                 llvmEmitInstructionPrefix(stream, inst->result);
-                fprintf(stream, "trunc i8 %s to i1\n", load_name);
+                fprintf(stream, "trunc i8 %s to i1", load_name);
+                llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+                fprintf(stream, "\n");
             }
             else
             {
@@ -1556,6 +2264,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 llvmEmitType(stream, inst->result_type);
                 fprintf(stream, ", ptr ");
                 llvmEmitValueRef(stream, context, inst->data.load.address);
+                llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
                 fprintf(stream, "\n");
             }
             return;
@@ -1576,6 +2285,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 fprintf(stream, "%s", stored_value_ref);
             fprintf(stream, ", ptr ");
             llvmEmitValueRef(stream, context, inst->data.store.address);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         }
@@ -1583,10 +2293,13 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "getelementptr ");
             llvmEmitStorageType(stream, llvmPointeeType(inst->result_type));
-            fprintf(stream, ", ptr @%s, i32 0\n", inst->data.global_addr.global_name);
+            fprintf(stream, ", ptr @%s, i32 0", inst->data.global_addr.global_name);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+            fprintf(stream, "\n");
             return;
         case MIR_INST_FUNCTION_REF:
-            llvmEmitClosureAggregate(stream, context, inst->result, inst->data.function_ref.function_name, NULL);
+            llvmEmitClosureAggregate(stream, context, inst->result, inst->data.function_ref.function_name, NULL,
+                                     inst->filename, inst->line_number, inst->column_number);
             return;
         case MIR_INST_MAKE_CLOSURE: {
             char env_name[32];
@@ -1597,7 +2310,8 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 llvmEmitEnvAllocation(stream, context, inst, env_name);
                 env_ref = env_name;
             }
-            llvmEmitClosureAggregate(stream, context, inst->result, inst->data.make_closure.function_name, env_ref);
+            llvmEmitClosureAggregate(stream, context, inst->result, inst->data.make_closure.function_name, env_ref,
+                                     inst->filename, inst->line_number, inst->column_number);
             return;
         }
         case MIR_INST_FIELD_PTR: {
@@ -1607,7 +2321,9 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitStorageType(stream, pointee_type);
             fprintf(stream, ", ptr ");
             llvmEmitValueRef(stream, context, inst->data.field_ptr.base_address);
-            fprintf(stream, ", i32 0, i32 %d\n", inst->data.field_ptr.field_index);
+            fprintf(stream, ", i32 0, i32 %d", inst->data.field_ptr.field_index);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+            fprintf(stream, "\n");
             return;
         }
         case MIR_INST_INDEX_PTR: {
@@ -1624,6 +2340,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitType(stream, llvmResolvedValueType(context, inst->data.index_ptr.index_value));
             fprintf(stream, " ");
             llvmEmitValueRef(stream, context, inst->data.index_ptr.index_value);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
             fprintf(stream, "\n");
             return;
         }
@@ -1646,8 +2363,10 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             fprintf(stream, "    %s = sub i64 %s, %s\n", byte_diff_name, lhs_int_name, rhs_int_name);
 
             llvmEmitInstructionPrefix(stream, inst->result);
-            fprintf(stream, "sdiv i64 %s, %d\n", byte_diff_name,
+            fprintf(stream, "sdiv i64 %s, %d", byte_diff_name,
                     (int) llvmExternABITypeSize(llvmPointeeType(llvmResolvedValueType(context, inst->data.ptr_diff.lhs))));
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+            fprintf(stream, "\n");
             return;
         }
         case MIR_INST_ARRAY_LITERAL:
@@ -1658,7 +2377,9 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             return;
         case MIR_INST_ENUM_LITERAL:
             llvmEmitInstructionPrefix(stream, inst->result);
-            fprintf(stream, "add i32 0, %d\n", inst->data.enum_literal.ordinal);
+            fprintf(stream, "add i32 0, %d", inst->data.enum_literal.ordinal);
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+            fprintf(stream, "\n");
             return;
         case MIR_INST_CALL: {
             char code_name[32];
@@ -1696,7 +2417,9 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 if(parameter != NULL)
                     parameter = parameter->next;
             }
-            fprintf(stream, ")\n");
+            fprintf(stream, ")");
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+            fprintf(stream, "\n");
             return;
         }
         case MIR_INST_EXTERN_CALL: {
@@ -1825,14 +2548,18 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
                 if(parameter != NULL)
                     parameter = parameter->next;
             }
-            fprintf(stream, ")\n");
+            fprintf(stream, ")");
+            llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+            fprintf(stream, "\n");
 
             if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER && inst->result >= 0)
             {
                 llvmEmitInstructionPrefix(stream, inst->result);
                 fprintf(stream, "load ");
                 llvmEmitType(stream, inst->result_type);
-                fprintf(stream, ", ptr %%v%d_ret_slot\n", temp_base);
+                fprintf(stream, ", ptr %%v%d_ret_slot", temp_base);
+                llvmEmitDebugLocationSuffixInScope(stream, context, inst->filename, inst->line_number, inst->column_number, inst->debug_scope_id);
+                fprintf(stream, "\n");
             }
             return;
         }
@@ -1846,14 +2573,18 @@ static void llvmEmitTerminator(FILE *stream, LLVMFunctionEmitContext *context, M
     switch(terminator->kind)
     {
         case MIR_TERM_BR:
-            fprintf(stream, "    br label %%%s\n", context->function->blocks[terminator->data.br.target].name);
+            fprintf(stream, "    br label %%%s", context->function->blocks[terminator->data.br.target].name);
+            llvmEmitDebugLocationSuffixInScope(stream, context, terminator->filename, terminator->line_number, terminator->column_number, terminator->debug_scope_id);
+            fprintf(stream, "\n");
             return;
         case MIR_TERM_COND_BR:
             fprintf(stream, "    br i1 ");
             llvmEmitValueRef(stream, context, terminator->data.cond_br.condition);
-            fprintf(stream, ", label %%%s, label %%%s\n",
+            fprintf(stream, ", label %%%s, label %%%s",
                     context->function->blocks[terminator->data.cond_br.then_block].name,
                     context->function->blocks[terminator->data.cond_br.else_block].name);
+            llvmEmitDebugLocationSuffixInScope(stream, context, terminator->filename, terminator->line_number, terminator->column_number, terminator->debug_scope_id);
+            fprintf(stream, "\n");
             return;
         case MIR_TERM_RET:
             if(terminator->data.ret.has_value)
@@ -1862,13 +2593,20 @@ static void llvmEmitTerminator(FILE *stream, LLVMFunctionEmitContext *context, M
                 llvmEmitType(stream, llvmResolvedValueType(context, terminator->data.ret.value));
                 fprintf(stream, " ");
                 llvmEmitValueRef(stream, context, terminator->data.ret.value);
+                llvmEmitDebugLocationSuffixInScope(stream, context, terminator->filename, terminator->line_number, terminator->column_number, terminator->debug_scope_id);
                 fprintf(stream, "\n");
             }
             else
-                fprintf(stream, "    ret void\n");
+            {
+                fprintf(stream, "    ret void");
+                llvmEmitDebugLocationSuffixInScope(stream, context, terminator->filename, terminator->line_number, terminator->column_number, terminator->debug_scope_id);
+                fprintf(stream, "\n");
+            }
             return;
         case MIR_TERM_UNREACHABLE:
-            fprintf(stream, "    unreachable\n");
+            fprintf(stream, "    unreachable");
+            llvmEmitDebugLocationSuffixInScope(stream, context, terminator->filename, terminator->line_number, terminator->column_number, terminator->debug_scope_id);
+            fprintf(stream, "\n");
             return;
         case MIR_TERM_NONE:
             llvmBackendError("unterminated MIR block cannot be emitted to LLVM IR", NULL, 0, 0);
@@ -1876,18 +2614,27 @@ static void llvmEmitTerminator(FILE *stream, LLVMFunctionEmitContext *context, M
     }
 }
 
-static void llvmEmitFunctionDefinition(FILE *stream, MirProgram *program, MirFunction *function)
+static void llvmEmitFunctionDefinition(FILE *stream, MirProgram *program, MirFunction *function, LLVMDebugBuilder *debug)
 {
     LLVMFunctionEmitContext context = {0};
     context.stream = stream;
     context.program = program;
     context.function = function;
+    context.debug = debug;
+    context.emit_debug_info = debug != NULL && debug->enabled;
     context.aliases = (int*) malloc(sizeof(int) * function->value_count);
     for(int i = 0; i < function->value_count; i++)
         context.aliases[i] = i;
+    if(context.emit_debug_info && function->source_function != NULL)
+        context.debug_subprogram_md = llvmDebugCreateSubprogram(debug,
+                                                                function->source_function->filename,
+                                                                function->name,
+                                                                function->source_function->line_number + 1);
 
     fprintf(stream, "define ");
     llvmEmitFunctionSignature(stream, function);
+    if(context.debug_subprogram_md > 0)
+        fprintf(stream, " !dbg !%d", context.debug_subprogram_md);
     fprintf(stream, " {\n");
 
     for(int block_index = 0; block_index < function->block_count; block_index++)
@@ -1943,7 +2690,8 @@ static void llvmEmitEntryPoint(FILE *stream, MirProgram *program, ASTNode *root)
     fprintf(stream, "}\n\n");
 }
 
-static void emitLLVMProgramToFile(MirProgram *program, ASTNode *root, const char *module_name, const char *output_path)
+static void emitLLVMProgramToFile(MirProgram *program, ASTNode *root, const char *module_name, const char *output_path,
+                                  bool emit_debug_info)
 {
     FILE *stream = fopen(output_path, "wb");
     if(stream == NULL)
@@ -1952,10 +2700,16 @@ static void emitLLVMProgramToFile(MirProgram *program, ASTNode *root, const char
                                   "failed to open LLVM output file `%s`",
                                   output_path);
 
+    LLVMDebugBuilder debug = {0};
+    llvmDebugInit(&debug, emit_debug_info);
+
     fprintf(stream, "; ModuleID = '%s'\n", module_name != NULL ? module_name : "mote");
     fprintf(stream, "source_filename = \"%s\"\n\n", module_name != NULL ? module_name : "mote");
     if(llvmHostTargetTriple() != NULL)
         fprintf(stream, "target triple = \"%s\"\n\n", llvmHostTargetTriple());
+
+    if(emit_debug_info)
+        fprintf(stream, "declare void @llvm.dbg.declare(metadata, metadata, metadata)\n\n");
 
     if(llvmProgramNeedsMalloc(program) && !llvmProgramHasExternSymbol(program, "malloc"))
         fprintf(stream, "declare ptr @malloc(i64)\n\n");
@@ -1998,11 +2752,18 @@ static void emitLLVMProgramToFile(MirProgram *program, ASTNode *root, const char
         llvmEmitExternWrapperDefinitions(stream, program);
 
     for(int i = 0; i < program->function_count; i++)
-        llvmEmitFunctionDefinition(stream, program, program->functions[i]);
+        llvmEmitFunctionDefinition(stream, program, program->functions[i], &debug);
 
     llvmEmitEntryPoint(stream, program, root);
 
+    if(emit_debug_info)
+    {
+        fprintf(stream, "\n");
+        llvmEmitDebugMetadata(stream, &debug, program);
+    }
+
     fclose(stream);
+    llvmDebugDispose(&debug);
 }
 
 #endif /* LLVM_BACKEND_H */
