@@ -9,7 +9,7 @@ Mote是一个力求在简洁和简单之间找到平衡，减少编程者心智�
 在仓库根目录执行：
 
 ```bash
-gcc src\main.c -o mote
+gcc src/main.c -o mote
 ```
 
 就能得到编译器的可执行程序。
@@ -26,20 +26,20 @@ mote [options] <dir>
 
 默认生成可执行文件：
 
-```powershell
-.\mote.exe test\basic\simple
+```bash
+./mote test/basic/simple
 ```
 
 输出 LLVM IR：
 
-```powershell
-.\mote.exe -S test\basic\simple
+```bash
+./mote -S test/basic/simple
 ```
 
 打印 AST / MIR：
 
-```powershell
-.\mote.exe --dump-ast --dump-mir -S test\basic\simple
+```bash
+./mote --dump-ast --dump-mir -S test/basic/simple
 ```
 
 几个关键选项：
@@ -54,41 +54,12 @@ mote [options] <dir>
 
 ## 快速开始
 
-`notgate` 是一个用mote语言写成的推箱子游戏，覆盖了：
+`notgate` 是一个用mote语言写成的推箱子游戏。
 
-- 多文件包
-- `@package` / `pub` / `@import`
-- raylib FFI
-- 贴图、音效、shader
-- 游戏循环与较复杂的状态逻辑
+编译运行：
 
-等功能。
-
-编译：
-
-```powershell
-.\mote.exe test\game\notgate -I . -o test\artifacts\notgate.exe
+```bash
+cd ./test/game/notgate
+../../../mote .. -o notgate
+./notgate
 ```
-
-运行：
-
-```powershell
-.\test\artifacts\notgate.exe
-```
-
-## 文档索引
-
-- [docs/language_tutorial_zh.md](docs/language_tutorial_zh.md)
-  - 当前 Mote 语法、语义、包系统行为与实现限制的中文教程
-- [docs/compiler_usage.md](docs/compiler_usage.md)
-  - 编译器 CLI、包导入解析与链接参数
-- [docs/runtime_abi.md](docs/runtime_abi.md)
-  - MIR / LLVM 后端当前采用的运行时 ABI 约定
-
-## 标准库说明
-
-- 不再提供聚合入口 `std`，请直接从具体包导入，例如 `std:string`、`std:list`、`std:filesystem`
-- 文件相关标准库优先使用 `std:filesystem`
-- `std:fs` 目前保留为兼容 shim，但新代码建议直接导入 `std:filesystem`
-- `std:path` 只做路径字符串处理，不直接访问文件系统
-- `std:string` 同时包含 C 字符串包装和 Mote slice 字符串工具，两者语义不同，涉及内嵌 `\0` 时应优先使用 slice API
