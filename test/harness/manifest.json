@@ -55,6 +55,32 @@
       "input": "test\\basic\\collection_import"
     },
     {
+      "name": "debug-info-basic-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\simple",
+      "output_contains": [
+        "!llvm.dbg.cu = !{!",
+        "define i32 @lambda_0(ptr %env) !dbg !",
+        "declare void @llvm.dbg.declare(metadata, metadata, metadata)",
+        "!DILocalVariable(name: \"x\"",
+        "!DILocalVariable(name: \"flag\"",
+        "call void @llvm.dbg.declare(metadata ptr %v1",
+        "call void @llvm.dbg.declare(metadata ptr %v10"
+      ],
+      "args": [
+        "-g"
+      ]
+    },
+    {
+      "name": "debug-info-basic-exe",
+      "expect": "success",
+      "input": "test\\basic\\simple",
+      "args": [
+        "-g"
+      ]
+    },
+    {
       "name": "package-dir-name-mismatch-llvm",
       "expect": "success",
       "mode": "llvm",

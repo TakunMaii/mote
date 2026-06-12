@@ -65,6 +65,7 @@ static void print_usage(const char *argv0)
     printf("  -L <dir>          Add a linker search directory\n");
     printf("  -l<name>          Link against <name>\n");
     printf("  -Wl,<args>        Forward comma-separated arguments to the linker\n");
+    printf("  -g                Emit debug information for debuggers\n");
     printf("  --dump-ast        Print AST after parsing and rewriting\n");
     printf("  --dump-mir        Print MIR after lowering\n");
     printf("  --help, -h        Show this help text\n");
@@ -708,6 +709,7 @@ static void append_shell_quoted_fragment(char *command, size_t command_size, con
 
 static int run_clang_link(const char *llvm_input_path, const char *runtime_source_path,
                           const char *exe_output_path,
+                          bool emit_debug_info,
                           const char **driver_args, int driver_arg_count,
                           const char **extra_c_sources, int extra_c_source_count,
                           const char **linker_args, int linker_arg_count,
@@ -719,6 +721,8 @@ static int run_clang_link(const char *llvm_input_path, const char *runtime_sourc
     append_shell_escaped(command, sizeof(command), runtime_source_path);
     append_shell_escaped(command, sizeof(command), "-o");
     append_shell_escaped(command, sizeof(command), exe_output_path);
+    if(emit_debug_info)
+        append_shell_escaped(command, sizeof(command), "-g");
 #if defined(_WIN32)
     append_shell_escaped(command, sizeof(command), "-Xlinker");
     append_shell_escaped(command, sizeof(command), "/subsystem:console");
@@ -770,6 +774,7 @@ int main(int argn, char** argv)
     bool emit_exe = true;
     bool dump_ast = false;
     bool dump_mir = false;
+    bool emit_debug_info = false;
     const char *input_path = NULL;
     const char *requested_output_path = NULL;
     const char *llvm_output_path = NULL;
@@ -810,6 +815,12 @@ int main(int argn, char** argv)
         if(strcmp(argv[i], "--dump-ast") == 0)
         {
             dump_ast = true;
+            continue;
+        }
+
+        if(strcmp(argv[i], "-g") == 0)
+        {
+            emit_debug_info = true;
             continue;
         }
 
@@ -1013,7 +1024,7 @@ int main(int argn, char** argv)
 
     if(emit_llvm)
     {
-        emitLLVMProgramToFile(mir_program, root, input_path, llvm_output_path);
+        emitLLVMProgramToFile(mir_program, root, input_path, llvm_output_path, emit_debug_info);
         if(keep_llvm_output)
             printf("%s\n", llvm_output_path);
     }
@@ -1031,11 +1042,12 @@ int main(int argn, char** argv)
         {
             build_temp_llvm_output_path(default_llvm_output_path, sizeof(default_llvm_output_path), exe_output_path);
             llvm_output_path = default_llvm_output_path;
-            emitLLVMProgramToFile(mir_program, root, input_path, llvm_output_path);
+            emitLLVMProgramToFile(mir_program, root, input_path, llvm_output_path, emit_debug_info);
         }
 
         snprintf(clang_log_path, sizeof(clang_log_path), "%s.mote-link.log", exe_output_path);
         int clang_exit_code = run_clang_link(llvm_output_path, runtime_source_path, exe_output_path,
+                                             emit_debug_info,
                                              driver_args, driver_arg_count,
                                              extra_c_sources, extra_c_source_count,
                                              linker_args, linker_arg_count,

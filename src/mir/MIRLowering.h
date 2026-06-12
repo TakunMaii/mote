@@ -221,6 +221,9 @@ typedef struct MirInst {
 
 typedef struct MirTerminator {
     MirTerminatorKind kind;
+    const char *filename;
+    int line_number;
+    int column_number;
     union {
         struct {
             MirBlockId target;
@@ -261,6 +264,14 @@ typedef struct MirParamDesc {
     MirValueId input_value;
 } MirParamDesc;
 
+typedef struct MirDebugLocal {
+    char identifier[MAX_IDENTIFIER_LENGTH];
+    const char *filename;
+    int line_number;
+    int column_number;
+    MirValueId slot_value;
+} MirDebugLocal;
+
 typedef struct MirFunction {
     char name[MIR_MAX_NAME_LENGTH];
     ASTDataType *return_data_type;
@@ -270,6 +281,8 @@ typedef struct MirFunction {
     int capture_count;
     MirParamDesc *parameters;
     int parameter_count;
+    MirDebugLocal *debug_locals;
+    int debug_local_count;
     MirValueInfo *values;
     int value_count;
     MirBlock *blocks;
@@ -880,6 +893,24 @@ static MirValueId mirCreateInput(MirFunction *function, ASTDataType *data_type, 
     return mirAppendValue(function, data_type, name, true);
 }
 
+static void mirRecordDebugLocal(MirFunction *function, const char *identifier, const char *filename,
+                                int line_number, int column_number, MirValueId slot_value)
+{
+    if(function == NULL || identifier == NULL || filename == NULL || slot_value < 0)
+        return;
+    function->debug_locals = (MirDebugLocal*) realloc(function->debug_locals,
+                                                      sizeof(MirDebugLocal) * (size_t) (function->debug_local_count + 1));
+    if(function->debug_locals == NULL)
+        diagnosticAbortInternal("mirRecordDebugLocal", "allocation failed");
+    MirDebugLocal *local = &(function->debug_locals[function->debug_local_count++]);
+    memset(local, 0, sizeof(*local));
+    strcpy(local->identifier, identifier);
+    local->filename = filename;
+    local->line_number = line_number;
+    local->column_number = column_number;
+    local->slot_value = slot_value;
+}
+
 static MirValueId mirEmitResultInst(MirFunctionState *state, MirInstKind kind, ASTDataType *result_type,
                                     const char *filename, int line_number, int column_number)
 {
@@ -1202,14 +1233,44 @@ static MirValueId mirEmitExternCall(MirFunctionState *state, const char *symbol_
 
 static void mirEmitBr(MirFunctionState *state, MirBlockId target)
 {
-    mirCurrentFunction(state)->blocks[state->current_block].terminator.kind = MIR_TERM_BR;
-    mirCurrentFunction(state)->blocks[state->current_block].terminator.data.br.target = target;
+    MirTerminator *term = &(mirCurrentFunction(state)->blocks[state->current_block].terminator);
+    term->kind = MIR_TERM_BR;
+    term->filename = NULL;
+    term->line_number = -1;
+    term->column_number = -1;
+    term->data.br.target = target;
+}
+
+static void mirEmitBrAt(MirFunctionState *state, MirBlockId target, const char *filename, int line, int column)
+{
+    MirTerminator *term = &(mirCurrentFunction(state)->blocks[state->current_block].terminator);
+    term->kind = MIR_TERM_BR;
+    term->filename = filename;
+    term->line_number = line;
+    term->column_number = column;
+    term->data.br.target = target;
 }
 
 static void mirEmitCondBr(MirFunctionState *state, MirValueId condition, MirBlockId then_block, MirBlockId else_block)
 {
     MirTerminator *term = &(mirCurrentFunction(state)->blocks[state->current_block].terminator);
     term->kind = MIR_TERM_COND_BR;
+    term->filename = NULL;
+    term->line_number = -1;
+    term->column_number = -1;
+    term->data.cond_br.condition = condition;
+    term->data.cond_br.then_block = then_block;
+    term->data.cond_br.else_block = else_block;
+}
+
+static void mirEmitCondBrAt(MirFunctionState *state, MirValueId condition, MirBlockId then_block, MirBlockId else_block,
+                            const char *filename, int line, int column)
+{
+    MirTerminator *term = &(mirCurrentFunction(state)->blocks[state->current_block].terminator);
+    term->kind = MIR_TERM_COND_BR;
+    term->filename = filename;
+    term->line_number = line;
+    term->column_number = column;
     term->data.cond_br.condition = condition;
     term->data.cond_br.then_block = then_block;
     term->data.cond_br.else_block = else_block;
@@ -1217,20 +1278,42 @@ static void mirEmitCondBr(MirFunctionState *state, MirValueId condition, MirBloc
 
 static void mirEmitRetVoid(MirFunctionState *state)
 {
-    mirCurrentFunction(state)->blocks[state->current_block].terminator.kind = MIR_TERM_RET;
-    mirCurrentFunction(state)->blocks[state->current_block].terminator.data.ret.has_value = false;
+    MirTerminator *term = &(mirCurrentFunction(state)->blocks[state->current_block].terminator);
+    term->kind = MIR_TERM_RET;
+    term->filename = NULL;
+    term->line_number = -1;
+    term->column_number = -1;
+    term->data.ret.has_value = false;
 }
 
-static void mirEmitRetValue(MirFunctionState *state, MirValueId value)
+static void mirEmitRetVoidAt(MirFunctionState *state, const char *filename, int line, int column)
 {
-    mirCurrentFunction(state)->blocks[state->current_block].terminator.kind = MIR_TERM_RET;
-    mirCurrentFunction(state)->blocks[state->current_block].terminator.data.ret.has_value = true;
-    mirCurrentFunction(state)->blocks[state->current_block].terminator.data.ret.value = value;
+    MirTerminator *term = &(mirCurrentFunction(state)->blocks[state->current_block].terminator);
+    term->kind = MIR_TERM_RET;
+    term->filename = filename;
+    term->line_number = line;
+    term->column_number = column;
+    term->data.ret.has_value = false;
+}
+
+static void mirEmitRetValueAt(MirFunctionState *state, MirValueId value, const char *filename, int line, int column)
+{
+    MirTerminator *term = &(mirCurrentFunction(state)->blocks[state->current_block].terminator);
+    term->kind = MIR_TERM_RET;
+    term->filename = filename;
+    term->line_number = line;
+    term->column_number = column;
+    term->data.ret.has_value = true;
+    term->data.ret.value = value;
 }
 
 static void mirEmitUnreachable(MirFunctionState *state)
 {
-    mirCurrentFunction(state)->blocks[state->current_block].terminator.kind = MIR_TERM_UNREACHABLE;
+    MirTerminator *term = &(mirCurrentFunction(state)->blocks[state->current_block].terminator);
+    term->kind = MIR_TERM_UNREACHABLE;
+    term->filename = NULL;
+    term->line_number = -1;
+    term->column_number = -1;
 }
 
 static bool mirIsCharPointerTarget(ASTDataType *data_type)
@@ -2081,6 +2164,8 @@ static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirL
             MirValueId argument_value = lowerExprAsValue(state, outer_scope, argument, resolved_parameter_type);
             MirValueId slot = mirEmitAlloca(state, resolved_parameter_type,
                                             argument->filename, argument->line_number, argument->column_number);
+            mirRecordDebugLocal(mirCurrentFunction(state), parameter->identifier, parameter->filename,
+                                parameter->line_number, parameter->column_number, slot);
             mirEmitStore(state, slot, argument_value, argument->filename, argument->line_number, argument->column_number);
 
             MirRuntimeBinding *binding = declareMirRuntimeBinding(inst_scope, parameter->identifier);
@@ -2561,6 +2646,8 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
             binding->kind = MIR_RUNTIME_BINDING_LOCAL_SLOT;
             binding->local_value = mirEmitAlloca(&state, resolved_type,
                                                  parameter->filename, parameter->line_number, parameter->column_number);
+            mirRecordDebugLocal(function, parameter->identifier, parameter->filename,
+                                parameter->line_number, parameter->column_number, binding->local_value);
             mirEmitStore(&state, binding->local_value, desc->input_value,
                          parameter->filename, parameter->line_number, parameter->column_number);
         }
@@ -3930,6 +4017,8 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
             {
                 binding->local_value = mirEmitAlloca(state, declared_type,
                                                      node->filename, node->line_number, node->column_number);
+                mirRecordDebugLocal(mirCurrentFunction(state), node->identifier, node->filename,
+                                    node->line_number, node->column_number, binding->local_value);
                 mirEmitStore(state, binding->local_value, value, node->filename, node->line_number, node->column_number);
             }
             return;
@@ -4023,9 +4112,9 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
             }
             emitCleanupRange(state, scope, state->cleanup_top, NULL);
             if(node->lhs == NULL)
-                mirEmitRetVoid(state);
+                mirEmitRetVoidAt(state, node->filename, node->line_number, node->column_number);
             else
-                mirEmitRetValue(state, return_value);
+                mirEmitRetValueAt(state, return_value, node->filename, node->line_number, node->column_number);
             return;
         }
         case AST_STATEMENT_IF: {
@@ -4034,7 +4123,7 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
             MirBlockId else_block = mirCreateBlock(state->lowering, function, "if_else");
             MirBlockId end_block = -1;
             MirValueId condition = lowerExprAsValue(state, scope, node->lhs, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
-            mirEmitCondBr(state, condition, then_block, else_block);
+            mirEmitCondBrAt(state, condition, then_block, else_block, node->filename, node->line_number, node->column_number);
 
             mirSwitchToBlock(state, then_block);
             lowerStatement(state, scope, node->rhs);
@@ -4042,7 +4131,7 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
             {
                 if(end_block < 0)
                     end_block = mirCreateBlock(state->lowering, function, "if_end");
-                mirEmitBr(state, end_block);
+                mirEmitBrAt(state, end_block, node->filename, node->line_number, node->column_number);
             }
 
             mirSwitchToBlock(state, else_block);
@@ -4052,7 +4141,7 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
             {
                 if(end_block < 0)
                     end_block = mirCreateBlock(state->lowering, function, "if_end");
-                mirEmitBr(state, end_block);
+                mirEmitBrAt(state, end_block, node->filename, node->line_number, node->column_number);
             }
 
             if(end_block >= 0)
@@ -4064,7 +4153,7 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
             MirBlockId cond_block = mirCreateBlock(state->lowering, function, "while_cond");
             MirBlockId body_block = mirCreateBlock(state->lowering, function, "while_body");
             MirBlockId end_block = mirCreateBlock(state->lowering, function, "while_end");
-            mirEmitBr(state, cond_block);
+            mirEmitBrAt(state, cond_block, node->filename, node->line_number, node->column_number);
 
             MirLoopContext loop_context = {0};
             loop_context.parent = state->loop_top;
@@ -4075,12 +4164,12 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
 
             mirSwitchToBlock(state, cond_block);
             MirValueId condition = lowerExprAsValue(state, scope, node->lhs, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
-            mirEmitCondBr(state, condition, body_block, end_block);
+            mirEmitCondBrAt(state, condition, body_block, end_block, node->filename, node->line_number, node->column_number);
 
             mirSwitchToBlock(state, body_block);
             lowerStatement(state, scope, node->body);
             if(!mirCurrentBlockTerminated(state))
-                mirEmitBr(state, cond_block);
+                mirEmitBrAt(state, cond_block, node->filename, node->line_number, node->column_number);
 
             state->loop_top = loop_context.parent;
             mirSwitchToBlock(state, end_block);
@@ -4091,7 +4180,7 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
             MirBlockId body_block = mirCreateBlock(state->lowering, function, "do_body");
             MirBlockId cond_block = mirCreateBlock(state->lowering, function, "do_cond");
             MirBlockId end_block = mirCreateBlock(state->lowering, function, "do_end");
-            mirEmitBr(state, body_block);
+            mirEmitBrAt(state, body_block, node->filename, node->line_number, node->column_number);
 
             MirLoopContext loop_context = {0};
             loop_context.parent = state->loop_top;
@@ -4103,11 +4192,11 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
             mirSwitchToBlock(state, body_block);
             lowerStatement(state, scope, node->body);
             if(!mirCurrentBlockTerminated(state))
-                mirEmitBr(state, cond_block);
+                mirEmitBrAt(state, cond_block, node->filename, node->line_number, node->column_number);
 
             mirSwitchToBlock(state, cond_block);
             MirValueId condition = lowerExprAsValue(state, scope, node->lhs, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
-            mirEmitCondBr(state, condition, body_block, end_block);
+            mirEmitCondBrAt(state, condition, body_block, end_block, node->filename, node->line_number, node->column_number);
 
             state->loop_top = loop_context.parent;
             mirSwitchToBlock(state, end_block);
@@ -4126,7 +4215,7 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
             MirBlockId body_block = mirCreateBlock(state->lowering, function, "for_body");
             MirBlockId post_block = mirCreateBlock(state->lowering, function, "for_post");
             MirBlockId end_block = mirCreateBlock(state->lowering, function, "for_end");
-            mirEmitBr(state, cond_block);
+            mirEmitBrAt(state, cond_block, node->filename, node->line_number, node->column_number);
 
             MirLoopContext loop_context = {0};
             loop_context.parent = state->loop_top;
@@ -4139,21 +4228,21 @@ static void lowerStatement(MirFunctionState *state, MirLowerScope *scope, ASTNod
             if(node->rhs != NULL)
             {
                 MirValueId condition = lowerExprAsValue(state, loop_scope, node->rhs, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
-                mirEmitCondBr(state, condition, body_block, end_block);
+                mirEmitCondBrAt(state, condition, body_block, end_block, node->filename, node->line_number, node->column_number);
             }
             else
-                mirEmitBr(state, body_block);
+                mirEmitBrAt(state, body_block, node->filename, node->line_number, node->column_number);
 
             mirSwitchToBlock(state, body_block);
             lowerStatement(state, loop_scope, node->body);
             if(!mirCurrentBlockTerminated(state))
-                mirEmitBr(state, post_block);
+                mirEmitBrAt(state, post_block, node->filename, node->line_number, node->column_number);
 
             mirSwitchToBlock(state, post_block);
             if(node->extra != NULL)
                 lowerStatement(state, loop_scope, node->extra);
             if(!mirCurrentBlockTerminated(state))
-                mirEmitBr(state, cond_block);
+                mirEmitBrAt(state, cond_block, node->filename, node->line_number, node->column_number);
 
             state->loop_top = loop_context.parent;
             mirSwitchToBlock(state, end_block);

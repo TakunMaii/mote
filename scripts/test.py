@@ -295,6 +295,13 @@ def invoke_compiler(compiler: pathlib.Path, compiler_args: list[str]) -> tuple[i
     return process.returncode, process.stdout + process.stderr
 
 
+def load_output_text(output_path: pathlib.Path) -> str:
+    try:
+        return output_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
 def new_generated_test_input(case: dict, artifacts_root: pathlib.Path) -> pathlib.Path:
     generated = case.get("generated")
     if not generated:
@@ -408,6 +415,12 @@ def main() -> int:
                 ok = False
             elif case.get("mode") == "llvm" and (output_path is None or not output_path.exists()):
                 ok = False
+            elif output_path is not None and case.get("output_contains"):
+                output_text = load_output_text(output_path)
+                for needle in case.get("output_contains", []):
+                    if needle not in output_text:
+                        ok = False
+                        break
         elif case["expect"] == "failure":
             if exit_code == 0:
                 ok = False
