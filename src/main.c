@@ -86,12 +86,30 @@ static void print_usage(const char *argv0)
 
 static void build_output_path(char *buffer, size_t buffer_size, const char *basename, const char *extension)
 {
-    snprintf(buffer, buffer_size, "%s%s", basename, extension);
+    int written = snprintf(buffer, buffer_size, "%s%s", basename, extension);
+    if(written < 0 || (size_t) written >= buffer_size)
+        cliErrorFormatted("output path is too long: %s%s", basename, extension);
 }
 
 static void build_temp_llvm_output_path(char *buffer, size_t buffer_size, const char *exe_output_path)
 {
-    snprintf(buffer, buffer_size, "%s.mote-tmp.ll", exe_output_path);
+    int written = snprintf(buffer, buffer_size, "%s.mote-tmp.ll", exe_output_path);
+    if(written < 0 || (size_t) written >= buffer_size)
+        cliErrorFormatted("temporary llvm output path is too long: %s.mote-tmp.ll", exe_output_path);
+}
+
+static void copy_cli_path(char *buffer, size_t buffer_size, const char *value, const char *label)
+{
+    int written = snprintf(buffer, buffer_size, "%s", value);
+    if(written < 0 || (size_t) written >= buffer_size)
+        cliErrorFormatted("%s is too long: %s", label, value);
+}
+
+static void copy_cli_identifier(char *buffer, size_t buffer_size, const char *value, const char *label)
+{
+    int written = snprintf(buffer, buffer_size, "%s", value);
+    if(written < 0 || (size_t) written >= buffer_size)
+        cliErrorFormatted("%s is too long: %s", label, value);
 }
 
 static bool file_exists(const char *path)
@@ -194,7 +212,8 @@ static void add_search_root(ModulePackage *packages, int *package_count, const c
         cliError("too many module search roots");
 
     memset(&(packages[*package_count]), 0, sizeof(ModulePackage));
-    strcpy(packages[*package_count].root_path, path);
+    copy_cli_path(packages[*package_count].root_path, sizeof(packages[*package_count].root_path), path,
+                  "package search root");
     packages[*package_count].is_search_root = true;
     (*package_count)++;
 }
@@ -205,7 +224,8 @@ static void add_collection_root(ModulePackage *packages, int *package_count, con
     {
         if(packages[i].is_collection && strcmp(packages[i].name, name) == 0)
         {
-            strcpy(packages[i].root_path, path);
+            copy_cli_path(packages[i].root_path, sizeof(packages[i].root_path), path,
+                          "package collection root");
             return;
         }
     }
@@ -214,8 +234,10 @@ static void add_collection_root(ModulePackage *packages, int *package_count, con
         cliError("too many module search roots");
 
     memset(&(packages[*package_count]), 0, sizeof(ModulePackage));
-    strcpy(packages[*package_count].name, name);
-    strcpy(packages[*package_count].root_path, path);
+    copy_cli_identifier(packages[*package_count].name, sizeof(packages[*package_count].name), name,
+                        "package collection name");
+    copy_cli_path(packages[*package_count].root_path, sizeof(packages[*package_count].root_path), path,
+                  "package collection root");
     packages[*package_count].is_collection = true;
     (*package_count)++;
 }
@@ -430,8 +452,8 @@ static bool module_tree_uses_import_impl(ModulePackage *packages, int package_co
     snprintf(visited_paths[*visited_count], CLI_PATH_BUFFER_SIZE, "%s", path);
     (*visited_count)++;
 
-    char file_paths[MODULE_MAX_PACKAGE_FILES][MODULE_MAX_PATH_LENGTH] = {{0}};
-    int file_count = moduleListPackageFiles(path, file_paths);
+    char **file_paths = NULL;
+    int file_count = moduleListPackageFiles(path, &file_paths);
     bool found = false;
     const char *import_prefix = "@import(\"";
     size_t import_prefix_length = strlen(import_prefix);
@@ -478,7 +500,9 @@ static bool module_tree_uses_import_impl(ModulePackage *packages, int package_co
         }
 
         free(source);
+        free(file_paths[file_index]);
     }
+    free(file_paths);
 
     return found;
 }

@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <math.h>
 #include <inttypes.h>
@@ -390,7 +391,10 @@ long long mote_directory_entry_count(const char *path)
 long long mote_directory_list_names(const char *path, char *buffer, long long buffer_size)
 {
     long long used = 0;
-    if(buffer == NULL || buffer_size < 0)
+    bool query_only = buffer == NULL;
+    if(buffer_size < 0)
+        return -1;
+    if(query_only && buffer_size != 0)
         return -1;
 
 #if defined(_WIN32)
@@ -409,12 +413,18 @@ long long mote_directory_list_names(const char *path, char *buffer, long long bu
         size_t len = strlen(name);
         if(used + (long long) len + 1 > buffer_size)
         {
-            FindClose(handle);
-            return -1;
+            if(!query_only)
+            {
+                FindClose(handle);
+                return -1;
+            }
         }
-        memcpy(buffer + used, name, len);
+        if(!query_only)
+            memcpy(buffer + used, name, len);
         used += (long long) len;
-        buffer[used++] = '\n';
+        if(!query_only)
+            buffer[used] = '\0';
+        used++;
     } while(FindNextFileA(handle, &find_data));
 
     FindClose(handle);
@@ -432,12 +442,18 @@ long long mote_directory_list_names(const char *path, char *buffer, long long bu
         size_t len = strlen(name);
         if(used + (long long) len + 1 > buffer_size)
         {
-            closedir(directory);
-            return -1;
+            if(!query_only)
+            {
+                closedir(directory);
+                return -1;
+            }
         }
-        memcpy(buffer + used, name, len);
+        if(!query_only)
+            memcpy(buffer + used, name, len);
         used += (long long) len;
-        buffer[used++] = '\n';
+        if(!query_only)
+            buffer[used] = '\0';
+        used++;
     }
 
     closedir(directory);

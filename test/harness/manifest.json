@@ -37,6 +37,18 @@
       "input": "test\\basic\\block_scope.mote"
     },
     {
+      "name": "basic-integer-literal-u64-max-context-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\integer_literal_u64_max_context"
+    },
+    {
+      "name": "basic-std-filesystem-directory-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_filesystem_directory_api"
+    },
+    {
       "name": "basic-collection-import-llvm",
       "expect": "success",
       "mode": "llvm",
@@ -1199,6 +1211,26 @@
       "contains": [
         "error[L1005]",
         "unterminated string literal"
+      ]
+    },
+    {
+      "name": "diagnostic-integer-literal-decimal-overflow",
+      "expect": "failure",
+      "input": "test\\diagnostic\\integer_literal_decimal_overflow.mote",
+      "contains": [
+        "error[L1010]",
+        "integer literal is too large",
+        "decimal integer literal overflows `u64`"
+      ]
+    },
+    {
+      "name": "diagnostic-integer-literal-hex-overflow",
+      "expect": "failure",
+      "input": "test\\diagnostic\\integer_literal_hex_overflow.mote",
+      "contains": [
+        "error[L1010]",
+        "integer literal is too large",
+        "hexadecimal integer literal overflows `u64`"
       ]
     },
     {

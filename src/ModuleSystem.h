@@ -16,12 +16,7 @@
 #include "Parser.h"
 
 #define MODULE_MAX_PATH_LENGTH 1024
-#define MODULE_MAX_IMPORTS 256
 #define MODULE_MAX_PACKAGES 128
-#define MODULE_MAX_TOP_LEVEL_BINDINGS 1024
-#define MODULE_MAX_SCOPE_VALUE_BINDINGS 1024
-#define MODULE_MAX_SCOPE_TYPE_BINDINGS 512
-#define MODULE_MAX_PACKAGE_FILES 256
 
 typedef struct ModuleSourceFile ModuleSourceFile;
 
@@ -53,12 +48,15 @@ struct ModuleSourceFile {
     char symbol_prefix[32];
     ASTNode *ast_root;
     int visit_state;
-    ModuleImportBinding imports[MODULE_MAX_IMPORTS];
+    ModuleImportBinding *imports;
     int import_count;
-    ModuleSourceFile *expression_imports[MODULE_MAX_IMPORTS];
+    int import_capacity;
+    ModuleSourceFile **expression_imports;
     int expression_import_count;
-    ModuleTopLevelBinding top_level_bindings[MODULE_MAX_TOP_LEVEL_BINDINGS];
+    int expression_import_capacity;
+    ModuleTopLevelBinding *top_level_bindings;
     int top_level_binding_count;
+    int top_level_binding_capacity;
     bool rewritten;
 };
 
@@ -85,10 +83,12 @@ typedef struct RewriteTypeBinding {
 
 typedef struct RewriteScope {
     struct RewriteScope *parent;
-    RewriteValueBinding value_bindings[MODULE_MAX_SCOPE_VALUE_BINDINGS];
+    RewriteValueBinding *value_bindings;
     int value_count;
-    RewriteTypeBinding type_bindings[MODULE_MAX_SCOPE_TYPE_BINDINGS];
+    int value_capacity;
+    RewriteTypeBinding *type_bindings;
     int type_count;
+    int type_capacity;
 } RewriteScope;
 
 static ModuleCompileContext *moduleRewriteContext = NULL;
@@ -170,7 +170,7 @@ static void moduleDirectoryName(const char *path, char *buffer)
 
     if(separator == NULL)
     {
-        strcpy(buffer, ".");
+        snprintf(buffer, MODULE_MAX_PATH_LENGTH, ".");
         return;
     }
 
@@ -186,16 +186,22 @@ static void moduleDirectoryName(const char *path, char *buffer)
 
 static void moduleJoinPath(const char *base_dir, const char *suffix, char *buffer)
 {
+    int written = 0;
     if(moduleIsAbsolutePath(suffix))
     {
-        snprintf(buffer, MODULE_MAX_PATH_LENGTH, "%s", suffix);
+        written = snprintf(buffer, MODULE_MAX_PATH_LENGTH, "%s", suffix);
+        if(written < 0 || written >= MODULE_MAX_PATH_LENGTH)
+            moduleSystemError("path is too long", suffix, 0, 0);
         return;
     }
 
     if(strcmp(base_dir, ".") == 0)
-        snprintf(buffer, MODULE_MAX_PATH_LENGTH, "%s", suffix);
+        written = snprintf(buffer, MODULE_MAX_PATH_LENGTH, "%s", suffix);
     else
-        snprintf(buffer, MODULE_MAX_PATH_LENGTH, "%s/%s", base_dir, suffix);
+        written = snprintf(buffer, MODULE_MAX_PATH_LENGTH, "%s/%s", base_dir, suffix);
+
+    if(written < 0 || written >= MODULE_MAX_PATH_LENGTH)
+        moduleSystemError("path is too long", suffix, 0, 0);
 }
 
 static void moduleCanonicalizePath(const char *path, char *buffer)
@@ -217,17 +223,38 @@ static bool moduleHasMoteExtension(const char *path)
     return last_dot != NULL && strcmp(last_dot, ".mote") == 0;
 }
 
-static int moduleCompareStrings(const void *lhs, const void *rhs)
+static char** moduleGrowStringList(char **items, int *capacity, int min_capacity)
 {
-    const char *left = (const char*) lhs;
-    const char *right = (const char*) rhs;
-    return strcmp(left, right);
+    int next_capacity = *capacity == 0 ? 8 : *capacity;
+    while(next_capacity < min_capacity)
+        next_capacity *= 2;
+    char **grown = (char**) realloc(items, sizeof(char*) * (size_t) next_capacity);
+    if(grown == NULL)
+        moduleSystemError("string list allocation failed", NULL, 0, 0);
+    *capacity = next_capacity;
+    return grown;
 }
 
-static int moduleListPackageFiles(const char *directory_path,
-                                  char paths[MODULE_MAX_PACKAGE_FILES][MODULE_MAX_PATH_LENGTH])
+static void moduleAddOwnedString(char ***items, int *count, int *capacity, const char *value)
+{
+    if(*count >= *capacity)
+        *items = moduleGrowStringList(*items, capacity, *count + 1);
+    (*items)[*count] = diagnosticCloneString(value);
+    (*count)++;
+}
+
+static int moduleCompareStringPointers(const void *lhs, const void *rhs)
+{
+    const char *const *left = (const char *const *) lhs;
+    const char *const *right = (const char *const *) rhs;
+    return strcmp(*left, *right);
+}
+
+static int moduleListPackageFiles(const char *directory_path, char ***paths_out)
 {
     int count = 0;
+    int capacity = 0;
+    char **paths = NULL;
 #if defined(_WIN32)
     char pattern[MODULE_MAX_PATH_LENGTH] = {0};
     snprintf(pattern, sizeof(pattern), "%s\\*.mote", directory_path);
@@ -239,12 +266,12 @@ static int moduleListPackageFiles(const char *directory_path,
 
     do
     {
+        char full_path[MODULE_MAX_PATH_LENGTH] = {0};
         if(find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
             continue;
-        if(count >= MODULE_MAX_PACKAGE_FILES)
-            moduleSystemError("too many source files in package", directory_path, 0, 0);
-        snprintf(paths[count], MODULE_MAX_PATH_LENGTH, "%s\\%s", directory_path, find_data.cFileName);
-        count++;
+        if(snprintf(full_path, sizeof(full_path), "%s\\%s", directory_path, find_data.cFileName) >= (int) sizeof(full_path))
+            moduleSystemError("source file path is too long", directory_path, 0, 0);
+        moduleAddOwnedString(&paths, &count, &capacity, full_path);
     } while(FindNextFileA(handle, &find_data));
 
     FindClose(handle);
@@ -256,20 +283,21 @@ static int moduleListPackageFiles(const char *directory_path,
     struct dirent *entry = NULL;
     while((entry = readdir(directory)) != NULL)
     {
+        char full_path[MODULE_MAX_PATH_LENGTH] = {0};
         if(entry->d_name[0] == '.')
             continue;
         if(!moduleHasMoteExtension(entry->d_name))
             continue;
-        if(count >= MODULE_MAX_PACKAGE_FILES)
-            moduleSystemError("too many source files in package", directory_path, 0, 0);
-        snprintf(paths[count], MODULE_MAX_PATH_LENGTH, "%s/%s", directory_path, entry->d_name);
-        count++;
+        if(snprintf(full_path, sizeof(full_path), "%s/%s", directory_path, entry->d_name) >= (int) sizeof(full_path))
+            moduleSystemError("source file path is too long", directory_path, 0, 0);
+        moduleAddOwnedString(&paths, &count, &capacity, full_path);
     }
 
     closedir(directory);
 #endif
 
-    qsort(paths, (size_t)count, MODULE_MAX_PATH_LENGTH, moduleCompareStrings);
+    qsort(paths, (size_t)count, sizeof(char*), moduleCompareStringPointers);
+    *paths_out = paths;
     return count;
 }
 
@@ -438,8 +466,8 @@ static void moduleAppendStatementList(ASTNode **head, ASTNode **tail, ASTNode *s
 
 static ASTNode* moduleParsePackageDirectory(const char *directory_path, char *package_name_buffer)
 {
-    char file_paths[MODULE_MAX_PACKAGE_FILES][MODULE_MAX_PATH_LENGTH] = {{0}};
-    int file_count = moduleListPackageFiles(directory_path, file_paths);
+    char **file_paths = NULL;
+    int file_count = moduleListPackageFiles(directory_path, &file_paths);
     if(file_count == 0)
         moduleSystemError("package directory contains no .mote files", directory_path, 0, 0);
 
@@ -473,7 +501,9 @@ static ASTNode* moduleParsePackageDirectory(const char *directory_path, char *pa
                               file_paths[i], file_root->line_number, file_root->column_number);
 
         moduleAppendStatementList(&head, &tail, moduleStatements(file_root));
+        free(file_paths[i]);
     }
+    free(file_paths);
 
     strcpy(root->package_name, package_name_buffer);
     root->lhs = top_level_block;
@@ -538,6 +568,52 @@ static ModuleSourceFile* moduleAppend(ModuleCompileContext *context)
     return module;
 }
 
+static void* moduleGrowItems(void *items, size_t item_size, int *capacity, int min_capacity, const char *label)
+{
+    int next_capacity = *capacity == 0 ? 8 : *capacity;
+    while(next_capacity < min_capacity)
+        next_capacity *= 2;
+    void *grown = realloc(items, item_size * (size_t) next_capacity);
+    if(grown == NULL)
+        moduleSystemError(label, NULL, 0, 0);
+    *capacity = next_capacity;
+    return grown;
+}
+
+static ModuleImportBinding* moduleAppendImportBinding(ModuleSourceFile *module)
+{
+    if(module->import_count >= module->import_capacity)
+        module->imports = (ModuleImportBinding*) moduleGrowItems(module->imports, sizeof(ModuleImportBinding),
+                                                                 &(module->import_capacity), module->import_count + 1,
+                                                                 "module import allocation failed");
+    ModuleImportBinding *binding = &(module->imports[module->import_count++]);
+    memset(binding, 0, sizeof(ModuleImportBinding));
+    return binding;
+}
+
+static void moduleAppendExpressionImport(ModuleSourceFile *module, ModuleSourceFile *imported_module)
+{
+    if(module->expression_import_count >= module->expression_import_capacity)
+        module->expression_imports = (ModuleSourceFile**) moduleGrowItems(module->expression_imports, sizeof(ModuleSourceFile*),
+                                                                          &(module->expression_import_capacity),
+                                                                          module->expression_import_count + 1,
+                                                                          "expression import allocation failed");
+    module->expression_imports[module->expression_import_count++] = imported_module;
+}
+
+static ModuleTopLevelBinding* moduleAppendTopLevelBinding(ModuleSourceFile *module)
+{
+    if(module->top_level_binding_count >= module->top_level_binding_capacity)
+        module->top_level_bindings = (ModuleTopLevelBinding*) moduleGrowItems(module->top_level_bindings,
+                                                                              sizeof(ModuleTopLevelBinding),
+                                                                              &(module->top_level_binding_capacity),
+                                                                              module->top_level_binding_count + 1,
+                                                                              "top-level binding allocation failed");
+    ModuleTopLevelBinding *binding = &(module->top_level_bindings[module->top_level_binding_count++]);
+    memset(binding, 0, sizeof(ModuleTopLevelBinding));
+    return binding;
+}
+
 static ModuleSourceFile* moduleLoadRecursive(ModuleCompileContext *context, const char *path);
 static bool rewriteExprLooksLikeTypeValue(ModuleSourceFile *module, RewriteScope *scope, ASTNode *node);
 
@@ -558,11 +634,7 @@ static void moduleRecordExpressionImport(ModuleCompileContext *context, const ch
             return;
     }
 
-    if(module->expression_import_count >= MODULE_MAX_IMPORTS)
-        moduleSystemError("too many expression imports in one module",
-                          module->canonical_path, 0, 0);
-
-    module->expression_imports[module->expression_import_count++] = imported_module;
+    moduleAppendExpressionImport(module, imported_module);
 }
 
 static void moduleScanImportExpressions(ModuleCompileContext *context, const char *module_canonical_path, ASTNode *node)
@@ -615,10 +687,6 @@ static void moduleScanImports(ModuleCompileContext *context, ModuleSourceFile *m
             if(statement->is_pub)
                 moduleSystemError("pub import re-export is not supported yet",
                                   statement->filename, statement->line_number, statement->column_number);
-            if(module->import_count >= MODULE_MAX_IMPORTS)
-                moduleSystemError("too many imports in one module",
-                                  statement->filename, statement->line_number, statement->column_number);
-
             for(int i = 0; i < module->import_count; i++)
             {
                 if(strcmp(module->imports[i].alias, statement->identifier) == 0)
@@ -630,7 +698,7 @@ static void moduleScanImports(ModuleCompileContext *context, ModuleSourceFile *m
             moduleResolveImportPath(context, module->canonical_path, statement->rhs, resolved_path);
             ModuleSourceFile *imported = moduleLoadRecursive(context, resolved_path);
             moduleRecordExpressionImport(context, module->canonical_path, imported);
-            ModuleImportBinding *binding = &(module->imports[module->import_count++]);
+            ModuleImportBinding *binding = moduleAppendImportBinding(module);
             strcpy(binding->alias, statement->identifier);
             binding->module = imported;
         }
@@ -656,7 +724,7 @@ static ModuleSourceFile* moduleLoadRecursive(ModuleCompileContext *context, cons
         moduleSystemError("package path must be a directory", canonical_path, 0, 0);
 
     ModuleSourceFile *module = moduleAppend(context);
-    strcpy(module->canonical_path, canonical_path);
+    snprintf(module->canonical_path, sizeof(module->canonical_path), "%s", canonical_path);
     moduleDirectoryName(canonical_path, module->directory);
     module->visit_state = 1;
     module->ast_root = moduleParsePackageDirectory(canonical_path, module->package_name);
@@ -702,12 +770,7 @@ static void moduleCollectTopLevelBindings(ModuleSourceFile *module)
             ModuleTopLevelBinding *binding = moduleFindTopLevelBinding(module, statement->identifier);
             if(binding == NULL)
             {
-                if(module->top_level_binding_count >= MODULE_MAX_TOP_LEVEL_BINDINGS)
-                    moduleSystemError("too many top-level bindings in one module",
-                                      statement->filename, statement->line_number, statement->column_number);
-
-                binding = &(module->top_level_bindings[module->top_level_binding_count++]);
-                memset(binding, 0, sizeof(ModuleTopLevelBinding));
+                binding = moduleAppendTopLevelBinding(module);
                 strcpy(binding->original, statement->identifier);
                 snprintf(binding->mangled, sizeof(binding->mangled), "%s%s", module->symbol_prefix, statement->identifier);
                 binding->is_type_decl = moduleIsStructDeclAssign(statement) ||
@@ -772,6 +835,42 @@ static void initRewriteScope(RewriteScope *scope, RewriteScope *parent)
     scope->parent = parent;
 }
 
+static void freeRewriteScopeStorage(RewriteScope *scope)
+{
+    if(scope == NULL)
+        return;
+    free(scope->value_bindings);
+    free(scope->type_bindings);
+    scope->value_bindings = NULL;
+    scope->type_bindings = NULL;
+    scope->value_count = 0;
+    scope->type_count = 0;
+    scope->value_capacity = 0;
+    scope->type_capacity = 0;
+}
+
+static RewriteValueBinding* appendRewriteValueBinding(RewriteScope *scope)
+{
+    if(scope->value_count >= scope->value_capacity)
+        scope->value_bindings = (RewriteValueBinding*) moduleGrowItems(scope->value_bindings, sizeof(RewriteValueBinding),
+                                                                       &(scope->value_capacity), scope->value_count + 1,
+                                                                       "rewrite value binding allocation failed");
+    RewriteValueBinding *binding = &(scope->value_bindings[scope->value_count++]);
+    memset(binding, 0, sizeof(RewriteValueBinding));
+    return binding;
+}
+
+static RewriteTypeBinding* appendRewriteTypeBinding(RewriteScope *scope)
+{
+    if(scope->type_count >= scope->type_capacity)
+        scope->type_bindings = (RewriteTypeBinding*) moduleGrowItems(scope->type_bindings, sizeof(RewriteTypeBinding),
+                                                                     &(scope->type_capacity), scope->type_count + 1,
+                                                                     "rewrite type binding allocation failed");
+    RewriteTypeBinding *binding = &(scope->type_bindings[scope->type_count++]);
+    memset(binding, 0, sizeof(RewriteTypeBinding));
+    return binding;
+}
+
 static RewriteValueBinding* findRewriteValueBindingInScope(RewriteScope *scope, const char *identifier)
 {
     for(int i = 0; i < scope->value_count; i++)
@@ -820,22 +919,14 @@ static RewriteTypeBinding* findRewriteTypeBinding(RewriteScope *scope, const cha
 
 static void declareRewriteValueBinding(RewriteScope *scope, const char *original, const char *rewritten)
 {
-    if(scope->value_count >= MODULE_MAX_SCOPE_VALUE_BINDINGS)
-        moduleSystemError("too many value bindings in rewrite scope", NULL, 0, 0);
-
-    RewriteValueBinding *binding = &(scope->value_bindings[scope->value_count++]);
-    memset(binding, 0, sizeof(RewriteValueBinding));
+    RewriteValueBinding *binding = appendRewriteValueBinding(scope);
     strcpy(binding->original, original);
     strcpy(binding->rewritten, rewritten);
 }
 
 static void declareRewriteImportBinding(RewriteScope *scope, const char *alias, ModuleSourceFile *imported_module)
 {
-    if(scope->value_count >= MODULE_MAX_SCOPE_VALUE_BINDINGS)
-        moduleSystemError("too many value bindings in rewrite scope", NULL, 0, 0);
-
-    RewriteValueBinding *binding = &(scope->value_bindings[scope->value_count++]);
-    memset(binding, 0, sizeof(RewriteValueBinding));
+    RewriteValueBinding *binding = appendRewriteValueBinding(scope);
     strcpy(binding->original, alias);
     binding->is_import_alias = true;
     binding->imported_module = imported_module;
@@ -849,11 +940,7 @@ static void declareRewriteTypedValueBinding(RewriteScope *scope, const char *ori
 
 static void declareRewriteTypeBinding(RewriteScope *scope, const char *original, const char *rewritten)
 {
-    if(scope->type_count >= MODULE_MAX_SCOPE_TYPE_BINDINGS)
-        moduleSystemError("too many type bindings in rewrite scope", NULL, 0, 0);
-
-    RewriteTypeBinding *binding = &(scope->type_bindings[scope->type_count++]);
-    memset(binding, 0, sizeof(RewriteTypeBinding));
+    RewriteTypeBinding *binding = appendRewriteTypeBinding(scope);
     strcpy(binding->original, original);
     strcpy(binding->rewritten, rewritten);
 }
@@ -1014,6 +1101,7 @@ static void rewriteFunctionExpr(ModuleSourceFile *module, RewriteScope *scope, A
 
     rewriteDataType(module, function_scope, node->return_data_type);
     rewriteStatement(module, function_scope, node->body);
+    freeRewriteScopeStorage(function_scope);
     free(function_scope);
 }
 
@@ -1247,6 +1335,7 @@ static void rewriteStatement(ModuleSourceFile *module, RewriteScope *scope, ASTN
             RewriteScope *block_scope = (RewriteScope*) malloc(sizeof(RewriteScope));
             initRewriteScope(block_scope, scope);
             rewriteStatementList(module, block_scope, node->lhs);
+            freeRewriteScopeStorage(block_scope);
             free(block_scope);
             return;
         }
@@ -1352,6 +1441,7 @@ static void rewriteStatement(ModuleSourceFile *module, RewriteScope *scope, ASTN
             rewriteExpr(module, for_scope, node->rhs);
             rewriteStatement(module, for_scope, node->body);
             rewriteStatement(module, for_scope, node->extra);
+            freeRewriteScopeStorage(for_scope);
             free(for_scope);
             return;
         }
@@ -1371,8 +1461,29 @@ static void moduleRewrite(ModuleSourceFile *module)
     RewriteScope *top_scope = (RewriteScope*) malloc(sizeof(RewriteScope));
     initRewriteScope(top_scope, NULL);
     rewriteStatementList(module, top_scope, moduleStatements(module->ast_root));
+    freeRewriteScopeStorage(top_scope);
     free(top_scope);
     module->rewritten = true;
+}
+
+static void moduleFreeStorage(ModuleCompileContext *context)
+{
+    if(context == NULL)
+        return;
+    for(int i = 0; i < context->module_count; i++)
+    {
+        ModuleSourceFile *module = context->modules[i];
+        if(module == NULL)
+            continue;
+        free(module->imports);
+        free(module->expression_imports);
+        free(module->top_level_bindings);
+        free(module);
+    }
+    free(context->modules);
+    context->modules = NULL;
+    context->module_count = 0;
+    context->module_capacity = 0;
 }
 
 static void moduleAppendStatementsDepthFirst(ModuleSourceFile *module, bool *visited, ASTNode **head, ASTNode **tail)
@@ -1455,6 +1566,7 @@ static ASTNode* buildModuleProgramAST(const char *input_path, ModulePackage *pac
         strcpy(root->entry_symbol, entry_binding->mangled);
         root->entry_returns_void = entry_binding->decl->rhs->return_data_type->primary == AST_PRIMARY_DATA_TYPE_VOID;
     }
+    moduleFreeStorage(&context);
     return root;
 }
 

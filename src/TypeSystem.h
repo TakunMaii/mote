@@ -1450,19 +1450,19 @@ ASTDataType* instantiateFunctionCallResolvedFunctionType(ASTNode *function_value
     return result;
 }
 
-bool canLiteralIntegerFitPrimary(long long int literal_integer, ASTPrimaryDataType target_primary)
+bool canLiteralIntegerFitPrimary(ASTIntegerLiteralValue literal_integer, ASTPrimaryDataType target_primary)
 {
     switch(target_primary)
     {
-        case AST_PRIMARY_DATA_TYPE_I8: return literal_integer >= -128LL && literal_integer <= 127LL;
-        case AST_PRIMARY_DATA_TYPE_I16: return literal_integer >= -32768LL && literal_integer <= 32767LL;
-        case AST_PRIMARY_DATA_TYPE_I32: return literal_integer >= -2147483648LL && literal_integer <= 2147483647LL;
-        case AST_PRIMARY_DATA_TYPE_I64: return true;
-        case AST_PRIMARY_DATA_TYPE_U8: return literal_integer >= 0LL && literal_integer <= 255LL;
-        case AST_PRIMARY_DATA_TYPE_U16: return literal_integer >= 0LL && literal_integer <= 65535LL;
-        case AST_PRIMARY_DATA_TYPE_U32: return literal_integer >= 0LL && literal_integer <= 4294967295LL;
-        case AST_PRIMARY_DATA_TYPE_U64: return literal_integer >= 0LL;
-        case AST_PRIMARY_DATA_TYPE_CHAR: return literal_integer >= 0LL && literal_integer <= 255LL;
+        case AST_PRIMARY_DATA_TYPE_I8: return literal_integer.magnitude <= 127ull;
+        case AST_PRIMARY_DATA_TYPE_I16: return literal_integer.magnitude <= 32767ull;
+        case AST_PRIMARY_DATA_TYPE_I32: return literal_integer.magnitude <= 2147483647ull;
+        case AST_PRIMARY_DATA_TYPE_I64: return literal_integer.magnitude <= 9223372036854775807ull;
+        case AST_PRIMARY_DATA_TYPE_U8: return literal_integer.magnitude <= 255ull;
+        case AST_PRIMARY_DATA_TYPE_U16: return literal_integer.magnitude <= 65535ull;
+        case AST_PRIMARY_DATA_TYPE_U32: return literal_integer.magnitude <= 4294967295ull;
+        case AST_PRIMARY_DATA_TYPE_U64: return true;
+        case AST_PRIMARY_DATA_TYPE_CHAR: return literal_integer.magnitude <= 255ull;
         default: return false;
     }
 }
@@ -1471,7 +1471,32 @@ bool isLiteralIntegerZero(ASTNode *source_node)
 {
     return source_node != NULL &&
            source_node->kind == AST_EXPR_LITERAL_INTEGER &&
-           source_node->literal_integer == 0;
+           astIntegerLiteralIsZero(source_node->literal_integer);
+}
+
+bool isUnaryNegativeIntegerLiteral(ASTNode *source_node)
+{
+    return source_node != NULL &&
+           source_node->kind == AST_EXPR_UNARY_MINUS &&
+           source_node->lhs != NULL &&
+           source_node->lhs->kind == AST_EXPR_LITERAL_INTEGER;
+}
+
+bool canNegativeLiteralIntegerFitPrimary(ASTIntegerLiteralValue literal_integer, ASTPrimaryDataType target_primary)
+{
+    switch(target_primary)
+    {
+        case AST_PRIMARY_DATA_TYPE_I8: return literal_integer.magnitude <= 128ull;
+        case AST_PRIMARY_DATA_TYPE_I16: return literal_integer.magnitude <= 32768ull;
+        case AST_PRIMARY_DATA_TYPE_I32: return literal_integer.magnitude <= 2147483648ull;
+        case AST_PRIMARY_DATA_TYPE_I64: return literal_integer.magnitude <= 9223372036854775808ull;
+        case AST_PRIMARY_DATA_TYPE_F8:
+        case AST_PRIMARY_DATA_TYPE_F16:
+        case AST_PRIMARY_DATA_TYPE_F32:
+        case AST_PRIMARY_DATA_TYPE_F64:
+            return true;
+        default: return false;
+    }
 }
 
 bool isZeroComparablePointerOrFunction(TypeSystemExprType value_type, TypeSystemExprType other_type, ASTNode *other_node)
@@ -1959,6 +1984,21 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
 
         if(isIntegerPrimary(target_type->primary) || isBoolPrimary(target_type->primary))
             return canLiteralIntegerFitPrimary(source_node->literal_integer, target_type->primary);
+        if(isFloatPrimary(target_type->primary))
+            return true;
+        return false;
+    }
+
+    if(isUnaryNegativeIntegerLiteral(source_node))
+    {
+        if(isOptionalDataType(target_type))
+            return canImplicitConvertDataType(source_type, source_node->lhs, target_type->child);
+
+        if(target_type->kind != AST_DATA_TYPE_KIND_PRIMARY)
+            return false;
+
+        if(isIntegerPrimary(target_type->primary) || isBoolPrimary(target_type->primary))
+            return canNegativeLiteralIntegerFitPrimary(source_node->lhs->literal_integer, target_type->primary);
         if(isFloatPrimary(target_type->primary))
             return true;
         return false;

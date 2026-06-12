@@ -1,0 +1,14 @@
+@package("integer_literal_u64_max_context");
+
+main = fn() i32 {
+    max: u64 = 18446744073709551615;
+    top: u64 = 0xffffffffffffffff;
+
+    if(max != top) {
+        return 1;
+    }
+    if(max == 0) {
+        return 2;
+    }
+    return 0;
+};

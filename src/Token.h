@@ -2,6 +2,7 @@
 #define TOKEN_H
 
 #include "Diagnostic.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -93,7 +94,7 @@ typedef struct Token {
     // literal values
     char literal_char;
     char literal_string[MAX_STRING_LITERAL_LENGTH];
-    long long int literal_integer;
+    unsigned long long literal_integer;
     long double literal_float;
 } Token;
 
@@ -350,7 +351,7 @@ void printToken(Token token)
             printf("\n");
         }break;
         case TK_LITERAL_STRING: {printf("TK_LITERAL_STRING: \"%s\"\n", token.literal_string);}break;
-        case TK_LITERAL_INTEGER: {printf("TK_LITERAL_INTEGER: %lld\n", token.literal_integer);}break;
+        case TK_LITERAL_INTEGER: {printf("TK_LITERAL_INTEGER: %llu\n", token.literal_integer);}break;
         case TK_LITERAL_FLOAT: {printf("TK_LITERAL_FLOAT %Lf\n", token.literal_float);}break;
         default:
             diagnosticAbortInternal("printToken", "unknown token kind");

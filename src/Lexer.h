@@ -3,8 +3,26 @@
 
 #include "Diagnostic.h"
 #include "Token.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdbool.h>
+
+static MOTE_NORETURN void lexerAbortIntegerLiteralOverflow(const char *filename, int line, int column,
+                                                           const char *kind_label)
+{
+    diagnosticAbortSimple("L1010",
+                          "integer literal is too large",
+                          makePointSourceSpan(filename, line, column),
+                          kind_label);
+}
+
+static unsigned long long lexerAccumulateIntegerDigit(unsigned long long current, unsigned int base, unsigned int digit,
+                                                      const char *filename, int line, int column, const char *kind_label)
+{
+    if(current > (ULLONG_MAX - (unsigned long long) digit) / (unsigned long long) base)
+        lexerAbortIntegerLiteralOverflow(filename, line, column, kind_label);
+    return current * (unsigned long long) base + (unsigned long long) digit;
+}
 
 bool expectStr(const char* content, int length, char *code)
 {
@@ -668,7 +686,7 @@ Token* tokenize(char *code, const char* filename)
                 column += 2;
 
                 bool saw_digit = false;
-                long long int literal_integer = 0;
+                unsigned long long literal_integer = 0;
                 while(true)
                 {
                     int digit = -1;
@@ -682,7 +700,9 @@ Token* tokenize(char *code, const char* filename)
                         break;
 
                     saw_digit = true;
-                    literal_integer = literal_integer * 16 + digit;
+                    literal_integer = lexerAccumulateIntegerDigit(literal_integer, 16u, (unsigned int) digit,
+                                                                  filename, line, column,
+                                                                  "hexadecimal integer literal overflows `u64`");
                     code ++;
                     column ++;
                 }
@@ -701,7 +721,7 @@ Token* tokenize(char *code, const char* filename)
             }
 
             bool float_mode = false;
-            long long int literal_integer = 0;
+            unsigned long long literal_integer = 0;
             long double literal_float = 0;
             long double float_helper = 0.1;
 
@@ -727,7 +747,9 @@ Token* tokenize(char *code, const char* filename)
                     int digit = *code - '0';
                     if(!float_mode)
                     {
-                        literal_integer = literal_integer * 10 + digit;
+                        literal_integer = lexerAccumulateIntegerDigit(literal_integer, 10u, (unsigned int) digit,
+                                                                      filename, line, column,
+                                                                      "decimal integer literal overflows `u64`");
                     }
                     else
                     {

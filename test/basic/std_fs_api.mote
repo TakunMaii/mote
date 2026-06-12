@@ -108,7 +108,11 @@ main = fn() i32 {
         return 22;
     }
     names: []char = @unwrap(maybe_names);
-    names_ok = @len(names) >= 8 && names[0] == 'n' && names[4] == '.' && names[7] == 't';
+    names_ok = @len(names) >= 8 &&
+        names[0] == 'n' &&
+        names[4] == '.' &&
+        names[7] == 't' &&
+        names[@len(names) - 1] == '\0';
     mem.free_slice(char, names);
     if(!names_ok) {
         filesystem.remove_file(dir_file_path);

@@ -220,7 +220,12 @@ ASTDataType* parsePrimaryDataType(Token **token)
         expectToken(*token, TK_COMMA);
         (*token) = (*token)->next;
         Token *length_token = expectToken(*token, TK_LITERAL_INTEGER);
-        long long int array_length = length_token->literal_integer;
+        if(length_token->literal_integer > (unsigned long long) LLONG_MAX)
+            diagnosticAbortSimple("P1023",
+                                  "array length literal is too large",
+                                  tokenSourceSpan(length_token),
+                                  "array length must fit within `i64`");
+        long long int array_length = (long long int) length_token->literal_integer;
         (*token) = (*token)->next;
         expectToken(*token, TK_RIGHT_PARENTHESIS);
         (*token) = (*token)->next;
@@ -530,7 +535,7 @@ ASTNode* parseLiteralValue(Token **token)
     }
     else if((*token)->kind == TK_LITERAL_INTEGER)
     {
-        node->literal_integer = (*token)->literal_integer;
+        node->literal_integer = makeASTIntegerLiteralValue((*token)->literal_integer);
         (*token) = (*token)->next;
     }
     else if((*token)->kind == TK_LITERAL_FLOAT)

@@ -1410,7 +1410,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             if(inst->result_type != NULL && inst->result_type->kind == AST_DATA_TYPE_KIND_POINTER)
             {
                 llvmEmitInstructionPrefix(stream, inst->result);
-                fprintf(stream, "inttoptr i64 %lld to ptr\n",
+                fprintf(stream, "inttoptr i64 %llu to ptr\n",
                         inst->kind == MIR_INST_CONST_CHAR
                             ? (long long int)(unsigned char)inst->data.const_char.value
                             : inst->data.const_int.value);
@@ -1420,7 +1420,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             if(inst->result_type != NULL &&
                inst->result_type->kind == AST_DATA_TYPE_KIND_FUNCTION &&
                inst->kind == MIR_INST_CONST_INT &&
-               inst->data.const_int.value == 0)
+               inst->data.const_int.value == 0ull)
             {
                 llvmEmitZeroValueInst(stream, context, inst->result, inst->result_type);
                 return;
@@ -1438,7 +1438,7 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             llvmEmitInstructionPrefix(stream, inst->result);
             fprintf(stream, "add ");
             llvmEmitType(stream, inst->result_type);
-            fprintf(stream, " 0, %lld\n", inst->kind == MIR_INST_CONST_CHAR
+            fprintf(stream, " 0, %llu\n", inst->kind == MIR_INST_CONST_CHAR
                     ? (long long int)(unsigned char)inst->data.const_char.value
                     : inst->data.const_int.value);
             return;

@@ -2,6 +2,7 @@
 #define AST_H
 
 #include "Diagnostic.h"
+#include <limits.h>
 #include <stdio.h>
 #include "Token.h"
 #include <stdarg.h>
@@ -209,6 +210,10 @@ typedef struct {
     bool explicit_type;
 } ASTAssignModifier;
 
+typedef struct ASTIntegerLiteralValue {
+    unsigned long long magnitude;
+} ASTIntegerLiteralValue;
+
 struct ASTNode {
     struct ASTNode *next;
     ASTNodeKind kind;
@@ -227,7 +232,7 @@ struct ASTNode {
     bool literal_bool;
     char literal_char;
     char literal_string[MAX_STRING_LITERAL_LENGTH];
-    long long int literal_integer;
+    ASTIntegerLiteralValue literal_integer;
     long double literal_float;
 
     // assign or decl
@@ -334,6 +339,18 @@ ASTDataType* newArrayDataType(ASTDataType *element_type, long long int length)
     data_type->child = element_type;
     data_type->array_length = length;
     return data_type;
+}
+
+static ASTIntegerLiteralValue makeASTIntegerLiteralValue(unsigned long long magnitude)
+{
+    ASTIntegerLiteralValue value = {0};
+    value.magnitude = magnitude;
+    return value;
+}
+
+static bool astIntegerLiteralIsZero(ASTIntegerLiteralValue value)
+{
+    return value.magnitude == 0;
 }
 
 ASTDataType* newSliceDataType(ASTDataType *element_type)
@@ -1578,7 +1595,7 @@ void printASTNode(ASTNode node)
             printf("AST_EXPR_LITERAL_STRING(\"%s\")", node.literal_string);
         } break;
         case AST_EXPR_LITERAL_INTEGER: {
-            printf("AST_EXPR_LITERAL_INTEGER(%lld)", node.literal_integer);
+            printf("AST_EXPR_LITERAL_INTEGER(%llu)", node.literal_integer.magnitude);
         } break;
         case AST_EXPR_LITERAL_FLOAT: {
             printf("AST_EXPR_LITERAL_FLOAT(%Lf)", node.literal_float);

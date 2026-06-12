@@ -142,7 +142,7 @@ typedef struct MirInst {
             char value;
         } const_char;
         struct {
-            long long int value;
+            unsigned long long value;
         } const_int;
         struct {
             long double value;
@@ -925,12 +925,24 @@ static MirValueId mirEmitConstChar(MirFunctionState *state, char value, const ch
     return result;
 }
 
-static MirValueId mirEmitConstInt(MirFunctionState *state, long long int value, ASTDataType *data_type,
+static MirValueId mirEmitConstInt(MirFunctionState *state, unsigned long long value, ASTDataType *data_type,
                                   const char *filename, int line, int column)
 {
     MirValueId result = mirEmitResultInst(state, MIR_INST_CONST_INT, data_type, filename, line, column);
     mirGetLastInst(state)->data.const_int.value = value;
     return result;
+}
+
+static unsigned long long mirNegateLiteralIntegerOrAbort(ASTNode *node)
+{
+    if(node == NULL || node->kind != AST_EXPR_LITERAL_INTEGER)
+        mirLoweringAbortInternal("M2016", "mirNegateLiteralIntegerOrAbort", "expected literal integer node");
+
+    if(node->literal_integer.magnitude > 9223372036854775808ull)
+        mirLoweringAbortNode("M2017", node,
+                             "negative integer literal is out of range",
+                             "literal magnitude exceeds what `i64` can represent when negated");
+    return 0ull - node->literal_integer.magnitude;
 }
 
 static MirValueId mirEmitConstFloat(MirFunctionState *state, long double value, ASTDataType *data_type,
@@ -3409,7 +3421,7 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
             if(literal_type == NULL)
                 literal_type = defaultIntegerDataType();
             return mirMaybeConvertValue(state, scope, node,
-                                        mirEmitConstInt(state, node->literal_integer, literal_type,
+                                        mirEmitConstInt(state, node->literal_integer.magnitude, literal_type,
                                                         node->filename, node->line_number, node->column_number),
                                         expected_type);
         }
@@ -3549,7 +3561,7 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                 result_type = expected_type;
             if(node->lhs->kind == AST_EXPR_LITERAL_INTEGER)
                 return mirMaybeConvertValue(state, scope, node,
-                                            mirEmitConstInt(state, -(node->lhs->literal_integer), result_type,
+                                            mirEmitConstInt(state, mirNegateLiteralIntegerOrAbort(node->lhs), result_type,
                                                             node->filename, node->line_number, node->column_number),
                                             expected_type);
             if(node->lhs->kind == AST_EXPR_LITERAL_FLOAT)

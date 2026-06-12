@@ -86,7 +86,7 @@ static void printMirInst(FILE *stream, MirInst *inst)
             fprintf(stream, "'");
             break;
         case MIR_INST_CONST_INT:
-            fprintf(stream, "%lld", inst->data.const_int.value);
+            fprintf(stream, "%llu", inst->data.const_int.value);
             break;
         case MIR_INST_CONST_FLOAT:
             fprintf(stream, "%Lf", inst->data.const_float.value);
