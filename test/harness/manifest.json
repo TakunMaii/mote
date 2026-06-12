@@ -61,6 +61,12 @@
       "input": "test\\pkg\\mismatch_dir"
     },
     {
+      "name": "package-shared-import-alias-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\pkg\\shared_import_alias"
+    },
+    {
       "name": "package-missing-main-has-source-location",
       "expect": "failure",
       "run_mode": "exe",
