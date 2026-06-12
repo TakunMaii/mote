@@ -269,7 +269,10 @@ typedef struct MirDebugLocal {
     const char *filename;
     int line_number;
     int column_number;
+    ASTDataType *data_type;
     MirValueId slot_value;
+    bool is_parameter;
+    int argument_index;
 } MirDebugLocal;
 
 typedef struct MirFunction {
@@ -893,8 +896,9 @@ static MirValueId mirCreateInput(MirFunction *function, ASTDataType *data_type, 
     return mirAppendValue(function, data_type, name, true);
 }
 
-static void mirRecordDebugLocal(MirFunction *function, const char *identifier, const char *filename,
-                                int line_number, int column_number, MirValueId slot_value)
+static void mirRecordDebugLocalEx(MirFunction *function, const char *identifier, const char *filename,
+                                  int line_number, int column_number, ASTDataType *data_type,
+                                  MirValueId slot_value, bool is_parameter, int argument_index)
 {
     if(function == NULL || identifier == NULL || filename == NULL || slot_value < 0)
         return;
@@ -908,7 +912,24 @@ static void mirRecordDebugLocal(MirFunction *function, const char *identifier, c
     local->filename = filename;
     local->line_number = line_number;
     local->column_number = column_number;
+    local->data_type = data_type != NULL ? cloneDataType(data_type) : NULL;
     local->slot_value = slot_value;
+    local->is_parameter = is_parameter;
+    local->argument_index = argument_index;
+}
+
+static void mirRecordDebugLocal(MirFunction *function, const char *identifier, const char *filename,
+                                int line_number, int column_number, ASTDataType *data_type, MirValueId slot_value)
+{
+    mirRecordDebugLocalEx(function, identifier, filename, line_number, column_number, data_type, slot_value, false, 0);
+}
+
+static void mirRecordDebugParameter(MirFunction *function, const char *identifier, const char *filename,
+                                    int line_number, int column_number, ASTDataType *data_type,
+                                    MirValueId slot_value, int argument_index)
+{
+    mirRecordDebugLocalEx(function, identifier, filename, line_number, column_number, data_type,
+                          slot_value, true, argument_index);
 }
 
 static MirValueId mirEmitResultInst(MirFunctionState *state, MirInstKind kind, ASTDataType *result_type,
@@ -2165,7 +2186,7 @@ static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirL
             MirValueId slot = mirEmitAlloca(state, resolved_parameter_type,
                                             argument->filename, argument->line_number, argument->column_number);
             mirRecordDebugLocal(mirCurrentFunction(state), parameter->identifier, parameter->filename,
-                                parameter->line_number, parameter->column_number, slot);
+                                parameter->line_number, parameter->column_number, resolved_parameter_type, slot);
             mirEmitStore(state, slot, argument_value, argument->filename, argument->line_number, argument->column_number);
 
             MirRuntimeBinding *binding = declareMirRuntimeBinding(inst_scope, parameter->identifier);
@@ -2646,8 +2667,9 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
             binding->kind = MIR_RUNTIME_BINDING_LOCAL_SLOT;
             binding->local_value = mirEmitAlloca(&state, resolved_type,
                                                  parameter->filename, parameter->line_number, parameter->column_number);
-            mirRecordDebugLocal(function, parameter->identifier, parameter->filename,
-                                parameter->line_number, parameter->column_number, binding->local_value);
+            mirRecordDebugParameter(function, parameter->identifier, parameter->filename,
+                                    parameter->line_number, parameter->column_number, resolved_type,
+                                    binding->local_value, function->parameter_count);
             mirEmitStore(&state, binding->local_value, desc->input_value,
                          parameter->filename, parameter->line_number, parameter->column_number);
         }
@@ -4018,7 +4040,7 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
                 binding->local_value = mirEmitAlloca(state, declared_type,
                                                      node->filename, node->line_number, node->column_number);
                 mirRecordDebugLocal(mirCurrentFunction(state), node->identifier, node->filename,
-                                    node->line_number, node->column_number, binding->local_value);
+                                    node->line_number, node->column_number, declared_type, binding->local_value);
                 mirEmitStore(state, binding->local_value, value, node->filename, node->line_number, node->column_number);
             }
             return;

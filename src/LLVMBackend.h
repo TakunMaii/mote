@@ -53,6 +53,8 @@ typedef struct LLVMDebugLocalEntry {
     int scope_md;
     int file_md;
     ASTDataType *data_type;
+    bool is_parameter;
+    int argument_index;
     int local_md;
 } LLVMDebugLocalEntry;
 
@@ -295,6 +297,8 @@ static int llvmDebugGetLocalVariableMetadata(LLVMDebugBuilder *debug,
                                              const char *function_name,
                                              const char *variable_name,
                                              ASTDataType *data_type,
+                                             bool is_parameter,
+                                             int argument_index,
                                              int line,
                                              int scope_md)
 {
@@ -323,6 +327,8 @@ static int llvmDebugGetLocalVariableMetadata(LLVMDebugBuilder *debug,
     entry->scope_md = scope_md;
     entry->file_md = llvmDebugGetFileMetadata(debug, filename);
     entry->data_type = data_type != NULL ? cloneDataType(data_type) : NULL;
+    entry->is_parameter = is_parameter;
+    entry->argument_index = argument_index;
     entry->local_md = llvmDebugNextMetadataId(debug);
     return entry->local_md;
 }
@@ -1094,10 +1100,20 @@ static void llvmEmitDebugMetadata(FILE *stream, LLVMDebugBuilder *debug, MirProg
                                                       function->source_function->filename,
                                                       function->name,
                                                       function->source_function->line_number + 1);
+        fprintf(stream, "!%d = !{", subroutine_types_md);
         if(return_type_md > 0)
-            fprintf(stream, "!%d = !{!%d}\n", subroutine_types_md, return_type_md);
+            fprintf(stream, "!%d", return_type_md);
         else
-            fprintf(stream, "!%d = !{null}\n", subroutine_types_md);
+            fprintf(stream, "null");
+        for(int parameter_index = 0; parameter_index < function->parameter_count; parameter_index++)
+        {
+            int parameter_type_md = llvmDebugGetTypeMetadata(debug, function->parameters[parameter_index].source_data_type);
+            if(parameter_type_md > 0)
+                fprintf(stream, ", !%d", parameter_type_md);
+            else
+                fprintf(stream, ", null");
+        }
+        fprintf(stream, "}\n");
         fprintf(stream, "!%d = !DISubroutineType(types: !%d)\n", subroutine_type_md, subroutine_types_md);
         fprintf(stream,
                 "!%d = distinct !DISubprogram(name: \"%s\", linkageName: \"%s\", scope: !%d, file: !%d, line: %d, "
@@ -1117,14 +1133,25 @@ static void llvmEmitDebugMetadata(FILE *stream, LLVMDebugBuilder *debug, MirProg
     {
         LLVMDebugLocalEntry *entry = &(debug->locals[i]);
         int type_md = llvmDebugGetTypeMetadata(debug, entry->data_type);
-        fprintf(stream,
-                "!%d = !DILocalVariable(name: \"%s\", scope: !%d, file: !%d, line: %d, type: !%d)\n",
-                entry->local_md,
-                entry->variable_name,
-                entry->scope_md,
-                entry->file_md,
-                entry->line,
-                type_md > 0 ? type_md : debug->compile_unit_md);
+        if(entry->is_parameter)
+            fprintf(stream,
+                    "!%d = !DILocalVariable(name: \"%s\", arg: %d, scope: !%d, file: !%d, line: %d, type: !%d)\n",
+                    entry->local_md,
+                    entry->variable_name,
+                    entry->argument_index,
+                    entry->scope_md,
+                    entry->file_md,
+                    entry->line,
+                    type_md > 0 ? type_md : debug->compile_unit_md);
+        else
+            fprintf(stream,
+                    "!%d = !DILocalVariable(name: \"%s\", scope: !%d, file: !%d, line: %d, type: !%d)\n",
+                    entry->local_md,
+                    entry->variable_name,
+                    entry->scope_md,
+                    entry->file_md,
+                    entry->line,
+                    type_md > 0 ? type_md : debug->compile_unit_md);
     }
 
     for(int i = 0; i < debug->type_count; i++)
@@ -1191,6 +1218,8 @@ static void llvmEmitDebugDeclare(FILE *stream, LLVMFunctionEmitContext *context,
                                                      context->function->values[slot_value_id].data_type != NULL
                                                          ? llvmPointeeType(context->function->values[slot_value_id].data_type)
                                                          : NULL,
+                                                     local->is_parameter,
+                                                     local->argument_index,
                                                      local->line_number,
                                                      context->debug_subprogram_md);
     if(local_md <= 0)

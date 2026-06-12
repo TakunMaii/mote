@@ -81,6 +81,23 @@
       ]
     },
     {
+      "name": "debug-info-params-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\debug_params",
+      "output_contains": [
+        "define i32 @lambda_0(ptr %env, i32 %v0, i32 %v2) !dbg !",
+        "!DILocalVariable(name: \"a\", arg: 1",
+        "!DILocalVariable(name: \"b\", arg: 2",
+        "!DILocalVariable(name: \"c\"",
+        "!DISubroutineType(types: !",
+        "!{!32, !32, !32}"
+      ],
+      "args": [
+        "-g"
+      ]
+    },
+    {
       "name": "package-dir-name-mismatch-llvm",
       "expect": "success",
       "mode": "llvm",
