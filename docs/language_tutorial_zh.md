@@ -13,31 +13,35 @@
 
 Mote 当前有几个非常重要的语言事实：
 
-- 程序入口是“入口文件 + 它递归导入的模块”，而不是“用户自己写一个 `main` 函数”
-- 顶层是一串会执行的语句，不只是声明区
+- 程序入口是“目标包目录里的 `main` 函数”
+- 顶层只允许声明，不允许执行语句
 - `fn`、`struct`、`enum` 都是表达式，可以出现在赋值右侧
 - 类型本身也是值，`Type` 是一等公民
-- 多文件程序会先构造一个统一的模块程序，再按确定顺序执行顶层语句
+- 一个目录就是一个包，同包多个文件共享顶层可见性
 
 如果你熟悉 C/C++，这里最容易误判的一点是：
 
-- Mote 当前不是“多个源文件分别编译后按链接规则组织初始化”
-- Mote 更接近“从入口模块出发，把导入图整理成一个总程序，再执行总顶层”
+- Mote 现在不是“单文件脚本式入口 + 顶层依次执行”
+- Mote 更接近 Odin 风格的目录包系统
 
 ## 2. 第一个例子
 
-最小程序可以直接写顶层语句：
+最小程序应该放在一个包目录里，并显式定义 `main`：
 
 ```mote
+@package("hello");
+
 c = @import("c");
 
-c.printf("hello, mote\n");
+main = fn() void {
+    c.printf("hello, mote\n");
+};
 ```
 
 如果你要使用仓库内置的 C FFI 包：
 
 ```powershell
-.\mote.exe -I lib hello.mote -o hello.exe
+.\mote.exe hello -o hello.exe
 ```
 
 这里有几个点值得马上记住：
@@ -54,74 +58,77 @@ c.printf("hello, mote\n");
 
 它会把文件名、行号和值输出到 `stderr`。
 
-## 3. 程序入口与执行模型
+## 3. 程序入口与包模型
 
-### 3.1 没有用户定义 `main`
+### 3.1 入口是包里的 `main`
 
-当前 Mote 程序不要求、也不依赖用户显式定义 `main`。编译器会自己生成原生入口函数，再调用一段内部初始化逻辑来执行 Mote 顶层代码。
+当前 Mote 从一个目录包开始构建，并在目标包里寻找名为 `main` 的顶层函数作为程序入口。
 
-因此，下面这种形式就是合法程序：
+因此，下面这种形式才是合法程序骨架：
 
 ```mote
-x = 1;
-y = 2;
-z = x + y;
+@package("app");
+
+main = fn() i32 {
+    return 0;
+};
 ```
 
-### 3.2 顶层会执行
+### 3.2 顶层只允许声明
 
-顶层不是“只能放声明”的区域，而是正常语句序列：
+顶层不是可执行语句序列，只允许声明绑定：
 
 ```mote
+@package("app");
+
+value = 1;
+add = fn(a: i32, b: i32) i32 {
+    return a + b;
+};
+```
+
+像下面这种顶层执行语句当前是不允许的：
+
+```mote
+@package("app");
+
 mut x: i32 = 0;
 x = x + 1;
 ```
 
-这意味着：
+### 3.3 包与文件的关系
 
-- 顶层赋值、调用、控制流都可能产生副作用
-- 模块导入不仅仅影响名字可见性，也会影响顶层执行顺序
-
-### 3.3 多文件下的顺序
-
-当前模块系统会从入口文件开始，递归解析 `@import`，然后按下面的顺序拼接顶层程序：
-
-1. 先处理被导入模块
-2. 再处理当前模块
-3. 同一个模块内部保持源码顺序
-4. 同一个模块只拼接一次
-
-因此它的语义更接近“依赖优先、深度优先的顶层执行”。
+- 一个目录就是一个包
+- 每个 `.mote` 文件必须以 `@package("name");` 开头
+- 同目录文件必须声明同一个包名
+- 同包文件天然共享顶层可见性
+- 外包只能访问 `pub` 顶层声明
 
 例如：
 
-`main.mote`
+`app/main.mote`
 
 ```mote
-a = @import("./a");
-b = @import("./b");
+@package("app");
+
+main = fn() i32 {
+    return add(base, 2);
+};
 ```
 
-`a.mote`
+`app/math.mote`
 
 ```mote
-c = @import("./c");
-print_a = 1;
+@package("app");
+
+base = 40;
+
+add = fn(a: i32, b: i32) i32 {
+    return a + b;
+};
 ```
 
-`b.mote`
-
-```mote
-print_b = 2;
-```
-
-`c.mote`
-
-```mote
-print_c = 3;
-```
-
-执行顺序会先经过 `c`，再 `a`，再 `b`，最后才是 `main` 自己的剩余顶层语句。
+这里 `main.mote` 可以直接使用 `add` 和 `base`，不需要显式导入同包文件。
 
 ## 4. 注释
 
@@ -617,10 +624,10 @@ neg = -v;
 scaled = 2.0 * v;
 ```
 
-`std/linalg` 里的 `Vec2/Vec3/Vec4/Mat4` 就会用到这套能力，例如：
+`std:linalg` 里的 `Vec2/Vec3/Vec4/Mat4` 就会用到这套能力，例如：
 
 ```mote
-linalg = @import("std/linalg");
+linalg = @import("std:linalg");
 
 a = linalg.vec3(1.0, 2.0, 3.0);
 b = linalg.vec3(4.0, 5.0, 6.0);
@@ -888,9 +895,23 @@ Printer = Function([*char, ...], i32);
 - 变参函数用 `...`
 - 返回类型写在逗号后面
 
-## 17. 模块系统：`pub` 与 `@import`
+## 17. 包系统：`@package`、`pub` 与 `@import`
 
-### 17.1 `pub`
+### 17.1 `@package`
+
+每个 `.mote` 文件开头都必须声明所在包名：
+
+```mote
+@package("app");
+```
+
+规则是：
+
+- 一个目录就是一个包
+- 同目录下所有文件都必须声明同一个包名
+- `@package(...)` 必须出现在文件最开头
+- 顶层只允许声明
+### 17.2 `pub`
 
 `pub` 只能用于顶层绑定导出：
 
@@ -904,32 +925,31 @@ pub scale = fn(value: i32) i32 {
 
 如果把 `pub` 放到局部作用域里，当前应视为非法用法。
 
-### 17.2 相对导入
-
-```mote
-math = @import("./math");
-```
-
-相对导入是相对于“当前导入者文件所在目录”解析的。
-
 ### 17.3 包导入
 
 ```mote
 app = @import("app");
-util = @import("app/util");
+mem = @import("std:mem");
+rl = @import("vendor:raylib");
 ```
 
-这类导入需要命令行传 `-I <dir>` 作为搜索根。
+规则是：
+
+- `@import("pkg")` 导入一个包
+- `@import("collection:path")` 导入一个 collection 下的包
+- 当前内建 collection 有 `std`、`c`、`vendor`
+- 当前包目录会自动作为本地搜索根，方便导入子包
+- 也可以用 `-I <dir>` 额外添加包搜索根
 
 ### 17.4 导出成员访问
 
-导入后的模块值可以用 `.` 访问导出成员：
+导入后的包别名可以用 `.` 访问导出成员：
 
 ```mote
-sum: i32 = math.add(1, 2);
+sum: i32 = app.add(1, 2);
 ```
 
-只有被 `pub` 导出的顶层绑定才允许被其他模块访问。
+只有被 `pub` 导出的顶层绑定才允许被其他包访问。
 
 ### 17.5 当前导入解析规则
 
@@ -941,22 +961,35 @@ sum: i32 = math.add(1, 2);
 
 路径查找大致遵循：
 
-- 相对路径：从导入者目录解析
-- 搜索根路径：从 `-I` 指定的目录解析
-- 既可解析 `foo.mote`
-- 也可解析 `foo/root.mote`
+- 包名：从可见包搜索根解析同名目录
+- collection 路径：从 collection 根解析子目录
+- 当前包目录自动提供对子包的局部搜索
 
-### 17.6 模块执行顺序的实际含义
+并且当前明确禁止：
 
-由于顶层语句会执行，所以模块系统不仅是“命名空间系统”，也是“初始化顺序系统”。
+```mote
+@import("std:mem").copy;
+```
 
-你应该把当前行为理解为：
+必须先绑定到名字，再通过成员访问：
 
-- 导入会把依赖模块提前放到执行序列里
-- 导入本身不会作为顶层语句保留到最终程序里
-- 被导入模块的顶层副作用会先于导入者发生
+```mote
+mem = @import("std:mem");
+mem.copy;
+```
 
-因此不建议把复杂隐式初始化逻辑堆在模块顶层。
+### 17.6 同包可见性与声明顺序
+
+同一个包中的多个文件共享一个顶层命名空间。
+
+这意味着：
+
+- 同包文件之间不需要显式导入
+- 包级顶层声明顺序不重要
+- 先写使用、后写定义在包顶层是允许的
+- 但函数体、块作用域里的局部声明顺序仍然重要
+
+当前不应该把这条规则误解成“所有作用域都允许前向引用”。
 
 ## 18. 内建：`@import`、`@extern`、`@zero`、`@sizeof`、`@alignof`、`@as`
 
@@ -964,10 +997,10 @@ sum: i32 = math.add(1, 2);
 
 ```mote
 c = @import("c");
-math = @import("./math");
+mem = @import("std:mem");
 ```
 
-它用于加载模块，并返回可通过成员访问读取导出符号的模块别名。
+它用于加载包，并返回可通过成员访问读取导出符号的包别名。
 
 ### 18.2 `@extern`
 
@@ -1034,8 +1067,8 @@ y: i32 = @as(i32, x);
 仓库已经内置了一批 C / libc 绑定，可以直接导入：
 
 ```mote
-c_mem = @import("c/memory");
-c_io = @import("c/io");
+c_mem = @import("c:memory");
+c_io = @import("c:io");
 
 heap: *mut char = c_mem.malloc(1);
 *heap = 'A';
@@ -1095,7 +1128,7 @@ delta: i64 = @ptr_diff(i32, p2, base);
 仓库当前已经提供一版 typed memory API：
 
 ```mote
-mem = @import("std/mem");
+mem = @import("std:mem");
 
 ptr: *mut i32 = mem.new(i32);
 xs: []i32 = mem.make(i32, 16);
@@ -1120,7 +1153,7 @@ xs: []i32 = mem.make(i32, 16);
 当前也已经有显式 arena API：
 
 ```mote
-mem = @import("std/mem");
+mem = @import("std:mem");
 
 mut arena: mem.Arena = mem.arena_init(1024);
 defer mem.arena_destroy(&mut arena);
@@ -1151,7 +1184,7 @@ xs = mem.arena_make(i32, arena, 32);
 
 ```mote
 std = @import("std");
-hash = @import("std/hash");
+hash = @import("std:hash");
 
 mut xs = std.list_init(i32);
 std.list_append(i32, &mut xs, 10);
@@ -1208,7 +1241,7 @@ std.set_insert(i32, &mut seen, 42);
 下面这些不是“语法糖习惯”，而是当前应明确记住的实现边界：
 
 - 顶层不要求 `main`
-- 顶层语句会执行
+- 顶层只允许声明
 - 多文件程序按依赖优先、深度优先顺序拼接顶层执行
 - `pub` 只能出现在顶层
 - 字符串字面量默认不是 `*char`
