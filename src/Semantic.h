@@ -111,16 +111,35 @@ bool exprLooksLikeTypeDeclValue(ASTNode *node, ScopeFrame *scope)
         case AST_EXPR_STRUCT:
         case AST_EXPR_ENUM:
             return true;
+        case AST_EXPR_FUNCTION:
+            return node->return_data_type != NULL &&
+                   node->return_data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+                   node->return_data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE;
         case AST_EXPR_PARENTHESIS:
         case AST_EXPR_DEREF:
         case AST_EXPR_ADDRESS_OF:
         case AST_EXPR_ADDRESS_OF_MUT:
             return exprLooksLikeTypeDeclValue(node->lhs, scope);
         case AST_EXPR_VARIABLE:
-            return strcmp(node->identifier, "Self") == 0 ||
-                   strcmp(node->identifier, "opaque") == 0 ||
-                   builtinIdentifierToDataType(node->identifier) != NULL ||
-                   findTypeInfo(scope, node->identifier) != NULL;
+            if(strcmp(node->identifier, "Self") == 0 ||
+               strcmp(node->identifier, "opaque") == 0 ||
+               builtinIdentifierToDataType(node->identifier) != NULL ||
+               findTypeInfo(scope, node->identifier) != NULL)
+                return true;
+            if(scope != NULL)
+            {
+                VariableInfo *variable_info = findVariableInfo(scope, node->identifier);
+                if(variable_info != NULL)
+                {
+                    if(variable_info->type_value != NULL)
+                        return true;
+                    if(variable_info->data_type != NULL &&
+                       variable_info->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+                       variable_info->data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
+                        return true;
+                }
+            }
+            return false;
         default:
             return false;
     }
@@ -148,6 +167,66 @@ void checkStatementSemantics(ASTNode *node, ScopeFrame *scope, FunctionContext *
 void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *function_context);
 void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scope, ASTDataType *self_data_type);
 void predeclareTopLevelBindings(ASTNode *block, ScopeFrame *scope);
+void predeclareTopLevelFunctionTypes(ASTNode *block, ScopeFrame *scope, ASTDataType *self_data_type);
+ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope, ASTDataType *self_data_type);
+
+static const char* semanticAssignIdentifier(ASTNode *node)
+{
+    if(node != NULL &&
+       node->kind == AST_ASSIGN &&
+       node->lhs != NULL &&
+       node->lhs->kind == AST_EXPR_VARIABLE &&
+       node->lhs->identifier[0] != '\0')
+        return node->lhs->identifier;
+    return node != NULL ? node->identifier : "";
+}
+
+static void semanticBindTypeDeclarationValue(ASTNode *node, ScopeFrame *scope, ASTDataType *declared_type)
+{
+    if(node == NULL || scope == NULL || declared_type == NULL)
+        return;
+
+    const char *binding_name = semanticAssignIdentifier(node);
+    int variable_index = findVariableInfoInScope(scope, binding_name);
+    VariableInfo *variable_info = variable_index >= 0
+        ? &(scope->variable_infos[variable_index])
+        : declareVariableInfo(scope, binding_name);
+
+    variable_info->mutable = false;
+    variable_info->predeclared = false;
+    variable_info->data_type = cloneDataType(declared_type);
+    variable_info->type_value = cloneDataType(declared_type);
+    variable_info->function_value = resolveFunctionValueExpr(node->rhs, scope);
+    variable_info->extern_value = resolveExternValueExpr(node->rhs, scope);
+    variable_info->value_expr = node->rhs;
+    variable_info->operator_kind = node->operator_kind;
+}
+
+static void predeclareTopLevelVariableBinding(ASTNode *node, ScopeFrame *scope)
+{
+    if(node == NULL || scope == NULL || node->kind != AST_ASSIGN || node->lhs == NULL || node->lhs->kind != AST_EXPR_VARIABLE)
+        return;
+
+    const char *binding_name = semanticAssignIdentifier(node);
+    if(findVariableInfoInScope(scope, binding_name) >= 0)
+        return;
+
+    VariableInfo *variable_info = declareVariableInfo(scope, binding_name);
+    variable_info->mutable = node->modifier.mutable;
+    variable_info->predeclared = true;
+    if(isTypeDeclAssign(node, scope))
+        variable_info->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
+    else if(node->data_type != NULL && isExplicitDeclared(node))
+        variable_info->data_type = cloneDataType(node->data_type);
+    else
+        variable_info->data_type = newInferDataType();
+    variable_info->operator_kind = node->operator_kind;
+    variable_info->value_expr = node->rhs;
+    if(node->rhs != NULL && node->rhs->kind == AST_EXPR_FUNCTION)
+        variable_info->function_value = node->rhs;
+    if(node->rhs != NULL && node->rhs->kind == AST_EXPR_BUILTIN && strcmp(node->rhs->identifier, "extern") == 0)
+        variable_info->extern_value = node->rhs;
+}
 
 bool isInsideFunction(FunctionContext *function_context)
 {
@@ -362,7 +441,7 @@ void checkDeferredAssignmentSemantics(ASTNode *node, ScopeFrame *scope)
                           "declare the variable before the `defer` statement");
     }
 
-    if(findVariableInfo(scope, node->identifier) == NULL)
+    if(findVariableInfo(scope, semanticAssignIdentifier(node)) == NULL)
     {
         semanticAbortNode("S1008", node,
                           "defer assignment target must already exist",
@@ -372,6 +451,8 @@ void checkDeferredAssignmentSemantics(ASTNode *node, ScopeFrame *scope)
 
 void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
 {
+    bool is_top_level_scope = scope != NULL && scope->parent == NULL;
+
     if(node->operator_kind != AST_OPERATOR_NONE)
     {
         if(node->lhs == NULL || node->lhs->kind != AST_EXPR_VARIABLE)
@@ -391,7 +472,8 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
 
     if(isTypeDeclAssign(node, scope))
     {
-        TypeInfo *existing_type_info = findTypeInfo(scope, node->identifier);
+        const char *binding_name = semanticAssignIdentifier(node);
+        TypeInfo *existing_type_info = findTypeInfo(scope, binding_name);
         if(existing_type_info != NULL)
         {
             bool is_placeholder_struct = existing_type_info->predeclared &&
@@ -405,13 +487,13 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
                 semanticAbortNodeFormatted("S1009", node,
                                            "duplicate type declaration",
                                            "type `%s` has already been declared in this scope",
-                                           astUserFacingIdentifier(node->identifier));
+                                           astUserFacingIdentifier(binding_name));
             }
         }
 
         TypeInfo *type_info = existing_type_info;
         if(type_info == NULL)
-            type_info = declareTypeInfo(scope, node->identifier);
+            type_info = declareTypeInfo(scope, binding_name);
         TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
         type_info->data_type = cloneDataType(expr_type.data_type);
         type_info->predeclared = false;
@@ -475,35 +557,47 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
     }
 
     VariableInfo *local_variable_info = NULL;
-    int local_index = findVariableInfoInScope(scope, node->identifier);
+    const char *binding_name = semanticAssignIdentifier(node);
+    int local_index = findVariableInfoInScope(scope, binding_name);
     if(local_index >= 0)
         local_variable_info = &(scope->variable_infos[local_index]);
 
     if(isExplicitDeclared(node))
     {
-        if(local_variable_info != NULL)
+        if(local_variable_info != NULL && (!is_top_level_scope || !local_variable_info->predeclared))
         {
             semanticAbortNodeFormatted("S1013", node,
                                        "duplicate variable declaration",
                                        "variable `%s` has already been declared and cannot be declared again",
-                                       astUserFacingIdentifier(node->identifier));
+                                       astUserFacingIdentifier(binding_name));
         }
-
-        VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
-        new_variable_info->mutable = node->modifier.mutable;
-        new_variable_info->data_type = newInferDataType();
-        new_variable_info->operator_kind = node->operator_kind;
+        if(local_variable_info == NULL)
+        {
+            VariableInfo *new_variable_info = declareVariableInfo(scope, binding_name);
+            new_variable_info->mutable = node->modifier.mutable;
+            new_variable_info->data_type = newInferDataType();
+            new_variable_info->operator_kind = node->operator_kind;
+        }
+        else
+        {
+            local_variable_info->mutable = node->modifier.mutable;
+            local_variable_info->operator_kind = node->operator_kind;
+            local_variable_info->predeclared = false;
+        }
     }
     else
     {
         VariableInfo *resolved_variable_info = local_variable_info;
         if(resolved_variable_info == NULL)
-            resolved_variable_info = findVariableInfo(scope->parent, node->identifier);
+            resolved_variable_info = findVariableInfo(scope->parent, binding_name);
 
-        if(resolved_variable_info == NULL)
+        if(resolved_variable_info == NULL || (is_top_level_scope && resolved_variable_info->predeclared))
         {
-            VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
+            VariableInfo *new_variable_info = resolved_variable_info;
+            if(new_variable_info == NULL)
+                new_variable_info = declareVariableInfo(scope, binding_name);
             new_variable_info->mutable = false;
+            new_variable_info->predeclared = false;
             new_variable_info->data_type = newInferDataType();
             new_variable_info->operator_kind = node->operator_kind;
         }
@@ -512,7 +606,7 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
             semanticAbortNodeFormatted("S1014", node,
                                        "immutable assignment target",
                                        "cannot assign to immutable variable `%s`",
-                                       astUserFacingIdentifier(node->identifier));
+                                       astUserFacingIdentifier(binding_name));
         }
     }
 }
@@ -757,7 +851,8 @@ void checkSpecializedCallArguments(ASTNode *call_node, ScopeFrame *scope)
 
 ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
 {
-    TypeInfo *type_info = findTypeInfo(scope, node->identifier);
+    const char *binding_name = semanticAssignIdentifier(node);
+    TypeInfo *type_info = findTypeInfo(scope, binding_name);
     ASTDataType *struct_type = NULL;
     if(type_info != NULL)
     {
@@ -767,13 +862,13 @@ ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
             semanticAbortTypeFormatted("T1108", node,
                                        "duplicate type declaration",
                                        "type `%s` has already been declared in this scope",
-                                       astUserFacingIdentifier(node->identifier));
+                                       astUserFacingIdentifier(binding_name));
         }
     }
     else
     {
-        struct_type = newStructDataType(node->identifier, NULL);
-        type_info = declareTypeInfo(scope, node->identifier);
+        struct_type = newStructDataType(binding_name, NULL);
+        type_info = declareTypeInfo(scope, binding_name);
         type_info->data_type = struct_type;
     }
     type_info->predeclared = false;
@@ -789,7 +884,7 @@ ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
                                        "duplicate struct member",
                                        "duplicate struct member `%s` in `%s`",
                                        astUserFacingIdentifier(member->identifier),
-                                       astUserFacingIdentifier(node->identifier));
+                                       astUserFacingIdentifier(binding_name));
         }
 
         ASTStructMember *resolved_member = (ASTStructMember*) malloc(sizeof(ASTStructMember));
@@ -819,7 +914,8 @@ ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
 
 ASTDataType* declareEnumType(ASTNode *node, ScopeFrame *scope)
 {
-    TypeInfo *type_info = findTypeInfo(scope, node->identifier);
+    const char *binding_name = semanticAssignIdentifier(node);
+    TypeInfo *type_info = findTypeInfo(scope, binding_name);
     ASTDataType *enum_type = NULL;
     if(type_info != NULL)
     {
@@ -829,13 +925,13 @@ ASTDataType* declareEnumType(ASTNode *node, ScopeFrame *scope)
             semanticAbortTypeFormatted("T1109", node,
                                        "duplicate type declaration",
                                        "type `%s` has already been declared in this scope",
-                                       astUserFacingIdentifier(node->identifier));
+                                       astUserFacingIdentifier(binding_name));
         }
     }
     else
     {
-        enum_type = newEnumDataType(node->identifier, NULL);
-        type_info = declareTypeInfo(scope, node->identifier);
+        enum_type = newEnumDataType(binding_name, NULL);
+        type_info = declareTypeInfo(scope, binding_name);
         type_info->data_type = enum_type;
     }
     type_info->predeclared = false;
@@ -851,7 +947,7 @@ ASTDataType* declareEnumType(ASTNode *node, ScopeFrame *scope)
                                        "duplicate enum variant",
                                        "duplicate enum variant `%s` in `%s`",
                                        astUserFacingIdentifier(variant->identifier),
-                                       astUserFacingIdentifier(node->identifier));
+                                       astUserFacingIdentifier(binding_name));
         }
 
         ASTEnumVariant *resolved_variant = (ASTEnumVariant*) malloc(sizeof(ASTEnumVariant));
@@ -908,13 +1004,39 @@ ASTFunctionParameter* resolveFunctionTypeParameters(ASTFunctionParameter *parame
     ASTFunctionParameter *head = NULL;
     ASTFunctionParameter *tail = NULL;
     ScopeFrame *signature_scope = newScopeFrame(outer_scope);
+    ASTFunctionParameter *scan = parameter;
+
+    while(scan)
+    {
+        ASTDataType *resolved_type = NULL;
+        if(scan->data_type != NULL &&
+           scan->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           scan->data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
+            resolved_type = cloneDataType(scan->data_type);
+        else
+            resolved_type = newInferDataType();
+
+        VariableInfo *variable_info = declareVariableInfo(signature_scope, scan->identifier);
+        variable_info->mutable = false;
+        variable_info->data_type = cloneDataType(resolved_type);
+        if(resolved_type != NULL &&
+           resolved_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           resolved_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
+            variable_info->type_value = newNamedDataType(scan->identifier);
+        scan = scan->next;
+    }
 
     while(parameter)
     {
         ASTFunctionParameter *resolved_parameter = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
         *resolved_parameter = *parameter;
         resolved_parameter->next = NULL;
-        resolved_parameter->data_type = resolveNamedDataType(parameter->data_type, signature_scope, self_data_type);
+        if(parameter->data_type != NULL &&
+           parameter->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+           parameter->data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
+            resolved_parameter->data_type = cloneDataType(parameter->data_type);
+        else
+            resolved_parameter->data_type = resolveNamedDataType(parameter->data_type, signature_scope, self_data_type);
         typeSystemEnsureNoBareOpaque(resolved_parameter->data_type, NULL, "T1133", "function parameter");
 
         if(head == NULL)
@@ -923,15 +1045,8 @@ ASTFunctionParameter* resolveFunctionTypeParameters(ASTFunctionParameter *parame
             tail->next = resolved_parameter;
         tail = resolved_parameter;
 
-        VariableInfo *variable_info = declareVariableInfo(signature_scope, resolved_parameter->identifier);
-        variable_info->mutable = false;
+        VariableInfo *variable_info = findVariableInfo(signature_scope, resolved_parameter->identifier);
         variable_info->data_type = cloneDataType(resolved_parameter->data_type);
-        if(resolved_parameter->data_type != NULL &&
-           resolved_parameter->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
-           resolved_parameter->data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
-        {
-            variable_info->type_value = newNamedDataType(resolved_parameter->identifier);
-        }
 
         parameter = parameter->next;
     }
@@ -1073,6 +1188,7 @@ ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope,
 
 void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scope, ASTDataType *self_data_type)
 {
+    (void) self_data_type;
     while(parameter)
     {
         if(findVariableInfoInScope(scope, parameter->identifier) >= 0)
@@ -1153,9 +1269,10 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
 {
     if(isTypeDeclAssign(node, scope))
     {
+        const char *binding_name = semanticAssignIdentifier(node);
         if(isStructDeclAssign(node))
         {
-            TypeInfo *existing_type_info = findTypeInfo(scope, node->identifier);
+            TypeInfo *existing_type_info = findTypeInfo(scope, binding_name);
             if(existing_type_info != NULL &&
                (!existing_type_info->predeclared ||
                 existing_type_info->data_type == NULL ||
@@ -1164,10 +1281,11 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
                 semanticAbortTypeFormatted("T1108", node,
                                            "duplicate type declaration",
                                            "type `%s` has already been declared in this scope",
-                                           astUserFacingIdentifier(node->identifier));
+                                           astUserFacingIdentifier(binding_name));
             }
 
             ASTDataType *struct_type = declareStructType(node, scope);
+            semanticBindTypeDeclarationValue(node, scope, struct_type);
             ASTStructMember *member = node->rhs->members;
             while(member)
             {
@@ -1181,7 +1299,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
 
         if(isEnumDeclAssign(node))
         {
-            TypeInfo *existing_type_info = findTypeInfo(scope, node->identifier);
+            TypeInfo *existing_type_info = findTypeInfo(scope, binding_name);
             if(existing_type_info != NULL &&
                (!existing_type_info->predeclared ||
                 existing_type_info->data_type == NULL ||
@@ -1190,31 +1308,33 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
                 semanticAbortTypeFormatted("T1109", node,
                                            "duplicate type declaration",
                                            "type `%s` has already been declared in this scope",
-                                           astUserFacingIdentifier(node->identifier));
+                                           astUserFacingIdentifier(binding_name));
             }
 
-            declareEnumType(node, scope);
+            ASTDataType *enum_type = declareEnumType(node, scope);
+            semanticBindTypeDeclarationValue(node, scope, enum_type);
             return;
         }
 
-        TypeInfo *existing_type_info = findTypeInfo(scope, node->identifier);
+        TypeInfo *existing_type_info = findTypeInfo(scope, binding_name);
         if(existing_type_info != NULL && !existing_type_info->predeclared)
         {
             semanticAbortTypeFormatted("T1109", node,
                                        "duplicate type declaration",
                                        "type `%s` has already been declared in this scope",
-                                       astUserFacingIdentifier(node->identifier));
+                                       astUserFacingIdentifier(binding_name));
         }
 
         TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
-        TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
+        TypeInfo *type_info = declareTypeInfo(scope, binding_name);
         type_info->data_type = resolveNamedDataType(expr_type.data_type, scope,
                                                     function_context == NULL ? NULL : function_context->self_data_type);
         if(type_info->data_type != NULL &&
            type_info->data_type->kind == AST_DATA_TYPE_KIND_OPAQUE &&
            type_info->data_type->identifier[0] == '\0')
-            strcpy(type_info->data_type->identifier, node->identifier);
+            strcpy(type_info->data_type->identifier, binding_name);
         node->data_type = cloneDataType(type_info->data_type);
+        semanticBindTypeDeclarationValue(node, scope, type_info->data_type);
         return;
     }
 
@@ -1325,9 +1445,11 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
     }
 
     VariableInfo *local_variable_info = NULL;
-    int local_index = findVariableInfoInScope(scope, node->identifier);
+    const char *binding_name = semanticAssignIdentifier(node);
+    int local_index = findVariableInfoInScope(scope, binding_name);
     if(local_index >= 0)
         local_variable_info = &(scope->variable_infos[local_index]);
+    bool is_top_level_scope = scope != NULL && scope->parent == NULL;
 
     if(node->rhs->kind == AST_EXPR_FUNCTION)
         checkFunctionExprTypes(node->rhs, scope, function_context == NULL ? NULL : function_context->self_data_type);
@@ -1342,12 +1464,12 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
     if(isExplicitDeclared(node))
     {
         TypeSystemExprType expr_type = {0};
-        if(local_variable_info != NULL)
+        if(local_variable_info != NULL && (!is_top_level_scope || !local_variable_info->predeclared))
         {
             semanticAbortTypeFormatted("T1119", node,
                                        "duplicate variable declaration",
                                        "variable `%s` has already been declared and cannot be declared again",
-                                       astUserFacingIdentifier(node->identifier));
+                                       astUserFacingIdentifier(binding_name));
         }
 
         ASTDataType *declared_type = node->data_type;
@@ -1411,12 +1533,17 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
                 typeErrorAssign(node, node->rhs, expr_type, declared_type);
         }
 
-        VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
+        VariableInfo *new_variable_info = local_variable_info;
+        if(new_variable_info == NULL)
+            new_variable_info = declareVariableInfo(scope, binding_name);
         new_variable_info->mutable = node->modifier.mutable;
+        new_variable_info->predeclared = false;
         new_variable_info->data_type = cloneDataType(node->data_type);
         new_variable_info->operator_kind = node->operator_kind;
         if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
             new_variable_info->type_value = cloneDataType(expr_type.data_type);
+        else
+            new_variable_info->type_value = NULL;
         new_variable_info->function_value = resolveFunctionValueExpr(node->rhs, scope);
         new_variable_info->extern_value = resolveExternValueExpr(node->rhs, scope);
     }
@@ -1424,9 +1551,9 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
     {
         VariableInfo *resolved_variable_info = local_variable_info;
         if(resolved_variable_info == NULL)
-            resolved_variable_info = findVariableInfo(scope->parent, node->identifier);
+            resolved_variable_info = findVariableInfo(scope->parent, binding_name);
 
-        if(resolved_variable_info == NULL)
+        if(resolved_variable_info == NULL || (is_top_level_scope && resolved_variable_info->predeclared))
         {
             TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
             ASTDataType *declared_type = inferDeclaredTypeFromExpr(node->rhs, scope);
@@ -1437,12 +1564,17 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
                                       "variables cannot have type void",
                                       "remove this binding or choose a non-void type");
 
-            VariableInfo *new_variable_info = declareVariableInfo(scope, node->identifier);
+            VariableInfo *new_variable_info = resolved_variable_info;
+            if(new_variable_info == NULL)
+                new_variable_info = declareVariableInfo(scope, binding_name);
             new_variable_info->mutable = false;
+            new_variable_info->predeclared = false;
             new_variable_info->data_type = cloneDataType(declared_type);
             new_variable_info->operator_kind = node->operator_kind;
             if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
                 new_variable_info->type_value = cloneDataType(expr_type.data_type);
+            else
+                new_variable_info->type_value = NULL;
             new_variable_info->function_value = resolveFunctionValueExpr(node->rhs, scope);
             new_variable_info->extern_value = resolveExternValueExpr(node->rhs, scope);
 
@@ -1643,7 +1775,10 @@ void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionC
 {
     ScopeFrame *current_scope = newScopeFrame(parent_scope);
     if(parent_scope == NULL)
+    {
         predeclareTopLevelBindings(block, current_scope);
+        predeclareTopLevelFunctionTypes(block, current_scope, function_context == NULL ? NULL : function_context->self_data_type);
+    }
 
     ASTNode *node = block->lhs;
     while(node)
@@ -1681,20 +1816,73 @@ void predeclareTopLevelBindings(ASTNode *block, ScopeFrame *scope)
             {
                 if(findTypeInfoInScope(scope, node->identifier) < 0)
                 {
-                    TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
-                    type_info->data_type = newStructDataType(node->identifier, NULL);
+                    const char *binding_name = semanticAssignIdentifier(node);
+                    TypeInfo *type_info = declareTypeInfo(scope, binding_name);
+                    type_info->data_type = newStructDataType(binding_name, NULL);
                     type_info->predeclared = true;
                 }
             }
             else if(node->rhs != NULL && node->rhs->kind == AST_EXPR_ENUM)
             {
-                if(findTypeInfoInScope(scope, node->identifier) < 0)
+                if(findTypeInfoInScope(scope, semanticAssignIdentifier(node)) < 0)
                 {
-                    TypeInfo *type_info = declareTypeInfo(scope, node->identifier);
-                    type_info->data_type = newEnumDataType(node->identifier, NULL);
+                    const char *binding_name = semanticAssignIdentifier(node);
+                    TypeInfo *type_info = declareTypeInfo(scope, binding_name);
+                    type_info->data_type = newEnumDataType(binding_name, NULL);
                     type_info->predeclared = true;
                 }
             }
+
+            predeclareTopLevelVariableBinding(node, scope);
+        }
+        node = node->next;
+    }
+}
+
+void predeclareTopLevelFunctionTypes(ASTNode *block, ScopeFrame *scope, ASTDataType *self_data_type)
+{
+    if(block == NULL || scope == NULL)
+        return;
+
+    ASTNode *node = block->lhs;
+    while(node)
+    {
+        if(node->kind == AST_ASSIGN &&
+           node->lhs != NULL &&
+           node->lhs->kind == AST_EXPR_VARIABLE &&
+           node->rhs != NULL &&
+           node->rhs->kind == AST_EXPR_FUNCTION)
+        {
+            const char *binding_name = semanticAssignIdentifier(node);
+            int variable_index = findVariableInfoInScope(scope, binding_name);
+            VariableInfo *variable_info = variable_index >= 0
+                ? &(scope->variable_infos[variable_index])
+                : NULL;
+            if(variable_info != NULL && variable_info->data_type != NULL && !isInferDataType(variable_info->data_type))
+            {
+                node = node->next;
+                continue;
+            }
+
+            ASTDataType *function_type = resolveFunctionExprDataType(node->rhs, scope, self_data_type);
+            node->rhs->data_type = cloneDataType(function_type);
+            node->rhs->return_data_type = cloneDataType(function_type->return_data_type);
+            node->data_type = cloneDataType(function_type);
+
+            if(variable_info == NULL)
+                variable_info = declareVariableInfo(scope, binding_name);
+            variable_info->mutable = node->modifier.mutable;
+            variable_info->predeclared = false;
+            variable_info->data_type = cloneDataType(function_type);
+            variable_info->function_value = node->rhs;
+            variable_info->extern_value = NULL;
+            if(function_type->return_data_type != NULL &&
+               function_type->return_data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+               function_type->return_data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
+                variable_info->type_value = cloneDataType(function_type);
+            else
+                variable_info->type_value = NULL;
+            variable_info->operator_kind = node->operator_kind;
         }
         node = node->next;
     }

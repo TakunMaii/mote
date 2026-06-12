@@ -1,5 +1,5 @@
-ctype = @import("std/ctype");
-math = @import("std/math");
+ctype = @import("std:ctype");
+math = @import("std:math");
 
 approx_eq_f32 = fn(a: f32, b: f32, eps: f32) bool {
     return math.abs_f32(a - b) <= eps;

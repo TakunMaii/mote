@@ -1,0 +1,22 @@
+@package("fs");
+
+c = @import("std:internal/c");
+
+pub open = c.fopen;
+pub close = c.fclose;
+pub read = c.fread;
+pub write = c.fwrite;
+pub flush = c.fflush;
+pub rewind = c.rewind;
+pub get_char = c.fgetc;
+pub put_char = c.fputc;
+pub get_line = c.fgets;
+pub put_string = c.fputs;
+pub eof = c.feof;
+pub error = c.ferror;
+pub remove = c.remove;
+pub rename = c.rename;
+
+pub seek_set = c.SEEK_SET;
+pub seek_cur = c.SEEK_CUR;
+pub seek_end = c.SEEK_END;

@@ -675,25 +675,6 @@ static void llvmEmitDoubleLiteral(FILE *stream, long double value)
     fprintf(stream, "%.17e", (double)value);
 }
 
-static void llvmEmitFloatLiteral(FILE *stream, ASTDataType *data_type, long double value)
-{
-    if(data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
-       data_type->primary == AST_PRIMARY_DATA_TYPE_F32)
-    {
-        fprintf(stream, "%.9e", (double)(float)value);
-        return;
-    }
-
-    if(data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
-       data_type->primary == AST_PRIMARY_DATA_TYPE_F16)
-    {
-        fprintf(stream, "%.6e", (double)value);
-        return;
-    }
-
-    llvmEmitDoubleLiteral(stream, value);
-}
-
 static void llvmEmitFloatConstantInst(FILE *stream, int result_value_id, ASTDataType *data_type, long double value)
 {
     if(data_type != NULL &&
@@ -716,16 +697,6 @@ static void llvmEmitFloatConstantInst(FILE *stream, int result_value_id, ASTData
     fprintf(stream, " 0.0, ");
     llvmEmitDoubleLiteral(stream, value);
     fprintf(stream, "\n");
-}
-
-static void llvmEmitConstZero(FILE *stream, ASTDataType *data_type)
-{
-    if(llvmIsFloatDataType(data_type))
-        llvmEmitFloatLiteral(stream, data_type, 0.0L);
-    else if(data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_POINTER)
-        fprintf(stream, "null");
-    else
-        fprintf(stream, "0");
 }
 
 static void llvmEmitZeroValueInst(FILE *stream, LLVMFunctionEmitContext *context, int result_value_id, ASTDataType *data_type)
@@ -770,64 +741,6 @@ static void llvmEmitConstAllOnes(FILE *stream, ASTDataType *data_type)
         fprintf(stream, "true");
     else
         fprintf(stream, "-1");
-}
-
-static bool llvmIsAggregateType(ASTDataType *data_type)
-{
-    if(data_type == NULL)
-        return false;
-
-    return data_type->kind == AST_DATA_TYPE_KIND_ARRAY ||
-           data_type->kind == AST_DATA_TYPE_KIND_STRUCT ||
-           data_type->kind == AST_DATA_TYPE_KIND_FUNCTION;
-}
-
-static void llvmEmitInsertValueSequence(FILE *stream, LLVMFunctionEmitContext *context, int result_value_id,
-                                        ASTDataType *aggregate_type, MirOperandList values)
-{
-    char current_name[32];
-    bool has_current = false;
-
-    for(int i = 0; i < values.count; i++)
-    {
-        ASTDataType *element_type = context->function->values[llvmResolveAlias(context, values.items[i])].data_type;
-        char stored_value_name[32];
-        const char *stored_value_ref = llvmPrepareStoredValueRef(stream, context, values.items[i],
-                                                                 stored_value_name, sizeof(stored_value_name));
-        char next_name[32];
-        if(i + 1 == values.count)
-            llvmEmitInstructionPrefix(stream, result_value_id);
-        else
-        {
-            llvmMakeTempName(context, next_name, sizeof(next_name));
-            llvmEmitTempAssignPrefix(stream, next_name);
-        }
-
-        fprintf(stream, "insertvalue ");
-        llvmEmitStorageType(stream, aggregate_type);
-        if(!has_current)
-            fprintf(stream, " undef, ");
-        else
-            fprintf(stream, " %s, ", current_name);
-
-        llvmEmitStorageType(stream, element_type);
-        fprintf(stream, " ");
-        fprintf(stream, "%s", stored_value_ref);
-        fprintf(stream, ", %d\n", i);
-
-        if(i + 1 != values.count)
-            strcpy(current_name, next_name);
-        has_current = true;
-    }
-
-    if(values.count == 0)
-    {
-        llvmEmitInstructionPrefix(stream, result_value_id);
-        fprintf(stream, "insertvalue ");
-        llvmEmitStorageType(stream, aggregate_type);
-        fprintf(stream, " undef, i8 0, 0\n");
-        llvmBackendError("zero-field insertvalue fallback was reached unexpectedly", NULL, 0, 0);
-    }
 }
 
 static bool llvmProgramNeedsMalloc(MirProgram *program)
@@ -1988,26 +1901,34 @@ static bool llvmProgramHasGlobal(const MirProgram *program, const char *name)
     return false;
 }
 
-static void llvmEmitEntryPoint(FILE *stream, MirProgram *program)
+static void llvmEmitEntryPoint(FILE *stream, MirProgram *program, ASTNode *root)
 {
     fprintf(stream, "define i32 @main() {\n");
     fprintf(stream, "entry:\n");
     fprintf(stream, "    call void @__mote_init(ptr null)\n");
-    if(llvmProgramHasGlobal(program, "m0__main"))
+    if(root != NULL && root->entry_symbol[0] != '\0' && llvmProgramHasGlobal(program, root->entry_symbol))
     {
-        fprintf(stream, "    %%mote_user_main_slot = getelementptr { ptr, ptr }, ptr @m0__main, i32 0\n");
+        fprintf(stream, "    %%mote_user_main_slot = getelementptr { ptr, ptr }, ptr @%s, i32 0\n", root->entry_symbol);
         fprintf(stream, "    %%mote_user_main = load { ptr, ptr }, ptr %%mote_user_main_slot\n");
         fprintf(stream, "    %%mote_user_main_fn = extractvalue { ptr, ptr } %%mote_user_main, 0\n");
         fprintf(stream, "    %%mote_user_main_env = extractvalue { ptr, ptr } %%mote_user_main, 1\n");
-        fprintf(stream, "    %%mote_user_main_ret = call i32 %%mote_user_main_fn(ptr %%mote_user_main_env)\n");
-        fprintf(stream, "    ret i32 %%mote_user_main_ret\n");
+        if(root->entry_returns_void)
+        {
+            fprintf(stream, "    call void %%mote_user_main_fn(ptr %%mote_user_main_env)\n");
+            fprintf(stream, "    ret i32 0\n");
+        }
+        else
+        {
+            fprintf(stream, "    %%mote_user_main_ret = call i32 %%mote_user_main_fn(ptr %%mote_user_main_env)\n");
+            fprintf(stream, "    ret i32 %%mote_user_main_ret\n");
+        }
     }
     else
         fprintf(stream, "    ret i32 0\n");
     fprintf(stream, "}\n\n");
 }
 
-static void emitLLVMProgramToFile(MirProgram *program, const char *module_name, const char *output_path)
+static void emitLLVMProgramToFile(MirProgram *program, ASTNode *root, const char *module_name, const char *output_path)
 {
     FILE *stream = fopen(output_path, "wb");
     if(stream == NULL)
@@ -2064,7 +1985,7 @@ static void emitLLVMProgramToFile(MirProgram *program, const char *module_name, 
     for(int i = 0; i < program->function_count; i++)
         llvmEmitFunctionDefinition(stream, program, program->functions[i]);
 
-    llvmEmitEntryPoint(stream, program);
+    llvmEmitEntryPoint(stream, program, root);
 
     fclose(stream);
 }

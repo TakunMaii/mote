@@ -1,6 +1,6 @@
-c_mem = @import("c/memory");
-c_file = @import("c/file");
-c_io = @import("c/io");
+c_mem = @import("c:memory");
+c_file = @import("c:file");
+c_io = @import("c:io");
 
 heap: *mut char = c_mem.malloc(1);
 *heap = 'A';

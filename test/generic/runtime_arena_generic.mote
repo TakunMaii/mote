@@ -1,6 +1,6 @@
 g = @import("./support_factories");
 std = @import("std");
-mem = @import("std/mem");
+mem = @import("std:mem");
 
 main = fn() i32 {
     mut arena: mem.Arena = mem.arena_init(128);

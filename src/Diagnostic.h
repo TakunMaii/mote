@@ -211,11 +211,6 @@ static bool diagnosticGetLineText(const char *filename, int zero_based_line, con
     return true;
 }
 
-static void diagnosticPrintLinePrefix(int line_digits, const char *line_text)
-{
-    printf("%*s | %s\n", line_digits, line_text, "");
-}
-
 static void diagnosticPrintSourceSpan(SourceSpan span, const char *label)
 {
     if(span.filename == NULL)
@@ -281,22 +276,6 @@ static void diagnosticSetPrimaryLabel(Diagnostic *diagnostic, const char *format
     va_list args;
     va_start(args, format);
     diagnosticVFormat(diagnostic->primary_label, sizeof(diagnostic->primary_label), format, args);
-    va_end(args);
-}
-
-static void diagnosticAddAnnotation(Diagnostic *diagnostic, DiagnosticSeverity severity, SourceSpan span, const char *format, ...)
-{
-    if(diagnostic->annotation_count >= DIAGNOSTIC_MAX_NOTES)
-        return;
-
-    DiagnosticAnnotation *annotation = &(diagnostic->annotations[diagnostic->annotation_count++]);
-    memset(annotation, 0, sizeof(DiagnosticAnnotation));
-    annotation->severity = severity;
-    annotation->span = span;
-
-    va_list args;
-    va_start(args, format);
-    diagnosticVFormat(annotation->message, sizeof(annotation->message), format, args);
     va_end(args);
 }
 

@@ -1,5 +1,5 @@
 std = @import("std");
-hash = @import("std/hash");
+hash = @import("std:hash");
 
 main = fn() i32 {
     mut xs = std.list_init(i32);

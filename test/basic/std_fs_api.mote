@@ -1,4 +1,4 @@
-fs = @import("std/fs");
+fs = @import("std:fs");
 
 main = fn() void {
     ok = fs.seek_set == 0 && fs.seek_cur == 1 && fs.seek_end == 2;

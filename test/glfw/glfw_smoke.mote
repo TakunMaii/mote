@@ -1,4 +1,4 @@
-glfw = @import("vendor/glfw");
+glfw = @import("vendor:glfw");
 
 ok: i32 = glfw.Init();
 if(ok != glfw.FALSE) {

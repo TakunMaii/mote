@@ -233,9 +233,12 @@ struct ASTNode {
     // assign or decl
     ASTAssignModifier modifier;
     bool is_pub;
+    bool entry_returns_void;
     ASTOperatorKind operator_kind;
     ASTDataType *data_type;
     char identifier[MAX_IDENTIFIER_LENGTH];
+    char package_name[MAX_IDENTIFIER_LENGTH];
+    char entry_symbol[MAX_IDENTIFIER_LENGTH];
 
     // function literal
     ASTFunctionParameter *parameters;
@@ -1581,7 +1584,10 @@ void printASTNode(ASTNode node)
             printf("AST_EXPR_LITERAL_FLOAT(%Lf)", node.literal_float);
         } break;
         case AST_START_OF_CODE: {
-            printf("AST_START_OF_CODE\n");
+            if(node.package_name[0] != '\0')
+                printf("AST_START_OF_CODE(package=%s)\n", node.package_name);
+            else
+                printf("AST_START_OF_CODE\n");
             if(node.lhs)
                 printASTNode(*(node.lhs));
         } break;

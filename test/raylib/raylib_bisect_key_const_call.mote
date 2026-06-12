@@ -1,4 +1,4 @@
-rl = @import("vendor/raylib");
+rl = @import("vendor:raylib");
 
 mut frames: i32 = 0;
 

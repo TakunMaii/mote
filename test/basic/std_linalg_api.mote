@@ -1,5 +1,5 @@
-linalg = @import("std/linalg");
-math = @import("std/math");
+linalg = @import("std:linalg");
+math = @import("std:math");
 
 approx_eq = fn(a: f32, b: f32, eps: f32) bool {
     return math.abs_f32(a - b) <= eps;

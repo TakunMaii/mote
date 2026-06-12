@@ -1,4 +1,4 @@
-string = @import("std/string");
+string = @import("std:string");
 
 main = fn() void {
     len_ok = string.len("abc") == 3;

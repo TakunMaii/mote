@@ -1,0 +1,169 @@
+@package("raylib");
+
+pub Vector2 = struct {
+    x: f32,
+    y: f32,
+};
+
+pub Rectangle = struct {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+};
+
+pub Color = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+};
+
+pub Texture = struct {
+    id: u32,
+    width: i32,
+    height: i32,
+    mipmaps: i32,
+    format: i32,
+};
+
+pub Texture2D = struct {
+    id: u32,
+    width: i32,
+    height: i32,
+    mipmaps: i32,
+    format: i32,
+};
+
+pub RenderTexture = struct {
+    id: u32,
+    texture: Texture2D,
+    depth: Texture2D,
+};
+
+pub RenderTexture2D = struct {
+    id: u32,
+    texture: Texture2D,
+    depth: Texture2D,
+};
+
+pub Shader = struct {
+    id: u32,
+    locs: *mut i32,
+};
+
+pub MaterialMap = struct {
+    texture: Texture2D,
+    color: Color,
+    value: f32,
+};
+
+pub Material = struct {
+    shader: Shader,
+    maps: *mut MaterialMap,
+    params: Array(f32, 4),
+};
+
+pub AudioStream = struct {
+    buffer: *void,
+    processor: *void,
+    sampleRate: u32,
+    sampleSize: u32,
+    channels: u32,
+};
+
+pub Sound = struct {
+    stream: AudioStream,
+    frameCount: u32,
+};
+
+pub Music = struct {
+    stream: AudioStream,
+    frameCount: u32,
+    looping: bool,
+    ctxType: i32,
+    ctxData: *void,
+};
+
+pub KEY_SPACE = 32;
+pub KEY_SLASH = 47;
+pub KEY_A = 65;
+pub KEY_D = 68;
+pub KEY_R = 82;
+pub KEY_S = 83;
+pub KEY_W = 87;
+pub KEY_Z = 90;
+pub KEY_ESCAPE = 256;
+pub KEY_ENTER = 257;
+pub KEY_BACKSPACE = 259;
+pub KEY_KP_ENTER = 335;
+
+pub SHADER_UNIFORM_FLOAT = 0;
+pub TEXTURE_FILTER_BILINEAR = 1;
+
+pub LIGHTGRAY: Color = Color {.r = 200, .g = 200, .b = 200, .a = 255};
+pub GRAY: Color = Color {.r = 130, .g = 130, .b = 130, .a = 255};
+pub DARKGRAY: Color = Color {.r = 80, .g = 80, .b = 80, .a = 255};
+pub YELLOW: Color = Color {.r = 253, .g = 249, .b = 0, .a = 255};
+pub GREEN: Color = Color {.r = 0, .g = 228, .b = 48, .a = 255};
+pub BLUE: Color = Color {.r = 0, .g = 121, .b = 241, .a = 255};
+pub RED: Color = Color {.r = 230, .g = 41, .b = 55, .a = 255};
+pub WHITE: Color = Color {.r = 255, .g = 255, .b = 255, .a = 255};
+pub BLACK: Color = Color {.r = 0, .g = 0, .b = 0, .a = 255};
+pub RAYWHITE: Color = Color {.r = 245, .g = 245, .b = 245, .a = 255};
+
+pub InitWindow = @extern("InitWindow", Function([i32, i32, *char], void));
+pub CloseWindow = @extern("CloseWindow", Function([], void));
+pub WindowShouldClose = @extern("WindowShouldClose", Function([], bool));
+pub SetTargetFPS = @extern("SetTargetFPS", Function([i32], void));
+pub BeginDrawing = @extern("BeginDrawing", Function([], void));
+pub EndDrawing = @extern("EndDrawing", Function([], void));
+pub ClearBackground = @extern("ClearBackground", Function([Color], void));
+pub DrawText = @extern("DrawText", Function([*char, i32, i32, i32, Color], void));
+pub DrawRectangle = @extern("DrawRectangle", Function([i32, i32, i32, i32, Color], void));
+pub DrawRectangleV = @extern("DrawRectangleV", Function([Vector2, Vector2, Color], void));
+pub DrawRectangleLinesEx = @extern("DrawRectangleLinesEx", Function([Rectangle, f32, Color], void));
+pub DrawCircleV = @extern("DrawCircleV", Function([Vector2, f32, Color], void));
+pub DrawTextureRec = @extern("DrawTextureRec", Function([Texture2D, Rectangle, Vector2, Color], void));
+pub DrawTexturePro = @extern("DrawTexturePro", Function([Texture2D, Rectangle, Rectangle, Vector2, f32, Color], void));
+pub Fade = @extern("Fade", Function([Color, f32], Color));
+pub CheckCollisionRecs = @extern("CheckCollisionRecs", Function([Rectangle, Rectangle], bool));
+
+pub BeginTextureMode = @extern("BeginTextureMode", Function([RenderTexture2D], void));
+pub EndTextureMode = @extern("EndTextureMode", Function([], void));
+pub BeginShaderMode = @extern("BeginShaderMode", Function([Shader], void));
+pub EndShaderMode = @extern("EndShaderMode", Function([], void));
+
+pub LoadTexture = @extern("LoadTexture", Function([*char], Texture2D));
+pub UnloadTexture = @extern("UnloadTexture", Function([Texture2D], void));
+pub LoadRenderTexture = @extern("LoadRenderTexture", Function([i32, i32], RenderTexture2D));
+pub UnloadRenderTexture = @extern("UnloadRenderTexture", Function([RenderTexture2D], void));
+pub SetTextureFilter = @extern("SetTextureFilter", Function([Texture2D, i32], void));
+pub LoadShader = @extern("LoadShader", Function([*char, *char], Shader));
+pub UnloadShader = @extern("UnloadShader", Function([Shader], void));
+pub GetShaderLocation = @extern("GetShaderLocation", Function([Shader, *char], i32));
+pub SetShaderValue = @extern("SetShaderValue", Function([Shader, i32, *void, i32], void));
+pub LoadMaterialDefault = @extern("LoadMaterialDefault", Function([], Material));
+pub FileExists = @extern("FileExists", Function([*char], bool));
+
+pub InitAudioDevice = @extern("InitAudioDevice", Function([], void));
+pub CloseAudioDevice = @extern("CloseAudioDevice", Function([], void));
+pub IsAudioDeviceReady = @extern("IsAudioDeviceReady", Function([], bool));
+pub LoadMusicStream = @extern("LoadMusicStream", Function([*char], Music));
+pub UnloadMusicStream = @extern("UnloadMusicStream", Function([Music], void));
+pub PlayMusicStream = @extern("PlayMusicStream", Function([Music], void));
+pub StopMusicStream = @extern("StopMusicStream", Function([Music], void));
+pub UpdateMusicStream = @extern("UpdateMusicStream", Function([Music], void));
+pub IsMusicStreamPlaying = @extern("IsMusicStreamPlaying", Function([Music], bool));
+pub SetMusicVolume = @extern("SetMusicVolume", Function([Music, f32], void));
+pub LoadSound = @extern("LoadSound", Function([*char], Sound));
+pub UnloadSound = @extern("UnloadSound", Function([Sound], void));
+pub PlaySound = @extern("PlaySound", Function([Sound], void));
+pub SetSoundVolume = @extern("SetSoundVolume", Function([Sound, f32], void));
+
+pub IsKeyPressed = @extern("IsKeyPressed", Function([i32], bool));
+pub IsKeyDown = @extern("IsKeyDown", Function([i32], bool));
+pub GetCharPressed = @extern("GetCharPressed", Function([], i32));
+pub GetFrameTime = @extern("GetFrameTime", Function([], f32));
+pub GetTime = @extern("GetTime", Function([], f64));
+pub GetRandomValue = @extern("GetRandomValue", Function([i32, i32], i32));

@@ -1,0 +1,105 @@
+@package("c");
+
+pub size_t = i64;
+
+pub SEEK_SET = 0;
+pub SEEK_CUR = 1;
+pub SEEK_END = 2;
+
+pub malloc = @extern("malloc", Function([size_t], *mut void));
+pub calloc = @extern("calloc", Function([size_t, size_t], *mut void));
+pub realloc = @extern("realloc", Function([*void, size_t], *mut void));
+pub free = @extern("free", Function([*void], void));
+pub memcpy = @extern("memcpy", Function([*mut void, *void, size_t], *mut void));
+pub memmove = @extern("memmove", Function([*mut void, *void, size_t], *mut void));
+pub memset = @extern("memset", Function([*mut void, i32, size_t], *mut void));
+pub memcmp = @extern("memcmp", Function([*void, *void, size_t], i32));
+
+pub fopen = @extern("fopen", Function([*char, *char], *void));
+pub fclose = @extern("fclose", Function([*void], i32));
+pub fread = @extern("fread", Function([*mut void, size_t, size_t, *void], size_t));
+pub fwrite = @extern("fwrite", Function([*void, size_t, size_t, *void], size_t));
+pub fflush = @extern("fflush", Function([*void], i32));
+pub rewind = @extern("rewind", Function([*void], void));
+pub fgetc = @extern("fgetc", Function([*void], i32));
+pub fputc = @extern("fputc", Function([i32, *void], i32));
+pub fgets = @extern("fgets", Function([*mut char, i32, *void], *mut char));
+pub fputs = @extern("fputs", Function([*char, *void], i32));
+pub feof = @extern("feof", Function([*void], i32));
+pub ferror = @extern("ferror", Function([*void], i32));
+pub remove = @extern("remove", Function([*char], i32));
+pub rename = @extern("rename", Function([*char, *char], i32));
+
+pub putchar = @extern("putchar", Function([i32], i32));
+pub puts = @extern("puts", Function([*char], i32));
+
+pub strlen = @extern("strlen", Function([*char], size_t));
+pub strcmp = @extern("strcmp", Function([*char, *char], i32));
+pub strncmp = @extern("strncmp", Function([*char, *char, size_t], i32));
+
+pub isdigit = @extern("isdigit", Function([i32], i32));
+pub atoi = @extern("atoi", Function([*char], i32));
+
+pub sinf = @extern("mote_sinf", Function([f32], f32));
+pub sin = @extern("mote_sin", Function([f64], f64));
+pub cosf = @extern("mote_cosf", Function([f32], f32));
+pub cos = @extern("mote_cos", Function([f64], f64));
+pub sqrtf = @extern("mote_sqrtf", Function([f32], f32));
+pub sqrt = @extern("mote_sqrt", Function([f64], f64));
+pub fabs = @extern("mote_fabs", Function([f64], f64));
+pub fabsf = fn(x: f32) f32 {
+    return @as(f32, fabs(@as(f64, x)));
+};
+pub tanf = @extern("mote_tanf", Function([f32], f32));
+pub tan = @extern("mote_tan", Function([f64], f64));
+pub asinf = @extern("mote_asinf", Function([f32], f32));
+pub asin = @extern("mote_asin", Function([f64], f64));
+pub acosf = @extern("mote_acosf", Function([f32], f32));
+pub acos = @extern("mote_acos", Function([f64], f64));
+pub atanf = @extern("mote_atanf", Function([f32], f32));
+pub atan = @extern("mote_atan", Function([f64], f64));
+pub atan2f = @extern("mote_atan2f", Function([f32, f32], f32));
+pub atan2 = @extern("mote_atan2", Function([f64, f64], f64));
+pub expf = @extern("mote_expf", Function([f32], f32));
+pub exp = @extern("mote_exp", Function([f64], f64));
+pub logf = @extern("mote_logf", Function([f32], f32));
+pub log = @extern("mote_log", Function([f64], f64));
+pub log2f = @extern("mote_log2f", Function([f32], f32));
+pub log2 = @extern("mote_log2", Function([f64], f64));
+pub log10f = @extern("mote_log10f", Function([f32], f32));
+pub log10 = @extern("mote_log10", Function([f64], f64));
+pub powf = @extern("mote_powf", Function([f32, f32], f32));
+pub pow = @extern("mote_pow", Function([f64, f64], f64));
+pub floorf = @extern("mote_floorf", Function([f32], f32));
+pub floor = @extern("mote_floor", Function([f64], f64));
+pub ceilf = @extern("mote_ceilf", Function([f32], f32));
+pub ceil = @extern("mote_ceil", Function([f64], f64));
+pub roundf = @extern("mote_roundf", Function([f32], f32));
+pub round = @extern("mote_round", Function([f64], f64));
+pub truncf = @extern("mote_truncf", Function([f32], f32));
+pub trunc = @extern("mote_trunc", Function([f64], f64));
+pub fminf = @extern("mote_fminf", Function([f32, f32], f32));
+pub fmin = @extern("mote_fmin", Function([f64, f64], f64));
+pub fmaxf = @extern("mote_fmaxf", Function([f32, f32], f32));
+pub fmax = @extern("mote_fmax", Function([f64, f64], f64));
+
+pub stderr_handle = @extern("mote_stderr_handle", Function([], *void));
+pub alloc = @extern("mote_alloc", Function([size_t], *mut void));
+pub alloc_zeroed = @extern("mote_alloc_zeroed", Function([size_t], *mut void));
+pub alloc_array = @extern("mote_alloc_array", Function([size_t, size_t], *mut void));
+pub alloc_array_zeroed = @extern("mote_alloc_array_zeroed", Function([size_t, size_t], *mut void));
+pub try_alloc = @extern("mote_try_alloc", Function([size_t], *mut void));
+pub try_alloc_zeroed = @extern("mote_try_alloc_zeroed", Function([size_t], *mut void));
+pub try_alloc_array = @extern("mote_try_alloc_array", Function([size_t, size_t], *mut void));
+pub try_alloc_array_zeroed = @extern("mote_try_alloc_array_zeroed", Function([size_t, size_t], *mut void));
+pub dealloc = @extern("mote_dealloc", Function([*void], void));
+pub memdup = @extern("mote_memdup", Function([*void, size_t], *mut void));
+pub try_memdup = @extern("mote_try_memdup", Function([*void, size_t], *mut void));
+pub arena_create = @extern("mote_arena_create", Function([size_t], *mut void));
+pub arena_alloc = @extern("mote_arena_alloc", Function([*void, size_t, size_t], *mut void));
+pub arena_alloc_zeroed = @extern("mote_arena_alloc_zeroed", Function([*void, size_t, size_t], *mut void));
+pub arena_reset = @extern("mote_arena_reset", Function([*void], void));
+pub arena_destroy = @extern("mote_arena_destroy", Function([*void], void));
+pub printf = @extern("printf", Function([*char, ...], i32));
+pub fprintf = @extern("fprintf", Function([*void, *char, ...], i32));
+pub snprintf = @extern("snprintf", Function([*mut char, size_t, *char, ...], i32));

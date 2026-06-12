@@ -30,6 +30,47 @@ ASTTypeArgument* parseTypeArgumentList(Token **token);
 ASTFunctionCapture* parseFunctionCaptures(Token **token);
 bool parseFunctionParameterList(Token **token, bool for_type_syntax, ASTFunctionParameter **out_head, bool *out_is_variadic);
 
+static void parsePackageDirective(Token **token, ASTNode *root)
+{
+    Token *at_token = expectToken(*token, TK_AT);
+    Token *builtin_token = at_token->next;
+    if(builtin_token == NULL ||
+       builtin_token->kind != TK_IDENTIFIER ||
+       strcmp(builtin_token->identifier, "package") != 0)
+    {
+        diagnosticAbortSimple("P1020",
+                              "missing leading package declaration",
+                              tokenSourceSpan(at_token),
+                              "each source file must start with @package(\"name\");");
+    }
+
+    *token = builtin_token->next;
+    expectToken(*token, TK_LEFT_PARENTHESIS);
+    *token = (*token)->next;
+
+    Token *name_token = expectToken(*token, TK_LITERAL_STRING);
+    if(name_token->literal_string[0] == '\0')
+    {
+        diagnosticAbortSimple("P1021",
+                              "package name cannot be empty",
+                              tokenSourceSpan(name_token),
+                              "use a non-empty package name");
+    }
+    strcpy(root->package_name, name_token->literal_string);
+    root->filename = at_token->filename;
+    root->line_number = at_token->line_number;
+    root->column_number = at_token->column_number;
+    root->end_line_number = name_token->end_line_number;
+    root->end_column_number = name_token->end_column_number;
+    *token = (*token)->next;
+
+    expectToken(*token, TK_RIGHT_PARENTHESIS);
+    *token = (*token)->next;
+
+    expectToken(*token, TK_SEMICOLON);
+    *token = (*token)->next;
+}
+
 void parseQualifiedIdentifier(Token **token, char *buffer)
 {
     Token *identifier_token = expectToken(*token, TK_IDENTIFIER);
@@ -738,15 +779,6 @@ ASTNode* parsePrimary(Token **token)
     if((*token)->kind == TK_IDENTIFIER &&
        (strcmp((*token)->identifier, "Function") == 0 ||
         strcmp((*token)->identifier, "Array") == 0))
-    {
-        ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
-        node->data_type = parseDataType(token);
-        return node;
-    }
-
-    if((*token)->kind == TK_LEFT_BRACKET &&
-       (*token)->next != NULL &&
-       (*token)->next->kind == TK_RIGHT_BRACKET)
     {
         ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
         node->data_type = parseDataType(token);
@@ -1580,8 +1612,28 @@ ASTNode* parse(Token *token)
     ASTNode *head = NULL;
     ASTNode *tail = NULL;
 
+    if(token == NULL || token->kind == TK_END_OF_CODE)
+    {
+        diagnosticAbortSimple("P1020",
+                              "missing leading package declaration",
+                              tokenSourceSpan(token),
+                              "each source file must start with @package(\"name\");");
+    }
+    parsePackageDirective(&token, root);
+
     while(token && token->kind != TK_END_OF_CODE)
     {
+        if(token->kind == TK_AT &&
+           token->next != NULL &&
+           token->next->kind == TK_IDENTIFIER &&
+           strcmp(token->next->identifier, "package") == 0)
+        {
+            diagnosticAbortSimple("P1022",
+                                  "@package must be the first top-level declaration",
+                                  tokenSourceSpan(token),
+                                  "move this package declaration to the beginning of the file");
+        }
+
         bool is_pub = false;
         if(token->kind == TK_PUB)
         {
@@ -1595,8 +1647,15 @@ ASTNode* parse(Token *token)
             token->next->kind == TK_IDENTIFIER &&
             strcmp(token->next->identifier, "operator") == 0))
             stmt = parseAssign(&token);
+        else if(isStatementAssign(token))
+            stmt = parseAssign(&token);
         else
-            stmt = parseStatement(&token);
+        {
+            diagnosticAbortSimple("P1023",
+                                  "top-level code must be a declaration",
+                                  tokenSourceSpan(token),
+                                  "move executable statements into a function such as main()");
+        }
         if(is_pub)
             stmt->is_pub = true;
         if(head == NULL)

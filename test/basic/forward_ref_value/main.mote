@@ -1,0 +1,5 @@
+@package("forward_ref_value");
+
+main = fn() i32 {
+    return use_value();
+};

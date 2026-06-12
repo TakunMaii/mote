@@ -8,10 +8,13 @@
 
 typedef struct VariableInfo {
     bool mutable;
+    bool predeclared;
+    bool resolving;
     ASTDataType *data_type;
     ASTDataType *type_value;
     ASTNode *function_value;
     ASTNode *extern_value;
+    ASTNode *value_expr;
     ASTOperatorKind operator_kind;
     char identifier[MAX_IDENTIFIER_LENGTH];
 } VariableInfo;

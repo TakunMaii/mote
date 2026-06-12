@@ -1244,6 +1244,7 @@ static MirValueId lowerStringLiteralAsPointer(MirFunctionState *state, ASTNode *
 static MirValueId mirMaybeConvertValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
                                        MirValueId value, ASTDataType *target_type)
 {
+    (void) scope;
     if(target_type == NULL)
         return value;
     if(node != NULL && node->kind == AST_EXPR_LITERAL_NULL && target_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
@@ -1761,12 +1762,19 @@ static MirValueId lowerVariableValue(MirFunctionState *state, MirLowerScope *sco
 {
     MirRuntimeBinding *binding = findMirRuntimeBinding(scope, node->identifier);
     if(binding == NULL || binding->kind == MIR_RUNTIME_BINDING_COMPTIME_ONLY)
+    {
+        VariableInfo *variable_info = findVariableInfo(&(scope->type_scope), node->identifier);
+        if(variable_info != NULL && variable_info->function_value != NULL)
+            return lowerFunctionExprAsValue(state, scope, variable_info->function_value, node->identifier, scope->self_data_type);
         mirLoweringAbortNodeFormatted("M2004", node,
                                       "this name does not exist as a runtime value",
                                       "variable `%s` is compile-time only or unavailable",
                                       astUserFacingIdentifier(node->identifier));
+    }
 
-    ASTDataType *expr_type = mirResolvedExprValueType(node, &(scope->type_scope));
+    ASTDataType *expr_type = binding->declared_data_type != NULL
+        ? cloneDataType(binding->declared_data_type)
+        : mirResolvedExprValueType(node, &(scope->type_scope));
     MirValueId address = mirBindingAddress(state, binding, node);
     MirValueId value = mirEmitLoad(state, address, expr_type, node->filename, node->line_number, node->column_number);
     return mirMaybeConvertValue(state, scope, node, value, expected_type);
@@ -1840,14 +1848,134 @@ static const char* mirEnsureStringLiteralGlobal(MirLowering *lowering, const cha
 static void mirDeclareVariableInfo(MirLowerScope *scope, ASTNode *assign_node, ASTDataType *declared_type,
                                    TypeSystemExprType expr_type)
 {
-    VariableInfo *variable_info = declareVariableInfo(&(scope->type_scope), assign_node->identifier);
+    const char *binding_name = assign_node->lhs != NULL &&
+                               assign_node->lhs->kind == AST_EXPR_VARIABLE &&
+                               assign_node->lhs->identifier[0] != '\0'
+        ? assign_node->lhs->identifier
+        : assign_node->identifier;
+    int existing_index = findVariableInfoInScope(&(scope->type_scope), binding_name);
+    VariableInfo *variable_info = existing_index >= 0
+        ? &(scope->type_scope.variable_infos[existing_index])
+        : declareVariableInfo(&(scope->type_scope), binding_name);
     variable_info->mutable = assign_node->modifier.mutable;
+    variable_info->predeclared = false;
     variable_info->operator_kind = assign_node->operator_kind;
     variable_info->data_type = cloneDataType(declared_type);
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
         variable_info->type_value = cloneDataType(expr_type.data_type);
+    else
+        variable_info->type_value = NULL;
     variable_info->function_value = resolveFunctionValueExpr(assign_node->rhs, &(scope->type_scope));
     variable_info->extern_value = resolveExternValueExpr(assign_node->rhs, &(scope->type_scope));
+}
+
+static void mirPredeclareTopLevelBindings(MirLowerScope *scope, ASTNode *block_node)
+{
+    if(scope == NULL || block_node == NULL)
+        return;
+
+    for(ASTNode *statement = block_node->lhs; statement != NULL; statement = statement->next)
+    {
+        if(statement->kind != AST_ASSIGN ||
+           statement->lhs == NULL ||
+           statement->lhs->kind != AST_EXPR_VARIABLE)
+            continue;
+
+        const char *binding_name = statement->lhs->identifier;
+        if(statement->rhs != NULL && statement->rhs->kind == AST_EXPR_STRUCT)
+        {
+            if(findTypeInfoInScope(&(scope->type_scope), binding_name) < 0)
+            {
+                TypeInfo *type_info = declareTypeInfo(&(scope->type_scope), binding_name);
+                type_info->data_type = newStructDataType(binding_name, NULL);
+                type_info->predeclared = true;
+            }
+        }
+        else if(statement->rhs != NULL && statement->rhs->kind == AST_EXPR_ENUM)
+        {
+            if(findTypeInfoInScope(&(scope->type_scope), binding_name) < 0)
+            {
+                TypeInfo *type_info = declareTypeInfo(&(scope->type_scope), binding_name);
+                type_info->data_type = newEnumDataType(binding_name, NULL);
+                type_info->predeclared = true;
+            }
+        }
+
+        if(findVariableInfoInScope(&(scope->type_scope), binding_name) < 0)
+        {
+            VariableInfo *variable_info = declareVariableInfo(&(scope->type_scope), binding_name);
+            variable_info->mutable = statement->modifier.mutable;
+            variable_info->predeclared = true;
+            if(isTypeDeclAssign(statement, &(scope->type_scope)))
+                variable_info->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
+            else if(statement->data_type != NULL && isExplicitDeclared(statement))
+                variable_info->data_type = cloneDataType(statement->data_type);
+            else
+                variable_info->data_type = newInferDataType();
+            variable_info->operator_kind = statement->operator_kind;
+            variable_info->value_expr = statement->rhs;
+            if(statement->rhs != NULL && statement->rhs->kind == AST_EXPR_FUNCTION)
+                variable_info->function_value = statement->rhs;
+            if(statement->rhs != NULL &&
+               statement->rhs->kind == AST_EXPR_BUILTIN &&
+               strcmp(statement->rhs->identifier, "extern") == 0)
+                variable_info->extern_value = statement->rhs;
+        }
+    }
+}
+
+static void mirPredeclareTopLevelRuntimeBindings(MirLowering *lowering, MirLowerScope *scope, ASTNode *block_node)
+{
+    if(lowering == NULL || scope == NULL || block_node == NULL)
+        return;
+
+    for(ASTNode *statement = block_node->lhs; statement != NULL; statement = statement->next)
+    {
+        if(statement->kind != AST_ASSIGN ||
+           statement->lhs == NULL ||
+           statement->lhs->kind != AST_EXPR_VARIABLE)
+            continue;
+
+        const char *binding_name = statement->lhs->identifier;
+        if(findMirRuntimeBindingInScope(scope, binding_name) != NULL)
+            continue;
+
+        ASTNode *resolved_function_value = resolveFunctionValueExpr(statement->rhs, &(scope->type_scope));
+        ASTNode *extern_value = resolveExternValueExpr(statement->rhs, &(scope->type_scope));
+        ASTDataType *declared_type = resolveNamedDataType(statement->data_type, &(scope->type_scope), scope->self_data_type);
+        TypeSystemExprType expr_type = inferExprType(statement->rhs, &(scope->type_scope));
+
+        if(resolved_function_value != NULL)
+            continue;
+
+        if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
+           mirIsCompileTimeTypeFactory(declared_type) ||
+           (statement->rhs->kind == AST_EXPR_BUILTIN &&
+            strcmp(statement->rhs->identifier, "extern") == 0 &&
+            declared_type->is_variadic))
+        {
+            MirRuntimeBinding *binding = declareMirRuntimeBinding(scope, binding_name);
+            binding->mutable = statement->modifier.mutable;
+            binding->declared_data_type = cloneDataType(declared_type);
+            binding->type_value = expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ? cloneDataType(expr_type.data_type) : NULL;
+            binding->function_value = resolved_function_value;
+            binding->extern_value = extern_value;
+            binding->kind = MIR_RUNTIME_BINDING_COMPTIME_ONLY;
+            continue;
+        }
+
+        if(declared_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+            continue;
+
+        MirRuntimeBinding *binding = declareMirRuntimeBinding(scope, binding_name);
+        binding->mutable = statement->modifier.mutable;
+        binding->declared_data_type = cloneDataType(declared_type);
+        binding->function_value = resolved_function_value;
+        binding->extern_value = extern_value;
+        binding->kind = MIR_RUNTIME_BINDING_GLOBAL_SLOT;
+        strcpy(binding->global_name, binding_name);
+        mirEnsureGlobal(lowering, binding_name, declared_type, statement->modifier.mutable);
+    }
 }
 
 static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirLowerScope *outer_scope,
@@ -2196,14 +2324,7 @@ static void bindSpecializedNamedTypes(MirLowerScope *scope, ASTDataType *source_
             return;
         }
         case AST_DATA_TYPE_KIND_STRUCT: {
-            ASTStructMember *source_member = source_type->members;
-            ASTStructMember *resolved_member = resolved_type->members;
-            while(source_member != NULL && resolved_member != NULL)
-            {
-                bindSpecializedNamedTypes(scope, source_member->data_type, resolved_member->data_type);
-                source_member = source_member->next;
-                resolved_member = resolved_member->next;
-            }
+            (void) scope;
             return;
         }
         default:
@@ -3713,8 +3834,11 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
     {
         MirRuntimeBinding *local_binding = findMirRuntimeBindingInScope(scope, node->identifier);
         MirRuntimeBinding *existing_binding = findMirRuntimeBinding(scope, node->identifier);
+        VariableInfo *existing_variable_info = findVariableInfo(&(scope->type_scope), node->identifier);
         bool explicit_decl = isExplicitDeclared(node);
-        bool is_new_variable = explicit_decl || existing_binding == NULL;
+        bool is_new_variable = explicit_decl ||
+                               existing_binding == NULL ||
+                               (existing_variable_info != NULL && existing_variable_info->predeclared);
 
         if(is_new_variable)
         {
@@ -3733,7 +3857,9 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
                 expr_type = inferExprType(node->rhs, &(scope->type_scope));
             mirDeclareVariableInfo(scope, node, declared_type, expr_type);
 
-            MirRuntimeBinding *binding = declareMirRuntimeBinding(scope, node->identifier);
+            MirRuntimeBinding *binding = existing_binding;
+            if(binding == NULL)
+                binding = declareMirRuntimeBinding(scope, node->identifier);
             binding->mutable = node->modifier.mutable;
             binding->declared_data_type = cloneDataType(declared_type);
             binding->function_value = resolved_function_value;
@@ -3791,7 +3917,7 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
             return;
         }
 
-        VariableInfo *variable_info = findVariableInfo(&(scope->type_scope), node->identifier);
+        VariableInfo *variable_info = existing_variable_info;
         ASTDataType *target_type = variable_info == NULL ? node->data_type : variable_info->data_type;
         if(target_type != NULL && target_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
             target_type = target_type->child;
@@ -3830,6 +3956,9 @@ static void lowerBlockNode(MirFunctionState *state, MirLowerScope *parent_scope,
     MirLowerScope *block_scope = (MirLowerScope*) malloc(sizeof(MirLowerScope));
     initMirLowerScope(block_scope, parent_scope, false);
     block_scope->self_data_type = parent_scope->self_data_type;
+
+    if(parent_scope != NULL && parent_scope->parent == NULL)
+        mirPredeclareTopLevelBindings(block_scope, block_node);
 
     MirCleanupFrame cleanup = {0};
     cleanup.parent = state->cleanup_top;
@@ -4063,6 +4192,8 @@ MirProgram* lowerASTToMIR(ASTNode *root)
 
     MirLowerScope *top_scope = (MirLowerScope*) malloc(sizeof(MirLowerScope));
     initMirLowerScope(top_scope, NULL, true);
+    mirPredeclareTopLevelBindings(top_scope, root->lhs);
+    mirPredeclareTopLevelRuntimeBindings(&lowering, top_scope, root->lhs);
 
     MirCleanupFrame cleanup = {0};
     init_state.cleanup_top = &cleanup;

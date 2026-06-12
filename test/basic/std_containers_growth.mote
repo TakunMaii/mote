@@ -1,7 +1,7 @@
 std = @import("std");
-map = @import("std/map");
-set = @import("std/set");
-hash = @import("std/hash");
+map = @import("std:map");
+set = @import("std:set");
+hash = @import("std:hash");
 
 main = fn() i32 {
     mut kv_map: map.Map(i32, i32) = std.map_init(i32, i32, hash.hash_i32, hash.eq_i32);

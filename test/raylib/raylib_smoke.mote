@@ -1,4 +1,4 @@
-rl = @import("vendor/raylib");
+rl = @import("vendor:raylib");
 
 rl.InitWindow(320, 240, "raylib smoke");
 rl.CloseWindow();

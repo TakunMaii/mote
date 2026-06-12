@@ -1,9 +1,9 @@
 std = @import("std");
-list = @import("std/list");
-map = @import("std/map");
-set = @import("std/set");
-hash = @import("std/hash");
-mem = @import("std/mem");
+list = @import("std:list");
+map = @import("std:map");
+set = @import("std:set");
+hash = @import("std:hash");
+mem = @import("std:mem");
 
 main = fn() i32 {
     mut list_value: list.List(i32) = list.init(i32);

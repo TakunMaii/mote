@@ -1,1 +1,6 @@
+@package("app");
+
+util = @import("util");
+
 pub base: i32 = 10;
+pub scale = util.scale;

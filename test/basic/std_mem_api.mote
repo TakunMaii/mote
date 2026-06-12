@@ -1,4 +1,4 @@
-mem = @import("std/mem");
+mem = @import("std:mem");
 
 main = fn() void {
     src: Array(char, 4) = ['a', 'b', 'c', 'd'];

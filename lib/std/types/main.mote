@@ -1,0 +1,4 @@
+@package("types");
+
+pub byte = u8;
+pub size_t = i64;

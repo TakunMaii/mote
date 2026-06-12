@@ -1,5 +1,5 @@
-glfw = @import("vendor/glfw");
-gl = @import("vendor/opengl");
+glfw = @import("vendor:glfw");
+gl = @import("vendor:opengl");
 
 clear_mask: u32 = gl.COLOR_BUFFER_BIT;
 draw_mode: u32 = gl.TRIANGLES;

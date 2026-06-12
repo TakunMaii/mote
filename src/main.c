@@ -38,12 +38,13 @@ static bool starts_with(const char *value, const char *prefix)
 static void print_usage(const char *argv0)
 {
     printf("Usage:\n");
-    printf("  %s [options] <input.mote>\n", argv0);
+    printf("  %s [options] <package_dir>\n", argv0);
     printf("\n");
     printf("Options:\n");
     printf("  -o <file>         Write output to <file>\n");
     printf("  -S                Write LLVM IR to a .ll file and stop\n");
-    printf("  -I <dir>          Add a module search root for @import(\"name/...\" )\n");
+    printf("  -I <dir>          Add a package search root for @import(\"name\")\n");
+    printf("  -C <name=dir>     Add or override a package collection for @import(\"name:path\")\n");
     printf("  -L <dir>          Add a linker search directory\n");
     printf("  -l<name>          Link against <name>\n");
     printf("  -Wl,<args>        Forward comma-separated arguments to the linker\n");
@@ -55,33 +56,22 @@ static void print_usage(const char *argv0)
     printf("  - Default behavior emits an executable.\n");
     printf("  - -S writes LLVM IR instead of linking.\n");
     printf("  - mote requires clang to be available in PATH for executable emission.\n");
-    printf("  - Official module roots are searched automatically relative to the compiler executable.\n");
-    printf("  - If -o is omitted, the compiler derives output from the input file name.\n");
+    printf("  - Predefined collections std, c, and vendor are searched automatically relative to the compiler executable.\n");
+    printf("  - If -o is omitted, the compiler derives output from the package directory name.\n");
     printf("\n");
     printf("Examples:\n");
-    printf("  %s test\\\\basic\\\\simple.mote\n", argv0);
-    printf("  %s -S test\\\\basic\\\\simple.mote -o test\\\\basic\\\\simple.ll\n", argv0);
-    printf("  %s test.mote -o test.exe\n", argv0);
-    printf("  %s app.mote -Lthird_party\\\\lib -lfoo -o app.exe\n", argv0);
-    printf("  %s main.mote -o cube_demo\n", argv0);
+    printf("  %s test\\\\basic\\\\simple\n", argv0);
+    printf("  %s -S test\\\\basic\\\\simple -o test\\\\basic\\\\simple.ll\n", argv0);
+    printf("  %s test\\\\game\\\\notgate -o notgate.exe\n", argv0);
+    printf("  %s app -Lthird_party\\\\lib -lfoo -o app.exe\n", argv0);
+    printf("  %s cube_demo -o cube_demo\n", argv0);
 }
 
 static void build_output_path(char *buffer, size_t buffer_size, const char *input_path, const char *extension)
 {
-    const char *last_slash = strrchr(input_path, '\\');
-    const char *last_forward_slash = strrchr(input_path, '/');
-    const char *path_separator = last_slash;
-    if(path_separator == NULL || (last_forward_slash != NULL && last_forward_slash > path_separator))
-        path_separator = last_forward_slash;
-
-    const char *last_dot = strrchr(input_path, '.');
-    if(last_dot != NULL && path_separator != NULL && last_dot < path_separator)
-        last_dot = NULL;
-
-    if(last_dot == NULL)
-        snprintf(buffer, buffer_size, "%s%s", input_path, extension);
-    else
-        snprintf(buffer, buffer_size, "%.*s%s", (int)(last_dot - input_path), input_path, extension);
+    char basename[MAX_IDENTIFIER_LENGTH] = {0};
+    moduleBasename(input_path, basename, sizeof(basename));
+    snprintf(buffer, buffer_size, "%s%s", basename, extension);
 }
 
 static void build_temp_llvm_output_path(char *buffer, size_t buffer_size, const char *exe_output_path)
@@ -197,6 +187,36 @@ static void add_search_root(ModulePackage *packages, int *package_count, const c
     (*package_count)++;
 }
 
+static void add_collection_root(ModulePackage *packages, int *package_count, const char *name, const char *path)
+{
+    for(int i = 0; i < *package_count; i++)
+    {
+        if(packages[i].is_collection && strcmp(packages[i].name, name) == 0)
+        {
+            strcpy(packages[i].root_path, path);
+            return;
+        }
+    }
+
+    if(*package_count >= CLI_MAX_PACKAGES)
+    {
+        printf("Too many module search roots\n");
+        exit(1);
+    }
+
+    memset(&(packages[*package_count]), 0, sizeof(ModulePackage));
+    strcpy(packages[*package_count].name, name);
+    strcpy(packages[*package_count].root_path, path);
+    packages[*package_count].is_collection = true;
+    (*package_count)++;
+}
+
+static void add_collection_root_if_exists(ModulePackage *packages, int *package_count, const char *name, const char *path)
+{
+    if(directory_exists(path))
+        add_collection_root(packages, package_count, name, path);
+}
+
 static void add_search_root_if_exists(ModulePackage *packages, int *package_count, const char *path)
 {
     if(directory_exists(path))
@@ -258,13 +278,43 @@ static void add_default_official_search_roots(ModulePackage *packages, int *pack
 {
     char executable_dir[CLI_PATH_BUFFER_SIZE] = {0};
     char lib_dir[CLI_PATH_BUFFER_SIZE] = {0};
+    char std_dir[CLI_PATH_BUFFER_SIZE] = {0};
+    char c_dir[CLI_PATH_BUFFER_SIZE] = {0};
+    char vendor_dir[CLI_PATH_BUFFER_SIZE] = {0};
+    char cwd[CLI_PATH_BUFFER_SIZE] = {0};
 
     if(!resolve_executable_directory(executable_dir, sizeof(executable_dir), argv0))
-        return;
+        executable_dir[0] = '\0';
 
-    add_search_root_if_exists(packages, package_count, executable_dir);
-    if(join_path(lib_dir, sizeof(lib_dir), executable_dir, "lib"))
-        add_search_root_if_exists(packages, package_count, lib_dir);
+    if(executable_dir[0] != '\0')
+    {
+        add_search_root_if_exists(packages, package_count, executable_dir);
+        if(join_path(lib_dir, sizeof(lib_dir), executable_dir, "lib"))
+        {
+            add_search_root_if_exists(packages, package_count, lib_dir);
+            if(join_path(std_dir, sizeof(std_dir), lib_dir, "std"))
+                add_collection_root_if_exists(packages, package_count, "std", std_dir);
+            if(join_path(c_dir, sizeof(c_dir), lib_dir, "c"))
+                add_collection_root_if_exists(packages, package_count, "c", c_dir);
+        }
+        if(join_path(vendor_dir, sizeof(vendor_dir), executable_dir, "vendor"))
+            add_collection_root_if_exists(packages, package_count, "vendor", vendor_dir);
+    }
+
+    if(getcwd(cwd, sizeof(cwd)) != NULL)
+    {
+        add_search_root_if_exists(packages, package_count, cwd);
+        if(join_path(lib_dir, sizeof(lib_dir), cwd, "lib"))
+        {
+            add_search_root_if_exists(packages, package_count, lib_dir);
+            if(join_path(std_dir, sizeof(std_dir), lib_dir, "std"))
+                add_collection_root_if_exists(packages, package_count, "std", std_dir);
+            if(join_path(c_dir, sizeof(c_dir), lib_dir, "c"))
+                add_collection_root_if_exists(packages, package_count, "c", c_dir);
+        }
+        if(join_path(vendor_dir, sizeof(vendor_dir), cwd, "vendor"))
+            add_collection_root_if_exists(packages, package_count, "vendor", vendor_dir);
+    }
 }
 
 static bool module_tree_resolve_import_path(ModulePackage *packages, int package_count,
@@ -276,19 +326,41 @@ static bool module_tree_resolve_import_path(ModulePackage *packages, int package
     if(import_path == NULL || import_path[0] == '\0')
         return false;
 
-    if(moduleIsAbsolutePath(import_path) || moduleIsRelativeImportPath(import_path))
+    char collection_name[MAX_IDENTIFIER_LENGTH] = {0};
+    char package_path[MODULE_MAX_PATH_LENGTH] = {0};
+    if(moduleParseCollectionImportPath(import_path,
+                                       collection_name, sizeof(collection_name),
+                                       package_path, sizeof(package_path)))
     {
-        char importer_dir[MODULE_MAX_PATH_LENGTH] = {0};
-        moduleDirectoryName(importer_path, importer_dir);
-        return moduleTryResolveModuleFilePath(importer_dir, import_path, buffer);
+        if(package_path[0] == '\0' ||
+           package_path[0] == '.' ||
+           moduleIsAbsolutePath(package_path) ||
+           strstr(package_path, "..") != NULL ||
+           strchr(package_path, '\\') != NULL)
+            return false;
+
+        for(int i = 0; i < package_count; i++)
+        {
+            ModulePackage *package = &(packages[i]);
+            if(!package->is_collection || strcmp(package->name, collection_name) != 0)
+                continue;
+            return moduleTryResolvePackageDirectoryPath(package->root_path, package_path, buffer);
+        }
+        return false;
     }
+
+    if(moduleIsAbsolutePath(import_path) || strchr(import_path, '/') != NULL || strchr(import_path, '\\') != NULL || import_path[0] == '.')
+        return false;
+
+    if(moduleTryResolvePackageDirectoryPath(importer_path, import_path, buffer))
+        return true;
 
     for(int i = 0; i < package_count; i++)
     {
         ModulePackage *package = &(packages[i]);
         if(!package->is_search_root)
             continue;
-        if(moduleTryResolveModuleFilePath(package->root_path, import_path, buffer))
+        if(moduleTryResolvePackageDirectoryPath(package->root_path, import_path, buffer))
             return true;
     }
 
@@ -313,49 +385,56 @@ static bool module_tree_uses_import_impl(ModulePackage *packages, int package_co
     snprintf(visited_paths[*visited_count], CLI_PATH_BUFFER_SIZE, "%s", path);
     (*visited_count)++;
 
-    char *source = moduleReadFile(path);
-    if(source == NULL)
-        return false;
+    char file_paths[MODULE_MAX_PACKAGE_FILES][MODULE_MAX_PATH_LENGTH] = {{0}};
+    int file_count = moduleListPackageFiles(path, file_paths);
+    bool found = false;
+    const char *import_prefix = "@import(\"";
+    size_t import_prefix_length = strlen(import_prefix);
 
-    bool found = strstr(source, needle) != NULL;
-    if(!found)
+    for(int file_index = 0; file_index < file_count && !found; file_index++)
     {
-        const char *cursor = source;
-        const char *import_prefix = "@import(\"";
-        size_t import_prefix_length = strlen(import_prefix);
+        char *source = moduleReadFile(file_paths[file_index]);
+        if(source == NULL)
+            continue;
 
-        while(!found)
+        found = strstr(source, needle) != NULL;
+        if(!found)
         {
-            const char *import_start = strstr(cursor, import_prefix);
-            if(import_start == NULL)
-                break;
-
-            const char *name_start = import_start + import_prefix_length;
-            const char *name_end = strchr(name_start, '"');
-            if(name_end == NULL)
-                break;
-
-            char import_name[CLI_PATH_BUFFER_SIZE] = {0};
-            size_t import_length = (size_t)(name_end - name_start);
-            if(import_length > 0 && import_length < sizeof(import_name))
+            const char *cursor = source;
+            while(!found)
             {
-                memcpy(import_name, name_start, import_length);
-                import_name[import_length] = '\0';
+                const char *import_start = strstr(cursor, import_prefix);
+                if(import_start == NULL)
+                    break;
 
-                char resolved_path[CLI_PATH_BUFFER_SIZE] = {0};
-                if(module_tree_resolve_import_path(packages, package_count, path, import_name,
-                                                  resolved_path, sizeof(resolved_path)))
+                const char *name_start = import_start + import_prefix_length;
+                const char *name_end = strchr(name_start, '"');
+                if(name_end == NULL)
+                    break;
+
+                char import_name[CLI_PATH_BUFFER_SIZE] = {0};
+                size_t import_length = (size_t)(name_end - name_start);
+                if(import_length > 0 && import_length < sizeof(import_name))
                 {
-                    found = module_tree_uses_import_impl(packages, package_count, resolved_path, needle,
-                                                         visited_paths, visited_count);
-                }
-            }
+                    memcpy(import_name, name_start, import_length);
+                    import_name[import_length] = '\0';
 
-            cursor = name_end + 1;
+                    char resolved_path[CLI_PATH_BUFFER_SIZE] = {0};
+                    if(module_tree_resolve_import_path(packages, package_count, path, import_name,
+                                                      resolved_path, sizeof(resolved_path)))
+                    {
+                        found = module_tree_uses_import_impl(packages, package_count, resolved_path, needle,
+                                                             visited_paths, visited_count);
+                    }
+                }
+
+                cursor = name_end + 1;
+            }
         }
+
+        free(source);
     }
 
-    free(source);
     return found;
 }
 
@@ -393,11 +472,11 @@ static void add_default_official_link_args(const char *argv0, ModulePackage *pac
                                            const char *input_path,
                                            const char **driver_args, int *driver_arg_count)
 {
-    bool uses_glfw = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor/glfw\")");
-    bool uses_raylib = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor/raylib\")");
-    bool uses_std_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"std/math\")");
-    bool uses_std_linalg = module_tree_uses_import(packages, package_count, input_path, "@import(\"std/linalg\")");
-    bool uses_c_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"c/math\")");
+    bool uses_glfw = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:glfw\")");
+    bool uses_raylib = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:raylib\")");
+    bool uses_std_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:math\")");
+    bool uses_std_linalg = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:linalg\")");
+    bool uses_c_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"c:math\")");
 
     add_default_vendor_link_search_paths(argv0, uses_glfw, uses_raylib, driver_args, driver_arg_count);
 
@@ -669,6 +748,35 @@ int main(int argn, char** argv)
             continue;
         }
 
+        if(strcmp(argv[i], "-C") == 0)
+        {
+            if(i + 1 >= argn)
+            {
+                print_usage(argv[0]);
+                exit(1);
+            }
+
+            const char *mapping = argv[++i];
+            const char *equals = strchr(mapping, '=');
+            if(equals == NULL || equals == mapping || equals[1] == '\0')
+            {
+                printf("Invalid collection mapping `%s`; expected name=dir\n", mapping);
+                exit(1);
+            }
+
+            char collection_name[MAX_IDENTIFIER_LENGTH] = {0};
+            size_t name_length = (size_t)(equals - mapping);
+            if(name_length >= sizeof(collection_name))
+            {
+                printf("Collection name is too long in mapping `%s`\n", mapping);
+                exit(1);
+            }
+            memcpy(collection_name, mapping, name_length);
+            collection_name[name_length] = '\0';
+            add_collection_root(packages, &package_count, collection_name, equals + 1);
+            continue;
+        }
+
         if(strcmp(argv[i], "-L") == 0)
         {
             if(i + 1 >= argn)
@@ -763,6 +871,11 @@ int main(int argn, char** argv)
         print_usage(argv[0]);
         exit(1);
     }
+    if(!directory_exists(input_path))
+    {
+        printf("Input path must be a package directory: %s\n", input_path);
+        exit(1);
+    }
 
     add_default_official_link_args(argv[0], packages, package_count, input_path, driver_args, &driver_arg_count);
 
@@ -800,7 +913,7 @@ int main(int argn, char** argv)
     else if(emit_llvm && llvm_output_path == NULL)
         build_output_path(default_llvm_output_path, sizeof(default_llvm_output_path), input_path, ".ll"), llvm_output_path = default_llvm_output_path;
 
-    ASTNode *root = buildModuleProgramAST(input_path, packages, package_count);
+    ASTNode *root = buildModuleProgramAST(input_path, packages, package_count, emit_exe);
     checkAssignSemantics(root);
     checkAssignTypes(root);
     if(dump_ast)
@@ -821,7 +934,7 @@ int main(int argn, char** argv)
 
     if(emit_llvm)
     {
-        emitLLVMProgramToFile(mir_program, input_path, llvm_output_path);
+        emitLLVMProgramToFile(mir_program, root, input_path, llvm_output_path);
         if(keep_llvm_output)
             printf("%s\n", llvm_output_path);
     }
@@ -845,7 +958,7 @@ int main(int argn, char** argv)
         {
             build_temp_llvm_output_path(default_llvm_output_path, sizeof(default_llvm_output_path), exe_output_path);
             llvm_output_path = default_llvm_output_path;
-            emitLLVMProgramToFile(mir_program, input_path, llvm_output_path);
+            emitLLVMProgramToFile(mir_program, root, input_path, llvm_output_path);
         }
 
         snprintf(clang_log_path, sizeof(clang_log_path), "%s.mote-link.log", exe_output_path);

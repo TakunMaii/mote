@@ -6,6 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <dirent.h>
+#endif
 #include "Diagnostic.h"
 #include "Lexer.h"
 #include "Parser.h"
@@ -16,6 +21,7 @@
 #define MODULE_MAX_TOP_LEVEL_BINDINGS 1024
 #define MODULE_MAX_SCOPE_VALUE_BINDINGS 1024
 #define MODULE_MAX_SCOPE_TYPE_BINDINGS 512
+#define MODULE_MAX_PACKAGE_FILES 256
 
 typedef struct ModuleSourceFile ModuleSourceFile;
 
@@ -36,11 +42,13 @@ typedef struct ModulePackage {
     char name[MAX_IDENTIFIER_LENGTH];
     char root_path[MODULE_MAX_PATH_LENGTH];
     bool is_search_root;
+    bool is_collection;
 } ModulePackage;
 
 struct ModuleSourceFile {
     char canonical_path[MODULE_MAX_PATH_LENGTH];
     char directory[MODULE_MAX_PATH_LENGTH];
+    char package_name[MAX_IDENTIFIER_LENGTH];
     char symbol_prefix[32];
     ASTNode *ast_root;
     int visit_state;
@@ -143,12 +151,12 @@ static bool moduleIsAbsolutePath(const char *path)
 #endif
 }
 
-static bool moduleFileExists(const char *path)
+static bool moduleDirectoryExists(const char *path)
 {
     struct stat file_info;
     if(stat(path, &file_info) != 0)
         return false;
-    return S_ISREG(file_info.st_mode);
+    return S_ISDIR(file_info.st_mode);
 }
 
 static void moduleDirectoryName(const char *path, char *buffer)
@@ -200,89 +208,156 @@ static void moduleCanonicalizePath(const char *path, char *buffer)
 #endif
 }
 
-static bool moduleIsRelativeImportPath(const char *path)
+static bool moduleHasMoteExtension(const char *path)
 {
-    return path != NULL &&
-           path[0] == '.' &&
-           (path[1] == '/' || path[1] == '\\' ||
-            (path[1] == '.' && (path[2] == '/' || path[2] == '\\')));
+    if(path == NULL)
+        return false;
+    const char *last_dot = strrchr(path, '.');
+    return last_dot != NULL && strcmp(last_dot, ".mote") == 0;
+}
+
+static void moduleBasename(const char *path, char *buffer, size_t buffer_size)
+{
+    const char *last_backslash = strrchr(path, '\\');
+    const char *last_slash = strrchr(path, '/');
+    const char *separator = last_backslash;
+    if(separator == NULL || (last_slash != NULL && last_slash > separator))
+        separator = last_slash;
+
+    const char *base = separator == NULL ? path : separator + 1;
+    snprintf(buffer, buffer_size, "%s", base);
+}
+
+static int moduleCompareStrings(const void *lhs, const void *rhs)
+{
+    const char *left = (const char*) lhs;
+    const char *right = (const char*) rhs;
+    return strcmp(left, right);
+}
+
+static int moduleListPackageFiles(const char *directory_path,
+                                  char paths[MODULE_MAX_PACKAGE_FILES][MODULE_MAX_PATH_LENGTH])
+{
+    int count = 0;
+#if defined(_WIN32)
+    char pattern[MODULE_MAX_PATH_LENGTH] = {0};
+    snprintf(pattern, sizeof(pattern), "%s\\*.mote", directory_path);
+
+    WIN32_FIND_DATAA find_data;
+    HANDLE handle = FindFirstFileA(pattern, &find_data);
+    if(handle == INVALID_HANDLE_VALUE)
+        return 0;
+
+    do
+    {
+        if(find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue;
+        if(count >= MODULE_MAX_PACKAGE_FILES)
+            moduleSystemError("too many source files in package", directory_path, 0, 0);
+        snprintf(paths[count], MODULE_MAX_PATH_LENGTH, "%s\\%s", directory_path, find_data.cFileName);
+        count++;
+    } while(FindNextFileA(handle, &find_data));
+
+    FindClose(handle);
+#else
+    DIR *directory = opendir(directory_path);
+    if(directory == NULL)
+        return 0;
+
+    struct dirent *entry = NULL;
+    while((entry = readdir(directory)) != NULL)
+    {
+        if(entry->d_name[0] == '.')
+            continue;
+        if(!moduleHasMoteExtension(entry->d_name))
+            continue;
+        if(count >= MODULE_MAX_PACKAGE_FILES)
+            moduleSystemError("too many source files in package", directory_path, 0, 0);
+        snprintf(paths[count], MODULE_MAX_PATH_LENGTH, "%s/%s", directory_path, entry->d_name);
+        count++;
+    }
+
+    closedir(directory);
+#endif
+
+    qsort(paths, (size_t)count, MODULE_MAX_PATH_LENGTH, moduleCompareStrings);
+    return count;
 }
 
 static ModulePackage* moduleFindPackage(ModuleCompileContext *context, const char *package_name)
 {
     for(int i = 0; i < context->package_count; i++)
     {
-        if(strcmp(context->packages[i].name, package_name) == 0)
+        if(context->packages[i].is_collection && strcmp(context->packages[i].name, package_name) == 0)
             return &(context->packages[i]);
     }
     return NULL;
 }
 
-static void moduleResolveModuleFilePath(const char *base_path, const char *import_suffix, const char *filename,
-                                        int line, int column, char *buffer)
+static bool moduleParseCollectionImportPath(const char *import_path,
+                                            char *collection_name,
+                                            size_t collection_name_size,
+                                            char *package_path,
+                                            size_t package_path_size)
 {
-    char candidate[MODULE_MAX_PATH_LENGTH] = {0};
-    if(import_suffix == NULL || import_suffix[0] == '\0')
-        snprintf(candidate, sizeof(candidate), "%s", base_path);
-    else
-        moduleJoinPath(base_path, import_suffix, candidate);
+    if(import_path == NULL || import_path[0] == '\0')
+        return false;
 
-    if(moduleFileExists(candidate))
-    {
-        moduleCanonicalizePath(candidate, buffer);
-        return;
-    }
+    const char *colon = strchr(import_path, ':');
+    if(colon == NULL)
+        return false;
+    if(strchr(colon + 1, ':') != NULL)
+        return false;
 
-    char with_extension[MODULE_MAX_PATH_LENGTH] = {0};
-    snprintf(with_extension, sizeof(with_extension), "%s.mote", candidate);
-    if(moduleFileExists(with_extension))
-    {
-        moduleCanonicalizePath(with_extension, buffer);
-        return;
-    }
+    size_t collection_length = (size_t)(colon - import_path);
+    size_t package_length = strlen(colon + 1);
+    if(collection_length == 0 || collection_length >= collection_name_size || package_length == 0 || package_length >= package_path_size)
+        return false;
 
-    char root_module[MODULE_MAX_PATH_LENGTH] = {0};
-    snprintf(root_module, sizeof(root_module), "%s/root.mote", candidate);
-    if(moduleFileExists(root_module))
-    {
-        moduleCanonicalizePath(root_module, buffer);
-        return;
-    }
-
-    moduleSystemError("cannot resolve import path", filename, line, column);
+    memcpy(collection_name, import_path, collection_length);
+    collection_name[collection_length] = '\0';
+    memcpy(package_path, colon + 1, package_length + 1);
+    return true;
 }
 
-static bool moduleTryResolveModuleFilePath(const char *base_path, const char *import_suffix, char *buffer)
+static bool moduleTryResolvePackageDirectoryPath(const char *base_path, const char *import_name, char *buffer)
 {
     char candidate[MODULE_MAX_PATH_LENGTH] = {0};
-    if(import_suffix == NULL || import_suffix[0] == '\0')
-        snprintf(candidate, sizeof(candidate), "%s", base_path);
-    else
-        moduleJoinPath(base_path, import_suffix, candidate);
+    if(import_name == NULL || import_name[0] == '\0')
+        return false;
 
-    if(moduleFileExists(candidate))
+    moduleJoinPath(base_path, import_name, candidate);
+    if(moduleDirectoryExists(candidate))
     {
         moduleCanonicalizePath(candidate, buffer);
         return true;
     }
-
-    char with_extension[MODULE_MAX_PATH_LENGTH] = {0};
-    snprintf(with_extension, sizeof(with_extension), "%s.mote", candidate);
-    if(moduleFileExists(with_extension))
-    {
-        moduleCanonicalizePath(with_extension, buffer);
-        return true;
-    }
-
-    char root_module[MODULE_MAX_PATH_LENGTH] = {0};
-    snprintf(root_module, sizeof(root_module), "%s/root.mote", candidate);
-    if(moduleFileExists(root_module))
-    {
-        moduleCanonicalizePath(root_module, buffer);
-        return true;
-    }
-
     return false;
+}
+
+static bool moduleTryResolveCollectionImportPath(ModuleCompileContext *context,
+                                                 const char *import_path,
+                                                 char *buffer)
+{
+    char collection_name[MAX_IDENTIFIER_LENGTH] = {0};
+    char package_path[MODULE_MAX_PATH_LENGTH] = {0};
+    if(!moduleParseCollectionImportPath(import_path,
+                                        collection_name, sizeof(collection_name),
+                                        package_path, sizeof(package_path)))
+        return false;
+
+    ModulePackage *collection = moduleFindPackage(context, collection_name);
+    if(collection == NULL)
+        return false;
+
+    if(package_path[0] == '\0' ||
+       package_path[0] == '.' ||
+       moduleIsAbsolutePath(package_path) ||
+       strstr(package_path, "..") != NULL ||
+       strchr(package_path, '\\') != NULL)
+        return false;
+
+    return moduleTryResolvePackageDirectoryPath(collection->root_path, package_path, buffer);
 }
 
 static void moduleResolveImportPath(ModuleCompileContext *context, const char *importer_path, ASTNode *import_expr,
@@ -300,51 +375,50 @@ static void moduleResolveImportPath(ModuleCompileContext *context, const char *i
         moduleSystemError("@import path cannot be empty",
                           import_expr->filename, import_expr->line_number, import_expr->column_number);
 
-    if(moduleIsAbsolutePath(import_path) || moduleIsRelativeImportPath(import_path))
+    char collection_name[MAX_IDENTIFIER_LENGTH] = {0};
+    char package_path[MODULE_MAX_PATH_LENGTH] = {0};
+    bool is_collection_import = moduleParseCollectionImportPath(import_path,
+                                                                collection_name, sizeof(collection_name),
+                                                                package_path, sizeof(package_path));
+    if(is_collection_import)
     {
-        char importer_dir[MODULE_MAX_PATH_LENGTH] = {0};
-        moduleDirectoryName(importer_path, importer_dir);
-        moduleResolveModuleFilePath(importer_dir, import_path,
-                                    import_expr->filename, import_expr->line_number, import_expr->column_number,
-                                    buffer);
-        return;
+        if(collection_name[0] == '\0' ||
+           package_path[0] == '\0' ||
+           package_path[0] == '.' ||
+           moduleIsAbsolutePath(package_path) ||
+           strstr(package_path, "..") != NULL ||
+           strchr(package_path, '\\') != NULL)
+            moduleSystemError("collection imports must use collection:path and cannot use relative or absolute paths",
+                              import_expr->filename, import_expr->line_number, import_expr->column_number);
+
+        if(moduleTryResolveCollectionImportPath(context, import_path, buffer))
+            return;
+
+        if(moduleFindPackage(context, collection_name) == NULL)
+            moduleSystemError("unknown package collection in import path",
+                              import_expr->filename, import_expr->line_number, import_expr->column_number);
+
+        moduleSystemError("cannot resolve package inside collection import path",
+                          import_expr->filename, import_expr->line_number, import_expr->column_number);
     }
+
+    if(moduleIsAbsolutePath(import_path) || strchr(import_path, '/') != NULL || strchr(import_path, '\\') != NULL || import_path[0] == '.')
+        moduleSystemError("plain package imports must use a package name only; use collection:path for collection imports",
+                          import_expr->filename, import_expr->line_number, import_expr->column_number);
+
+    if(moduleTryResolvePackageDirectoryPath(importer_path, import_path, buffer))
+        return;
 
     for(int i = 0; i < context->package_count; i++)
     {
         ModulePackage *package = &(context->packages[i]);
         if(package->is_search_root)
         {
-            if(moduleTryResolveModuleFilePath(package->root_path, import_path, buffer))
+            if(moduleTryResolvePackageDirectoryPath(package->root_path, import_path, buffer))
             {
                 return;
             }
         }
-    }
-
-    char package_name[MAX_IDENTIFIER_LENGTH] = {0};
-    const char *suffix = NULL;
-    const char *separator = strpbrk(import_path, "/\\");
-    if(separator == NULL)
-        snprintf(package_name, sizeof(package_name), "%s", import_path);
-    else
-    {
-        size_t package_name_length = (size_t)(separator - import_path);
-        if(package_name_length >= sizeof(package_name))
-            moduleSystemError("package import name is too long",
-                              import_expr->filename, import_expr->line_number, import_expr->column_number);
-        memcpy(package_name, import_path, package_name_length);
-        package_name[package_name_length] = '\0';
-        suffix = separator + 1;
-    }
-
-    ModulePackage *package = moduleFindPackage(context, package_name);
-    if(package != NULL && !package->is_search_root)
-    {
-        moduleResolveModuleFilePath(package->root_path, suffix,
-                                    import_expr->filename, import_expr->line_number, import_expr->column_number,
-                                    buffer);
-        return;
     }
 
     moduleSystemError("cannot resolve import path; add -I <dir> for module search roots",
@@ -356,6 +430,60 @@ static ASTNode* moduleStatements(ASTNode *root)
     if(root == NULL || root->lhs == NULL)
         return NULL;
     return root->lhs->lhs;
+}
+
+static void moduleAppendStatementList(ASTNode **head, ASTNode **tail, ASTNode *statement)
+{
+    while(statement)
+    {
+        ASTNode *next = statement->next;
+        statement->next = NULL;
+        if(*head == NULL)
+            *head = statement;
+        else
+            (*tail)->next = statement;
+        *tail = statement;
+        statement = next;
+    }
+}
+
+static ASTNode* moduleParsePackageDirectory(const char *directory_path, char *package_name_buffer)
+{
+    char file_paths[MODULE_MAX_PACKAGE_FILES][MODULE_MAX_PATH_LENGTH] = {{0}};
+    int file_count = moduleListPackageFiles(directory_path, file_paths);
+    if(file_count == 0)
+        moduleSystemError("package directory contains no .mote files", directory_path, 0, 0);
+
+    ASTNode *root = newASTNode(AST_START_OF_CODE);
+    ASTNode *top_level_block = newASTNode(AST_BLOCK);
+    ASTNode *head = NULL;
+    ASTNode *tail = NULL;
+
+    for(int i = 0; i < file_count; i++)
+    {
+        char *source = moduleReadFile(file_paths[i]);
+        if(source == NULL)
+            moduleSystemError("cannot open source file", file_paths[i], 0, 0);
+
+        Token *tokens = tokenize(source, file_paths[i]);
+        ASTNode *file_root = parse(tokens);
+        if(file_root->package_name[0] == '\0')
+            moduleSystemError("source file is missing a package declaration", file_paths[i], 0, 0);
+
+        if(package_name_buffer[0] == '\0')
+            strcpy(package_name_buffer, file_root->package_name);
+        else if(strcmp(package_name_buffer, file_root->package_name) != 0)
+            moduleSystemError("all files in a package directory must declare the same package name",
+                              file_paths[i], file_root->line_number, file_root->column_number);
+
+        moduleAppendStatementList(&head, &tail, moduleStatements(file_root));
+    }
+
+    strcpy(root->package_name, package_name_buffer);
+    root->lhs = top_level_block;
+    top_level_block->lhs = head;
+    root->next = newASTNode(AST_END_OF_CODE);
+    return root;
 }
 
 static bool moduleIsStructDeclAssign(ASTNode *node)
@@ -524,22 +652,23 @@ static ModuleSourceFile* moduleLoadRecursive(ModuleCompileContext *context, cons
     if(existing != NULL)
     {
         if(existing->visit_state == 1)
-            moduleSystemError("cyclic imports are not supported yet", canonical_path, 0, 0);
+            moduleSystemError("cyclic package imports are not supported", canonical_path, 0, 0);
         return existing;
     }
 
-    char *source = moduleReadFile(canonical_path);
-    if(source == NULL)
-        moduleSystemError("cannot open source file", canonical_path, 0, 0);
+    if(!moduleDirectoryExists(canonical_path))
+        moduleSystemError("package path must be a directory", canonical_path, 0, 0);
 
     ModuleSourceFile *module = moduleAppend(context);
     strcpy(module->canonical_path, canonical_path);
     moduleDirectoryName(canonical_path, module->directory);
     module->visit_state = 1;
+    module->ast_root = moduleParsePackageDirectory(canonical_path, module->package_name);
 
-    Token *tokens = tokenize(source, module->canonical_path);
-    ASTNode *root = parse(tokens);
-    module->ast_root = root;
+    char package_basename[MAX_IDENTIFIER_LENGTH] = {0};
+    moduleBasename(canonical_path, package_basename, sizeof(package_basename));
+    if(strcmp(package_basename, module->package_name) != 0)
+        moduleSystemError("package directory name must match @package name", canonical_path, 0, 0);
 
     moduleScanImports(context, module);
     module->visit_state = 2;
@@ -601,6 +730,45 @@ static void moduleCollectTopLevelBindings(ModuleSourceFile *module)
 
         statement = statement->next;
     }
+}
+
+static ModuleTopLevelBinding* moduleFindEntryBinding(ModuleSourceFile *module, bool required)
+{
+    if(module == NULL)
+        return NULL;
+
+    ModuleTopLevelBinding *binding = moduleFindTopLevelBinding(module, "main");
+    if(binding == NULL)
+    {
+        if(required)
+            moduleSystemError("target package does not define a top-level main binding",
+                              module->canonical_path, 0, 0);
+        return NULL;
+    }
+    if(!required)
+        return NULL;
+    if(binding->decl == NULL || binding->decl->rhs == NULL || binding->decl->rhs->kind != AST_EXPR_FUNCTION)
+        moduleSystemError("target package main must be a function",
+                          binding->decl != NULL ? binding->decl->filename : module->canonical_path,
+                          binding->decl != NULL ? binding->decl->line_number : 0,
+                          binding->decl != NULL ? binding->decl->column_number : 0);
+
+    ASTNode *function = binding->decl->rhs;
+    if(function->parameters != NULL || function->is_variadic)
+        moduleSystemError("target package main must have no parameters",
+                          function->filename, function->line_number, function->column_number);
+    if(function->return_data_type == NULL)
+        moduleSystemError("target package main must declare an explicit return type",
+                          function->filename, function->line_number, function->column_number);
+
+    ASTDataType *return_type = function->return_data_type;
+    if(return_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
+       (return_type->primary != AST_PRIMARY_DATA_TYPE_VOID &&
+        return_type->primary != AST_PRIMARY_DATA_TYPE_I32))
+        moduleSystemError("target package main must return void or i32",
+                          function->filename, function->line_number, function->column_number);
+
+    return binding;
 }
 
 static void initRewriteScope(RewriteScope *scope, RewriteScope *parent)
@@ -765,6 +933,7 @@ static void rewriteExprList(ModuleSourceFile *module, RewriteScope *scope, ASTNo
 
 static void rewriteNamedDataTypeIdentifier(ModuleSourceFile *module, RewriteScope *scope, ASTDataType *data_type)
 {
+    (void) module;
     char *dot = strchr(data_type->identifier, '.');
     if(dot != NULL)
     {
@@ -825,6 +994,9 @@ static void rewriteFunctionExpr(ModuleSourceFile *module, RewriteScope *scope, A
 {
     RewriteScope *function_scope = (RewriteScope*) malloc(sizeof(RewriteScope));
     initRewriteScope(function_scope, scope);
+
+    if(findRewriteTypeBinding(scope, "Self") != NULL)
+        declareRewriteTypeBinding(function_scope, "Self", "Self");
 
     ASTFunctionCapture *capture = node->captures;
     while(capture)
@@ -953,25 +1125,8 @@ static void rewriteExpr(ModuleSourceFile *module, RewriteScope *scope, ASTNode *
             else if(node->lhs != NULL && node->lhs->kind == AST_EXPR_BUILTIN &&
                     strcmp(node->lhs->identifier, "import") == 0)
             {
-                if(moduleRewriteContext == NULL)
-                    moduleSystemError("internal module rewrite context unavailable",
-                                      node->filename, node->line_number, node->column_number);
-
-                char resolved_path[MODULE_MAX_PATH_LENGTH] = {0};
-                moduleResolveImportPath(moduleRewriteContext, module->canonical_path, node->lhs, resolved_path);
-                ModuleSourceFile *imported_module = moduleLoadRecursive(moduleRewriteContext, resolved_path);
-                ModuleTopLevelBinding *binding = moduleFindTopLevelBinding(imported_module, node->identifier);
-                if(binding == NULL || !binding->is_pub)
-                    moduleSystemError("imported module does not export the requested member",
-                                      node->filename, node->line_number, node->column_number);
-
-                node->kind = AST_EXPR_VARIABLE;
-                node->lhs = NULL;
-                node->rhs = NULL;
-                node->extra = NULL;
-                node->body = NULL;
-                strcpy(node->identifier, binding->mangled);
-                return;
+                moduleSystemError("direct member access on @import(...) is not allowed; bind the import to a name first",
+                                  node->filename, node->line_number, node->column_number);
             }
 
             rewriteExpr(module, scope, node->lhs);
@@ -1054,18 +1209,27 @@ static void rewriteStatementList(ModuleSourceFile *module, RewriteScope *scope, 
     {
         if(predeclare->kind == AST_ASSIGN &&
            predeclare->lhs != NULL &&
-           predeclare->lhs->kind == AST_EXPR_VARIABLE &&
-           (moduleIsStructDeclAssign(predeclare) ||
-            moduleIsEnumDeclAssign(predeclare) ||
-            rewriteExprLooksLikeTypeValue(module, scope, predeclare->rhs)))
+           predeclare->lhs->kind == AST_EXPR_VARIABLE)
         {
             ModuleTopLevelBinding *top_level_binding = moduleFindTopLevelBinding(module, predeclare->identifier);
             const char *rewritten = predeclare->identifier;
             if(top_level_binding != NULL && scope->parent == NULL)
                 rewritten = top_level_binding->mangled;
 
-            if(findRewriteTypeBindingInScope(scope, predeclare->identifier) == NULL)
-                declareRewriteTypeBinding(scope, predeclare->identifier, rewritten);
+            if(moduleIsStructDeclAssign(predeclare) ||
+               moduleIsEnumDeclAssign(predeclare) ||
+               rewriteExprLooksLikeTypeValue(module, scope, predeclare->rhs))
+            {
+                if(findRewriteTypeBindingInScope(scope, predeclare->identifier) == NULL)
+                    declareRewriteTypeBinding(scope, predeclare->identifier, rewritten);
+            }
+
+            if(scope->parent == NULL &&
+               !moduleIsImportDecl(predeclare) &&
+               findRewriteValueBindingInScope(scope, predeclare->identifier) == NULL)
+            {
+                declareRewriteValueBinding(scope, predeclare->identifier, rewritten);
+            }
         }
         predeclare = predeclare->next;
     }
@@ -1257,7 +1421,8 @@ static void moduleAppendStatementsDepthFirst(ModuleSourceFile *module, bool *vis
     }
 }
 
-static ASTNode* buildModuleProgramAST(const char *input_path, ModulePackage *packages, int package_count)
+static ASTNode* buildModuleProgramAST(const char *input_path, ModulePackage *packages, int package_count,
+                                      bool require_entry)
 {
     ModuleCompileContext context = {0};
     if(package_count > MODULE_MAX_PACKAGES)
@@ -1287,6 +1452,14 @@ static ASTNode* buildModuleProgramAST(const char *input_path, ModulePackage *pac
     top_level_block->lhs = head;
     root->lhs = top_level_block;
     root->next = newASTNode(AST_END_OF_CODE);
+    strcpy(root->package_name, root_module->package_name);
+
+    ModuleTopLevelBinding *entry_binding = moduleFindEntryBinding(root_module, require_entry);
+    if(entry_binding != NULL)
+    {
+        strcpy(root->entry_symbol, entry_binding->mangled);
+        root->entry_returns_void = entry_binding->decl->rhs->return_data_type->primary == AST_PRIMARY_DATA_TYPE_VOID;
+    }
     return root;
 }
 

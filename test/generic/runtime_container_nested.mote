@@ -1,8 +1,8 @@
 g = @import("./support_factories");
-list = @import("std/list");
-map = @import("std/map");
-hash = @import("std/hash");
-mem = @import("std/mem");
+list = @import("std:list");
+map = @import("std:map");
+hash = @import("std:hash");
+mem = @import("std:mem");
 
 main = fn() i32 {
     mut arena: mem.Arena = mem.arena_init(256);
