@@ -1,0 +1,15 @@
+cgltf = @import("vendor:cgltf");
+
+main = fn() i32 {
+    mut data: *cgltf.Data = 0;
+    result: i32 = cgltf.ParseFile(0, "test/vendor/triangle.gltf", &data);
+    if(result != cgltf.SUCCESS || data == 0) {
+        return 1;
+    }
+    if(cgltf.Validate(data) != cgltf.SUCCESS) {
+        cgltf.Free(data);
+        return 2;
+    }
+    cgltf.Free(data);
+    return 0;
+};

@@ -1,0 +1,15 @@
+ma = @import("vendor:miniaudio");
+
+main = fn() i32 {
+    mut major: u32 = 0;
+    mut minor: u32 = 0;
+    mut revision: u32 = 0;
+    ma.Version(&major, &minor, &revision);
+    if(major == 0 && minor == 0 && revision == 0) {
+        return 1;
+    }
+    if(ma.VersionString() == 0) {
+        return 2;
+    }
+    return 0;
+};

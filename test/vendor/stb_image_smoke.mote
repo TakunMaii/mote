@@ -1,0 +1,15 @@
+stbi = @import("vendor:stb/image");
+
+main = fn() i32 {
+    mut x: i32 = 0;
+    mut y: i32 = 0;
+    mut comp: i32 = 0;
+    ok: i32 = stbi.Info("vendor/stb/src/stb_image.h", &x, &y, &comp);
+    if(ok != 0) {
+        return 1;
+    }
+    if(stbi.FailureReason() == 0) {
+        return 2;
+    }
+    return 0;
+};

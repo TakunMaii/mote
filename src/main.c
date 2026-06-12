@@ -22,6 +22,7 @@
 #define CLI_MAX_PACKAGES 128
 #define CLI_MAX_LINK_ARGS 256
 #define CLI_MAX_LINKER_ARGS 256
+#define CLI_MAX_EXTRA_C_SOURCES 32
 #define CLI_PATH_BUFFER_SIZE 4096
 
 #if defined(_WIN32)
@@ -243,6 +244,20 @@ static void add_driver_arg(const char **driver_args, int *driver_arg_count, cons
         cliError("too many linker arguments");
 
     driver_args[(*driver_arg_count)++] = value;
+}
+
+static void add_extra_c_source(const char **extra_c_sources, int *extra_c_source_count, const char *path)
+{
+    for(int i = 0; i < *extra_c_source_count; i++)
+    {
+        if(strcmp(extra_c_sources[i], path) == 0)
+            return;
+    }
+
+    if(*extra_c_source_count >= CLI_MAX_EXTRA_C_SOURCES)
+        cliError("too many extra C sources");
+
+    extra_c_sources[(*extra_c_source_count)++] = path;
 }
 
 static void add_driver_path_arg(const char **driver_args, int *driver_arg_count, const char *prefix, const char *path)
@@ -472,10 +487,16 @@ static void add_default_vendor_link_search_paths(const char *argv0, bool uses_gl
 
 static void add_default_official_link_args(const char *argv0, ModulePackage *packages, int package_count,
                                            const char *input_path,
-                                           const char **driver_args, int *driver_arg_count)
+                                           const char **driver_args, int *driver_arg_count,
+                                           const char **extra_c_sources, int *extra_c_source_count)
 {
     bool uses_glfw = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:glfw\")");
     bool uses_raylib = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:raylib\")");
+    bool uses_miniaudio = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:miniaudio\")");
+    bool uses_stb_image = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:stb/image\")");
+    bool uses_stb_truetype = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:stb/truetype\")");
+    bool uses_stb_easy_font = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:stb/easy_font\")");
+    bool uses_cgltf = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:cgltf\")");
     bool uses_std_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:math\")");
     bool uses_std_linalg = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:linalg\")");
     bool uses_c_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"c:math\")");
@@ -533,6 +554,17 @@ static void add_default_official_link_args(const char *argv0, ModulePackage *pac
 
     if(uses_std_math || uses_std_linalg || uses_c_math)
         add_driver_arg(driver_args, driver_arg_count, "-lm");
+
+    if(uses_miniaudio)
+        add_extra_c_source(extra_c_sources, extra_c_source_count, "vendor/miniaudio/src/miniaudio.c");
+    if(uses_stb_image)
+        add_extra_c_source(extra_c_sources, extra_c_source_count, "vendor/stb/src/stb_image_impl.c");
+    if(uses_stb_truetype)
+        add_extra_c_source(extra_c_sources, extra_c_source_count, "vendor/stb/src/stb_truetype_impl.c");
+    if(uses_stb_easy_font)
+        add_extra_c_source(extra_c_sources, extra_c_source_count, "vendor/stb/src/stb_easy_font_shim.c");
+    if(uses_cgltf)
+        add_extra_c_source(extra_c_sources, extra_c_source_count, "vendor/cgltf/src/cgltf.c");
 }
 
 static void append_shell_escaped(char *command, size_t command_size, const char *arg)
@@ -597,6 +629,7 @@ static void append_shell_quoted_fragment(char *command, size_t command_size, con
 static int run_clang_link(const char *llvm_input_path, const char *runtime_source_path,
                           const char *exe_output_path,
                           const char **driver_args, int driver_arg_count,
+                          const char **extra_c_sources, int extra_c_source_count,
                           const char **linker_args, int linker_arg_count,
                           const char *log_path)
 {
@@ -613,6 +646,9 @@ static int run_clang_link(const char *llvm_input_path, const char *runtime_sourc
 
     for(int i = 0; i < driver_arg_count; i++)
         append_shell_escaped(command, sizeof(command), driver_args[i]);
+
+    for(int i = 0; i < extra_c_source_count; i++)
+        append_shell_escaped(command, sizeof(command), extra_c_sources[i]);
 
     for(int i = 0; i < linker_arg_count; i++)
     {
@@ -663,12 +699,14 @@ int main(int argn, char** argv)
     int package_count = 0;
     const char **driver_args = (const char**) calloc(CLI_MAX_LINK_ARGS, sizeof(const char*));
     int driver_arg_count = 0;
+    const char **extra_c_sources = (const char**) calloc(CLI_MAX_EXTRA_C_SOURCES, sizeof(const char*));
+    int extra_c_source_count = 0;
     const char **linker_args = (const char**) calloc(CLI_MAX_LINKER_ARGS, sizeof(const char*));
     int linker_arg_count = 0;
     const char **positionals = (const char**) calloc(2, sizeof(const char*));
     int positional_count = 0;
 
-    if(packages == NULL || driver_args == NULL || linker_args == NULL || positionals == NULL)
+    if(packages == NULL || driver_args == NULL || extra_c_sources == NULL || linker_args == NULL || positionals == NULL)
         cliError("failed to allocate CLI argument buffers");
 
     add_default_official_search_roots(packages, &package_count, argv[0]);
@@ -831,7 +869,9 @@ int main(int argn, char** argv)
     if(!directory_exists(input_path))
         cliErrorFormatted("input path must be a package directory: %s", input_path);
 
-    add_default_official_link_args(argv[0], packages, package_count, input_path, driver_args, &driver_arg_count);
+    add_default_official_link_args(argv[0], packages, package_count, input_path,
+                                   driver_args, &driver_arg_count,
+                                   extra_c_sources, &extra_c_source_count);
 
     ASTNode *root = buildModuleProgramAST(input_path, packages, package_count, emit_exe);
     char default_llvm_output_path[1024] = {0};
@@ -917,6 +957,7 @@ int main(int argn, char** argv)
         snprintf(clang_log_path, sizeof(clang_log_path), "%s.mote-link.log", exe_output_path);
         int clang_exit_code = run_clang_link(llvm_output_path, runtime_source_path, exe_output_path,
                                              driver_args, driver_arg_count,
+                                             extra_c_sources, extra_c_source_count,
                                              linker_args, linker_arg_count,
                                              clang_log_path);
         if(clang_exit_code != 0)

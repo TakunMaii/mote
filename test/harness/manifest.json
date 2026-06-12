@@ -62,6 +62,32 @@
       ]
     },
     {
+      "name": "vendor-miniaudio-smoke",
+      "expect": "success",
+      "input": "test\\vendor\\miniaudio_smoke.mote"
+    },
+    {
+      "name": "vendor-stb-image-smoke",
+      "expect": "success",
+      "input": "test\\vendor\\stb_image_smoke.mote"
+    },
+    {
+      "name": "vendor-stb-truetype-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\vendor\\stb_truetype_smoke.mote"
+    },
+    {
+      "name": "vendor-stb-easy-font-smoke",
+      "expect": "success",
+      "input": "test\\vendor\\stb_easy_font_smoke.mote"
+    },
+    {
+      "name": "vendor-cgltf-smoke",
+      "expect": "success",
+      "input": "test\\vendor\\cgltf_smoke.mote"
+    },
+    {
       "name": "import-call-arg-min-llvm",
       "expect": "success",
       "mode": "llvm",

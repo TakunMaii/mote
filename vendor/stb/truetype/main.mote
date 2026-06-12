@@ -1,0 +1,14 @@
+@package("truetype");
+
+pub FontInfo = opaque;
+pub PackContext = opaque;
+pub PackedChar = opaque;
+pub AlignedQuad = opaque;
+
+pub InitFont = @extern("stbtt_InitFont", Function([*mut FontInfo, *u8, i32], i32));
+pub GetFontOffsetForIndex = @extern("stbtt_GetFontOffsetForIndex", Function([*u8, i32], i32));
+pub ScaleForPixelHeight = @extern("stbtt_ScaleForPixelHeight", Function([*FontInfo, f32], f32));
+pub GetFontVMetrics = @extern("stbtt_GetFontVMetrics", Function([*FontInfo, *mut i32, *mut i32, *mut i32], void));
+pub GetCodepointHMetrics = @extern("stbtt_GetCodepointHMetrics", Function([*FontInfo, i32, *mut i32, *mut i32], void));
+pub GetCodepointBitmap = @extern("stbtt_GetCodepointBitmap", Function([*FontInfo, f32, f32, i32, *mut i32, *mut i32, *mut i32, *mut i32], *u8));
+pub FreeBitmap = @extern("stbtt_FreeBitmap", Function([*u8, *void], void));

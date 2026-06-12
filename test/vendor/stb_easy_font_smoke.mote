@@ -1,0 +1,22 @@
+easy = @import("vendor:stb/easy_font");
+c = @import("c");
+
+main = fn() i32 {
+    width: i32 = easy.Width("mote");
+    height: i32 = easy.Height("mote");
+    if(width <= 0 || height <= 0) {
+        return 1;
+    }
+
+    buffer: *mut u8 = @as(*mut u8, c.malloc(4096));
+    if(buffer == 0) {
+        return 2;
+    }
+    no_color: *u8 = @as(*u8, 0);
+    quads: i32 = easy.Print(4.0, 8.0, "mote", no_color, buffer, 4096);
+    c.free(@as(*void, buffer));
+    if(quads <= 0) {
+        return 3;
+    }
+    return 0;
+};
