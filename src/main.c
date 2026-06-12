@@ -270,6 +270,13 @@ static void add_driver_path_arg(const char **driver_args, int *driver_arg_count,
     add_driver_arg(driver_args, driver_arg_count, forwarded);
 }
 
+static void add_driver_path_arg_if_exists(const char **driver_args, int *driver_arg_count,
+                                          const char *prefix, const char *path)
+{
+    if(directory_exists(path))
+        add_driver_path_arg(driver_args, driver_arg_count, prefix, path);
+}
+
 static bool resolve_vendor_library_dir(char *buffer, size_t buffer_size, const char *argv0,
                                        const char *vendor_name, const char *platform_name)
 {
@@ -289,6 +296,27 @@ static bool resolve_vendor_library_dir(char *buffer, size_t buffer_size, const c
         return false;
 
     return directory_exists(buffer);
+}
+
+static bool resolve_vendor_path(char *buffer, size_t buffer_size, const char *argv0, const char *relative_path)
+{
+    char executable_dir[CLI_PATH_BUFFER_SIZE] = {0};
+    if(!resolve_executable_directory(executable_dir, sizeof(executable_dir), argv0))
+        return false;
+    return join_path(buffer, buffer_size, executable_dir, relative_path);
+}
+
+static void add_extra_c_source_resolved(const char *argv0, const char **extra_c_sources, int *extra_c_source_count,
+                                        const char *relative_path)
+{
+    char *resolved = (char*) malloc(MODULE_MAX_PATH_LENGTH);
+    if(resolved == NULL)
+        cliError("failed to allocate extra C source path");
+
+    if(!resolve_vendor_path(resolved, MODULE_MAX_PATH_LENGTH, argv0, relative_path))
+        cliError("failed to resolve vendor source path");
+
+    add_extra_c_source(extra_c_sources, extra_c_source_count, resolved);
 }
 
 static void add_default_official_search_roots(ModulePackage *packages, int *package_count, const char *argv0)
@@ -497,11 +525,16 @@ static void add_default_official_link_args(const char *argv0, ModulePackage *pac
     bool uses_stb_truetype = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:stb/truetype\")");
     bool uses_stb_easy_font = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:stb/easy_font\")");
     bool uses_cgltf = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:cgltf\")");
+    bool uses_enet = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:enet\")");
     bool uses_std_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:math\")");
     bool uses_std_linalg = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:linalg\")");
     bool uses_c_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"c:math\")");
+    char vendor_include_dir[CLI_PATH_BUFFER_SIZE] = {0};
 
     add_default_vendor_link_search_paths(argv0, uses_glfw, uses_raylib, driver_args, driver_arg_count);
+
+    if(uses_enet && resolve_vendor_path(vendor_include_dir, sizeof(vendor_include_dir), argv0, "vendor/enet/src"))
+        add_driver_path_arg_if_exists(driver_args, driver_arg_count, "-I", vendor_include_dir);
 
 #if defined(__APPLE__)
     if(directory_exists("/opt/homebrew/lib"))
@@ -552,19 +585,42 @@ static void add_default_official_link_args(const char *argv0, ModulePackage *pac
 #endif
     }
 
+    if(uses_enet)
+    {
+#if defined(_WIN32)
+        add_driver_arg(driver_args, driver_arg_count, "-lws2_32");
+        add_driver_arg(driver_args, driver_arg_count, "-lwinmm");
+#endif
+    }
+
     if(uses_std_math || uses_std_linalg || uses_c_math)
         add_driver_arg(driver_args, driver_arg_count, "-lm");
 
     if(uses_miniaudio)
-        add_extra_c_source(extra_c_sources, extra_c_source_count, "vendor/miniaudio/src/miniaudio.c");
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/miniaudio/src/miniaudio.c");
     if(uses_stb_image)
-        add_extra_c_source(extra_c_sources, extra_c_source_count, "vendor/stb/src/stb_image_impl.c");
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/stb/src/stb_image_impl.c");
     if(uses_stb_truetype)
-        add_extra_c_source(extra_c_sources, extra_c_source_count, "vendor/stb/src/stb_truetype_impl.c");
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/stb/src/stb_truetype_impl.c");
     if(uses_stb_easy_font)
-        add_extra_c_source(extra_c_sources, extra_c_source_count, "vendor/stb/src/stb_easy_font_shim.c");
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/stb/src/stb_easy_font_shim.c");
     if(uses_cgltf)
-        add_extra_c_source(extra_c_sources, extra_c_source_count, "vendor/cgltf/src/cgltf.c");
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/cgltf/src/cgltf.c");
+    if(uses_enet)
+    {
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/enet/src/callbacks.c");
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/enet/src/compress.c");
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/enet/src/host.c");
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/enet/src/list.c");
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/enet/src/packet.c");
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/enet/src/peer.c");
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/enet/src/protocol.c");
+#if defined(_WIN32)
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/enet/src/win32.c");
+#else
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/enet/src/unix.c");
+#endif
+    }
 }
 
 static void append_shell_escaped(char *command, size_t command_size, const char *arg)

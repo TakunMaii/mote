@@ -88,6 +88,16 @@
       "input": "test\\vendor\\cgltf_smoke.mote"
     },
     {
+      "name": "vendor-enet-smoke",
+      "expect": "success",
+      "input": "test\\vendor\\enet_smoke.mote"
+    },
+    {
+      "name": "vendor-enet-package-dir",
+      "expect": "success",
+      "input": "test\\vendor\\enet_pkg"
+    },
+    {
       "name": "import-call-arg-min-llvm",
       "expect": "success",
       "mode": "llvm",

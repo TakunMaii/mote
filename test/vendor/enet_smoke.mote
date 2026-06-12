@@ -1,0 +1,48 @@
+enet = @import("vendor:enet");
+
+main = fn() i32 {
+    if(enet.Initialize() != 0) {
+        return 1;
+    }
+
+    version: u32 = enet.LinkedVersion();
+    if(version == 0) {
+        enet.Deinitialize();
+        return 2;
+    }
+
+    mut address: enet.Address = enet.Address {
+        .host = enet.HOST_ANY,
+        .port = 0,
+    };
+
+    if(enet.AddressSetHostIP(&mut address, "127.0.0.1") != 0) {
+        enet.Deinitialize();
+        return 3;
+    }
+
+    host: *enet.Host = enet.HostCreate(0, 1, 1, 0, 0);
+    if(host == 0) {
+        enet.Deinitialize();
+        return 4;
+    }
+
+    packet: *enet.Packet = enet.PacketCreate(@as(*void, @as(*char, "ok")), 2, enet.PACKET_FLAG_RELIABLE);
+    if(packet == 0) {
+        enet.HostDestroy(host);
+        enet.Deinitialize();
+        return 5;
+    }
+
+    if(packet.dataLength != 2) {
+        enet.PacketDestroy(packet);
+        enet.HostDestroy(host);
+        enet.Deinitialize();
+        return 6;
+    }
+
+    enet.PacketDestroy(packet);
+    enet.HostDestroy(host);
+    enet.Deinitialize();
+    return 0;
+};
