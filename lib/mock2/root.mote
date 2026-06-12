@@ -1,3 +1,0 @@
-pub FLAG = true;
-pub KEY = 32;
-pub UseKey = @extern("GetRandomValue", Function([i32, i32], i32));

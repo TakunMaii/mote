@@ -1,5 +1,0 @@
-pub FLAG = true;
-pub ONE = 1;
-pub IsReady = fn() bool {
-    return true;
-};

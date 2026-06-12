@@ -1,5 +1,0 @@
-pub size_t = i64;
-
-pub strlen = @extern("strlen", Function([*char], size_t));
-pub strcmp = @extern("strcmp", Function([*char, *char], i32));
-pub strncmp = @extern("strncmp", Function([*char, *char, size_t], i32));

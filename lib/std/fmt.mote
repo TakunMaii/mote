@@ -1,5 +1,0 @@
-c = @import("std/internal/c");
-
-pub print = c.printf;
-pub eprint = c.fprintf;
-pub format_into = c.snprintf;

@@ -1,6 +1,0 @@
-c = @import("std/internal/c");
-
-pub len = c.strlen;
-pub compare = c.strcmp;
-pub compare_n = c.strncmp;
-pub to_int = c.atoi;

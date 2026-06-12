@@ -1,1 +1,0 @@
-pub isdigit = @extern("isdigit", Function([i32], i32));

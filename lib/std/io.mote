@@ -1,5 +1,0 @@
-c = @import("std/internal/c");
-
-pub put_char = c.putchar;
-pub put_str = c.puts;
-pub stderr_handle = c.stderr_handle;
