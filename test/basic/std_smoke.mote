@@ -1,13 +1,14 @@
-std = @import("std");
+string = @import("std:string");
+io = @import("std:io");
 
 main = fn() void {
-    len_ok = std.string_len("abc") == 3;
-    cmp_ok = std.string_compare("abc", "abd") < 0;
-    cmp_n_ok = std.string_compare_n("abc", "abd", 2) == 0;
-    atoi_ok = std.string_to_int("42") == 42;
+    len_ok = string.len("abc") == 3;
+    cmp_ok = string.compare("abc", "abd") < 0;
+    cmp_n_ok = string.compare_n("abc", "abd", 2) == 0;
+    atoi_ok = string.to_int("42") == 42;
 
     if(len_ok && cmp_ok && cmp_n_ok && atoi_ok) {
-        std.io_put_char('O');
-        std.io_put_str("std ok");
+        io.put_char('O');
+        io.put_str("std ok");
     }
 };

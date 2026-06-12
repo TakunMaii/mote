@@ -1,0 +1,39 @@
+rand = @import("std:rand");
+
+main = fn() i32 {
+    mut a: rand.RNG = rand.init(12345);
+    mut b: rand.RNG = rand.init(12345);
+    mut c: rand.RNG = rand.init(54321);
+
+    a0: u64 = rand.next_u64(&mut a);
+    b0: u64 = rand.next_u64(&mut b);
+    c0: u64 = rand.next_u64(&mut c);
+
+    if(a0 != b0) {
+        return 1;
+    }
+    if(a0 == c0) {
+        return 2;
+    }
+
+    bounded: u64 = rand.range_u64(&mut a, 10);
+    if(bounded >= 10) {
+        return 3;
+    }
+
+    int_bounded: i32 = rand.range_i32(&mut a, 7);
+    if(int_bounded < 0 || int_bounded >= 7) {
+        return 4;
+    }
+
+    value_f32: f32 = rand.next_f32(&mut a);
+    value_f64: f64 = rand.next_f64(&mut a);
+    if(value_f32 < 0.0 || value_f32 > 1.0) {
+        return 5;
+    }
+    if(value_f64 < 0.0 || value_f64 > 1.0) {
+        return 6;
+    }
+
+    return 0;
+};

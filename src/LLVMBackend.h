@@ -1024,6 +1024,11 @@ static void llvmEmitDynamicFunctionPointerSignature(FILE *stream, ASTDataType *f
     fprintf(stream, ")");
 }
 
+static bool llvmExternSymbolIsNoReturn(const char *symbol_name)
+{
+    return symbol_name != NULL && strcmp(symbol_name, "mote_unwrap_null_panic") == 0;
+}
+
 static bool llvmProgramHasExternSymbol(MirProgram *program, const char *symbol_name)
 {
     for(int i = 0; i < program->extern_function_count; i++)
@@ -1055,6 +1060,8 @@ static void llvmEmitExternDeclarations(FILE *stream, MirProgram *program)
             continue;
         fprintf(stream, "declare ");
         llvmEmitNativeExternSignature(stream, extern_function->symbol_name, extern_function->function_type);
+        if(llvmExternSymbolIsNoReturn(extern_function->symbol_name))
+            fprintf(stream, " noreturn");
         fprintf(stream, "\n");
     }
 }
@@ -1122,6 +1129,8 @@ static void llvmEmitExternWrapperDefinition(FILE *stream, MirExternFunction *ext
         fprintf(stream, "    %%fn_ptr = load ptr, ptr %%fn_ptr_slot\n");
     }
 
+    bool is_noreturn = llvmExternSymbolIsNoReturn(extern_function->symbol_name);
+
     if(llvmIsVoidDataType(function_type->return_data_type) || return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
         fprintf(stream, "    call ");
     else
@@ -1169,7 +1178,9 @@ static void llvmEmitExternWrapperDefinition(FILE *stream, MirExternFunction *ext
 
     fprintf(stream, ")\n");
 
-    if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
+    if(is_noreturn)
+        fprintf(stream, "    unreachable\n");
+    else if(return_abi.kind == LLVM_EXTERN_ABI_SRET_POINTER)
     {
         fprintf(stream, "    %%ret = load ");
         llvmEmitType(stream, function_type->return_data_type);
@@ -1762,7 +1773,8 @@ static void llvmEmitInst(FILE *stream, LLVMFunctionEmitContext *context, MirInst
             }
             else if(call_wrapper)
             {
-                fprintf(stream, "@%s", inst->data.extern_call.symbol_name);
+                llvmEmitFunctionReturnABIType(stream, inst->result_type);
+                fprintf(stream, " @%s", inst->data.extern_call.symbol_name);
             }
             else
             {
@@ -1854,6 +1866,9 @@ static void llvmEmitTerminator(FILE *stream, LLVMFunctionEmitContext *context, M
             }
             else
                 fprintf(stream, "    ret void\n");
+            return;
+        case MIR_TERM_UNREACHABLE:
+            fprintf(stream, "    unreachable\n");
             return;
         case MIR_TERM_NONE:
             llvmBackendError("unterminated MIR block cannot be emitted to LLVM IR", NULL, 0, 0);

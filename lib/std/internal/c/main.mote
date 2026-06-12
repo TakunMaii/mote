@@ -57,6 +57,13 @@ pub strncmp = c.strncmp;
 pub atoi = c.atoi;
 
 pub isdigit = c.isdigit;
+pub monotonic_ns = c.monotonic_ns;
+pub sleep_ms = c.sleep_ms;
+pub directory_create = c.directory_create;
+pub directory_remove = c.directory_remove;
+pub directory_exists = c.directory_exists;
+pub directory_entry_count = c.directory_entry_count;
+pub directory_list_names = c.directory_list_names;
 
 pub sinf = c.sinf;
 pub sin = c.sin;

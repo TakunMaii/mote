@@ -236,6 +236,12 @@
       "input": "test\\basic\\integer_literal_numeric_context.mote"
     },
     {
+      "name": "integer-literal-unsigned-context-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\integer_literal_unsigned_context.mote"
+    },
+    {
       "name": "int-to-float-implicit-llvm",
       "expect": "success",
       "mode": "llvm",
@@ -276,6 +282,11 @@
       "expect": "success",
       "mode": "llvm",
       "input": "test\\basic\\optional_unwrap_runtime_panic.mote"
+    },
+    {
+      "name": "basic-optional-unwrap-void-context",
+      "expect": "success",
+      "input": "test\\basic\\optional_unwrap_void_context.mote"
     },
     {
       "name": "basic-pointer-and-reference-llvm",
@@ -350,6 +361,16 @@
       "input": "test\\basic\\std_smoke.mote"
     },
     {
+      "name": "std-import-removed",
+      "expect": "failure",
+      "input": "test\\basic\\std_import_removed.mote",
+      "contains": [
+        "error[M1001]",
+        "package directory contains no .mote files",
+        "lib/std:1:1"
+      ]
+    },
+    {
       "name": "std-string-api-llvm",
       "expect": "success",
       "mode": "llvm",
@@ -374,6 +395,12 @@
       "input": "test\\basic\\std_mem_arena_api.mote"
     },
     {
+      "name": "std-types-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_types_api.mote"
+    },
+    {
       "name": "std-math-ctype-api-llvm",
       "expect": "success",
       "mode": "llvm",
@@ -386,10 +413,49 @@
       "input": "test\\basic\\std_linalg_api.mote"
     },
     {
-      "name": "std-fs-api-llvm",
+      "name": "std-filesystem-api-llvm",
       "expect": "success",
       "mode": "llvm",
       "input": "test\\basic\\std_fs_api.mote"
+    },
+    {
+      "name": "std-fs-shim-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_fs_shim_api.mote"
+    },
+    {
+      "name": "std-slice-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_slice_api.mote"
+    },
+    {
+      "name": "std-path-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_path_api.mote"
+    },
+    {
+      "name": "std-time-api",
+      "expect": "success",
+      "input": "test\\basic\\std_time_api.mote"
+    },
+    {
+      "name": "std-bytes-api-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\basic\\std_bytes_api.mote"
+    },
+    {
+      "name": "std-rand-api",
+      "expect": "success",
+      "input": "test\\basic\\std_rand_api.mote"
+    },
+    {
+      "name": "std-fmt-api",
+      "expect": "success",
+      "input": "test\\basic\\std_fmt_api.mote"
     },
     {
       "name": "basic-string-llvm",

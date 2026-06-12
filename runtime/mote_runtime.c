@@ -5,6 +5,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <windows.h>
+#include <fileapi.h>
+#include <direct.h>
+#else
+#include <time.h>
+#include <errno.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
 
 void *mote_stderr_handle(void)
 {
@@ -255,6 +267,182 @@ void mote_debug_write_f64(double value)
 void mote_debug_write_ptr(const void *ptr)
 {
     fprintf(stderr, "%p", ptr);
+}
+
+unsigned long long mote_time_monotonic_ns(void)
+{
+#if defined(_WIN32)
+    static LARGE_INTEGER frequency;
+    static int initialized = 0;
+    LARGE_INTEGER counter;
+
+    if(!initialized)
+    {
+        QueryPerformanceFrequency(&frequency);
+        initialized = 1;
+    }
+
+    QueryPerformanceCounter(&counter);
+    return (unsigned long long) ((counter.QuadPart * 1000000000ull) / frequency.QuadPart);
+#else
+    struct timespec ts;
+#if defined(CLOCK_MONOTONIC)
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+#else
+    clock_gettime(CLOCK_REALTIME, &ts);
+#endif
+    return (unsigned long long) ts.tv_sec * 1000000000ull + (unsigned long long) ts.tv_nsec;
+#endif
+}
+
+void mote_sleep_ms(long long milliseconds)
+{
+    if(milliseconds <= 0)
+        return;
+
+#if defined(_WIN32)
+    Sleep((DWORD) milliseconds);
+#else
+    struct timespec req;
+    req.tv_sec = (time_t) (milliseconds / 1000);
+    req.tv_nsec = (long) ((milliseconds % 1000) * 1000000ll);
+
+    for(;;)
+    {
+        struct timespec rem;
+        if(nanosleep(&req, &rem) == 0)
+            return;
+        if(errno != EINTR)
+            return;
+        req = rem;
+    }
+#endif
+}
+
+long long mote_directory_create(const char *path)
+{
+#if defined(_WIN32)
+    return _mkdir(path) == 0 ? 1 : 0;
+#else
+    return mkdir(path, 0777) == 0 ? 1 : 0;
+#endif
+}
+
+long long mote_directory_remove(const char *path)
+{
+#if defined(_WIN32)
+    return _rmdir(path) == 0 ? 1 : 0;
+#else
+    return rmdir(path) == 0 ? 1 : 0;
+#endif
+}
+
+long long mote_directory_exists(const char *path)
+{
+#if defined(_WIN32)
+    DWORD attrs = GetFileAttributesA(path);
+    return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) ? 1 : 0;
+#else
+    struct stat st;
+    if(stat(path, &st) != 0)
+        return 0;
+    return S_ISDIR(st.st_mode) ? 1 : 0;
+#endif
+}
+
+long long mote_directory_entry_count(const char *path)
+{
+    long long count = 0;
+#if defined(_WIN32)
+    char pattern[1024];
+    snprintf(pattern, sizeof(pattern), "%s\\*", path);
+    WIN32_FIND_DATAA find_data;
+    HANDLE handle = FindFirstFileA(pattern, &find_data);
+    if(handle == INVALID_HANDLE_VALUE)
+        return -1;
+
+    do
+    {
+        if(strcmp(find_data.cFileName, ".") == 0 || strcmp(find_data.cFileName, "..") == 0)
+            continue;
+        count++;
+    } while(FindNextFileA(handle, &find_data));
+
+    FindClose(handle);
+#else
+    DIR *directory = opendir(path);
+    if(directory == NULL)
+        return -1;
+
+    struct dirent *entry = NULL;
+    while((entry = readdir(directory)) != NULL)
+    {
+        if(strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+        count++;
+    }
+
+    closedir(directory);
+#endif
+    return count;
+}
+
+long long mote_directory_list_names(const char *path, char *buffer, long long buffer_size)
+{
+    long long used = 0;
+    if(buffer == NULL || buffer_size < 0)
+        return -1;
+
+#if defined(_WIN32)
+    char pattern[1024];
+    snprintf(pattern, sizeof(pattern), "%s\\*", path);
+    WIN32_FIND_DATAA find_data;
+    HANDLE handle = FindFirstFileA(pattern, &find_data);
+    if(handle == INVALID_HANDLE_VALUE)
+        return -1;
+
+    do
+    {
+        const char *name = find_data.cFileName;
+        if(strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+            continue;
+        size_t len = strlen(name);
+        if(used + (long long) len + 1 > buffer_size)
+        {
+            FindClose(handle);
+            return -1;
+        }
+        memcpy(buffer + used, name, len);
+        used += (long long) len;
+        buffer[used++] = '\n';
+    } while(FindNextFileA(handle, &find_data));
+
+    FindClose(handle);
+#else
+    DIR *directory = opendir(path);
+    if(directory == NULL)
+        return -1;
+
+    struct dirent *entry = NULL;
+    while((entry = readdir(directory)) != NULL)
+    {
+        const char *name = entry->d_name;
+        if(strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+            continue;
+        size_t len = strlen(name);
+        if(used + (long long) len + 1 > buffer_size)
+        {
+            closedir(directory);
+            return -1;
+        }
+        memcpy(buffer + used, name, len);
+        used += (long long) len;
+        buffer[used++] = '\n';
+    }
+
+    closedir(directory);
+#endif
+    return used;
 }
 
 typedef struct MoteArenaChunk {

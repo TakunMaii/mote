@@ -1,8 +1,131 @@
-fs = @import("std:fs");
+filesystem = @import("std:filesystem");
+mem = @import("std:mem");
 
-main = fn() void {
-    ok = fs.seek_set == 0 && fs.seek_cur == 1 && fs.seek_end == 2;
-    if(ok) {
-        sink = 1;
+main = fn() i32 {
+    if(filesystem.seek_set != 0 || filesystem.seek_cur != 1 || filesystem.seek_end != 2) {
+        return 1;
     }
+    if(filesystem.exists("test/artifacts/definitely_missing_file.txt")) {
+        return 11;
+    }
+    if(filesystem.file_size("test/artifacts/definitely_missing_file.txt") != null) {
+        return 12;
+    }
+    if(filesystem.read_all("test/artifacts/definitely_missing_file.txt") != null) {
+        return 13;
+    }
+    if(filesystem.remove_file("test/artifacts/definitely_missing_file.txt")) {
+        return 14;
+    }
+    if(filesystem.directory_exists("test/artifacts/definitely_missing_directory")) {
+        return 15;
+    }
+    if(filesystem.directory_entry_count("test/artifacts/definitely_missing_directory") != null) {
+        return 16;
+    }
+    if(filesystem.list_directory_names("test/artifacts/definitely_missing_directory") != null) {
+        return 17;
+    }
+
+    path: *char = "test/artifacts/filesystem_api.txt";
+    renamed_path: *char = "test/artifacts/filesystem_api_renamed.txt";
+    dir_path: *char = "test/artifacts/filesystem_api_dir";
+    mut bytes_storage: Array(u8, 5) = ['m', 'o', 't', 'e', '\n'];
+    bytes: []u8 = @slice(u8, &mut bytes_storage[0], 5);
+
+    if(!filesystem.write_all(path, bytes)) {
+        return 2;
+    }
+    if(!filesystem.exists(path)) {
+        return 3;
+    }
+
+    size: ?i64 = filesystem.file_size(path);
+    if(size == null || @unwrap(size) != 5) {
+        filesystem.remove_file(path);
+        return 4;
+    }
+
+    maybe_data: ?[]u8 = filesystem.read_all(path);
+    if(maybe_data == null) {
+        filesystem.remove_file(path);
+        return 5;
+    }
+
+    data: []u8 = @unwrap(maybe_data);
+    ok = @len(data) == 5 && data[0] == @as(u8, 'm') && data[4] == @as(u8, '\n');
+    mem.free_slice(u8, data);
+    if(!ok) {
+        filesystem.remove_file(path);
+        return 6;
+    }
+
+    if(!filesystem.rename_file(path, renamed_path)) {
+        filesystem.remove_file(path);
+        filesystem.remove_file(renamed_path);
+        return 7;
+    }
+    if(filesystem.exists(path) || !filesystem.exists(renamed_path)) {
+        filesystem.remove_file(path);
+        filesystem.remove_file(renamed_path);
+        return 8;
+    }
+    if(!filesystem.remove_file(renamed_path)) {
+        filesystem.remove_file(path);
+        filesystem.remove_file(renamed_path);
+        return 9;
+    }
+    if(filesystem.exists(renamed_path)) {
+        return 10;
+    }
+
+    if(!filesystem.create_directory(dir_path)) {
+        return 18;
+    }
+    if(!filesystem.directory_exists(dir_path)) {
+        filesystem.remove_directory(dir_path);
+        return 19;
+    }
+
+    dir_file_path: *char = "test/artifacts/filesystem_api_dir/note.txt";
+    if(!filesystem.write_all(dir_file_path, bytes)) {
+        filesystem.remove_file(dir_file_path);
+        filesystem.remove_directory(dir_path);
+        return 20;
+    }
+
+    maybe_count: ?i64 = filesystem.directory_entry_count(dir_path);
+    if(maybe_count == null || @unwrap(maybe_count) != 1) {
+        filesystem.remove_file(dir_file_path);
+        filesystem.remove_directory(dir_path);
+        return 21;
+    }
+
+    maybe_names: ?[]char = filesystem.list_directory_names(dir_path);
+    if(maybe_names == null) {
+        filesystem.remove_file(dir_file_path);
+        filesystem.remove_directory(dir_path);
+        return 22;
+    }
+    names: []char = @unwrap(maybe_names);
+    names_ok = @len(names) >= 8 && names[0] == 'n' && names[4] == '.' && names[7] == 't';
+    mem.free_slice(char, names);
+    if(!names_ok) {
+        filesystem.remove_file(dir_file_path);
+        filesystem.remove_directory(dir_path);
+        return 23;
+    }
+
+    if(!filesystem.remove_file(dir_file_path)) {
+        filesystem.remove_file(dir_file_path);
+        filesystem.remove_directory(dir_path);
+        return 24;
+    }
+    if(!filesystem.remove_directory(dir_path)) {
+        filesystem.remove_file(dir_file_path);
+        filesystem.remove_directory(dir_path);
+        return 25;
+    }
+
+    return 0;
 };

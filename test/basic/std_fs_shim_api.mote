@@ -1,0 +1,48 @@
+fs = @import("std:fs");
+mem = @import("std:mem");
+
+main = fn() i32 {
+    path: *char = "test/artifacts/fs_shim_api.txt";
+    renamed: *char = "test/artifacts/fs_shim_api_renamed.txt";
+    mut bytes_storage: Array(u8, 3) = ['o', 'k', '\n'];
+    bytes: []u8 = @slice(u8, &mut bytes_storage[0], 3);
+
+    if(!fs.write_all(path, bytes)) {
+        return 1;
+    }
+    if(!fs.exists(path)) {
+        fs.remove_file(path);
+        return 2;
+    }
+
+    maybe_size: ?i64 = fs.file_size(path);
+    if(maybe_size == null || @unwrap(maybe_size) != 3) {
+        fs.remove_file(path);
+        return 3;
+    }
+
+    maybe_data: ?[]u8 = fs.read_all(path);
+    if(maybe_data == null) {
+        fs.remove_file(path);
+        return 4;
+    }
+    data: []u8 = @unwrap(maybe_data);
+    ok = @len(data) == 3 && data[0] == @as(u8, 'o') && data[2] == @as(u8, '\n');
+    mem.free_slice(u8, data);
+    if(!ok) {
+        fs.remove_file(path);
+        return 5;
+    }
+
+    if(!fs.rename_file(path, renamed)) {
+        fs.remove_file(path);
+        fs.remove_file(renamed);
+        return 6;
+    }
+    if(!fs.remove_file(renamed)) {
+        fs.remove_file(path);
+        fs.remove_file(renamed);
+        return 7;
+    }
+    return 0;
+};

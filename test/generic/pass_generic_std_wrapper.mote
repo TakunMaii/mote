@@ -1,24 +1,26 @@
-std = @import("std");
+list = @import("std:list");
+map = @import("std:map");
+set = @import("std:set");
 hash = @import("std:hash");
 
 main = fn() i32 {
-    mut xs = std.list_init(i32);
-    std.list_append(i32, &mut xs, 1);
-    std.list_append(i32, &mut xs, 2);
+    mut xs = list.init(i32);
+    list.append(i32, &mut xs, 1);
+    list.append(i32, &mut xs, 2);
 
-    mut table = std.map_init(i32, i32, hash.hash_i32, hash.eq_i32);
-    std.map_put(i32, i32, &mut table, 7, 70);
+    mut table = map.init(i32, i32, hash.hash_i32, hash.eq_i32);
+    map.put(i32, i32, &mut table, 7, 70);
 
-    mut seen = std.set_init(i32, hash.hash_i32, hash.eq_i32);
-    std.set_insert(i32, &mut seen, 9);
+    mut seen = set.init(i32, hash.hash_i32, hash.eq_i32);
+    set.insert(i32, &mut seen, 9);
 
-    ok = std.list_get(i32, &xs, 1) == 2 &&
-         @unwrap(std.map_get(i32, i32, &table, 7)) == 70 &&
-         std.set_contains(i32, &seen, 9);
+    ok = list.get(i32, &xs, 1) == 2 &&
+         @unwrap(map.get(i32, i32, &table, 7)) == 70 &&
+         set.contains(i32, &seen, 9);
 
-    std.list_deinit(i32, &mut xs);
-    std.map_deinit(i32, i32, &mut table);
-    std.set_deinit(i32, &mut seen);
+    list.deinit(i32, &mut xs);
+    map.deinit(i32, i32, &mut table);
+    set.deinit(i32, &mut seen);
 
     if(ok) {
         return 0;

@@ -1,0 +1,106 @@
+fmt = @import("std:fmt");
+mem = @import("std:mem");
+io = @import("std:io");
+
+main = fn() i32 {
+    buf: []char = mem.make_zeroed(char, 64);
+
+    w0: i64 = fmt.append_slice(buf, @slice(char, @as(*mut char, "Level "), 6));
+    if(w0 < 0) {
+        mem.free_slice(char, buf);
+        return 1;
+    }
+
+    tail0: []char = @slice(char, @ptr_add(char, @as(*mut char, buf), w0), 64 - w0);
+    w1: i64 = fmt.append_i64(tail0, 7);
+    if(w1 < 0) {
+        mem.free_slice(char, buf);
+        return 2;
+    }
+
+    total: i64 = w0 + w1;
+    if(total != 7 || buf[0] != 'L' || buf[6] != '7') {
+        mem.free_slice(char, buf);
+        return 3;
+    }
+
+    tail1: []char = @slice(char, @ptr_add(char, @as(*mut char, buf), total), 64 - total);
+    w2: i64 = fmt.append_char(tail1, '!');
+    if(w2 < 0 || buf[7] != '!') {
+        mem.free_slice(char, buf);
+        return 4;
+    }
+
+    tiny: []char = mem.make_zeroed(char, 4);
+    too_small: i64 = fmt.append_i64(tiny, 1234);
+    if(too_small != -1) {
+        mem.free_slice(char, tiny);
+        mem.free_slice(char, buf);
+        return 5;
+    }
+
+    builder_buf: []char = mem.make_zeroed(char, 32);
+    mut builder: fmt.Appender = fmt.appender(builder_buf);
+    if(!fmt.append(&mut builder, @slice(char, @as(*mut char, "HP "), 3))) {
+        mem.free_slice(char, tiny);
+        mem.free_slice(char, builder_buf);
+        mem.free_slice(char, buf);
+        return 6;
+    }
+    if(!fmt.append_i64_to(&mut builder, 99)) {
+        mem.free_slice(char, tiny);
+        mem.free_slice(char, builder_buf);
+        mem.free_slice(char, buf);
+        return 7;
+    }
+    if(!fmt.append_char_to(&mut builder, '/')) {
+        mem.free_slice(char, tiny);
+        mem.free_slice(char, builder_buf);
+        mem.free_slice(char, buf);
+        return 8;
+    }
+    if(!fmt.append_u64_to(&mut builder, 100)) {
+        mem.free_slice(char, tiny);
+        mem.free_slice(char, builder_buf);
+        mem.free_slice(char, buf);
+        return 9;
+    }
+    if(builder.written != 9 || builder_buf[0] != 'H' || builder_buf[3] != '9' || builder_buf[5] != '/') {
+        mem.free_slice(char, tiny);
+        mem.free_slice(char, builder_buf);
+        mem.free_slice(char, buf);
+        return 10;
+    }
+
+    small_builder_buf: []char = mem.make_zeroed(char, 4);
+    mut small_builder: fmt.Appender = fmt.appender(small_builder_buf);
+    if(fmt.append(&mut small_builder, @slice(char, @as(*mut char, "hello"), 5))) {
+        mem.free_slice(char, small_builder_buf);
+        mem.free_slice(char, tiny);
+        mem.free_slice(char, builder_buf);
+        mem.free_slice(char, buf);
+        return 11;
+    }
+
+    if(fmt.println("fmt println smoke") < 0) {
+        mem.free_slice(char, small_builder_buf);
+        mem.free_slice(char, tiny);
+        mem.free_slice(char, builder_buf);
+        mem.free_slice(char, buf);
+        return 12;
+    }
+    if(fmt.fprintln(io.stderr_handle(), "fmt fprintln smoke") < 0) {
+        mem.free_slice(char, small_builder_buf);
+        mem.free_slice(char, tiny);
+        mem.free_slice(char, builder_buf);
+        mem.free_slice(char, buf);
+        return 13;
+    }
+
+    mem.free_slice(char, small_builder_buf);
+    mem.free_slice(char, tiny);
+    mem.free_slice(char, builder_buf);
+
+    mem.free_slice(char, buf);
+    return 0;
+};

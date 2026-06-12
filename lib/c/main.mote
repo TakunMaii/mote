@@ -40,6 +40,14 @@ pub strncmp = @extern("strncmp", Function([*char, *char, size_t], i32));
 pub isdigit = @extern("isdigit", Function([i32], i32));
 pub atoi = @extern("atoi", Function([*char], i32));
 
+pub monotonic_ns = @extern("mote_time_monotonic_ns", Function([], u64));
+pub sleep_ms = @extern("mote_sleep_ms", Function([i64], void));
+pub directory_create = @extern("mote_directory_create", Function([*char], i64));
+pub directory_remove = @extern("mote_directory_remove", Function([*char], i64));
+pub directory_exists = @extern("mote_directory_exists", Function([*char], i64));
+pub directory_entry_count = @extern("mote_directory_entry_count", Function([*char], i64));
+pub directory_list_names = @extern("mote_directory_list_names", Function([*char, *mut char, i64], i64));
+
 pub sinf = @extern("mote_sinf", Function([f32], f32));
 pub sin = @extern("mote_sin", Function([f64], f64));
 pub cosf = @extern("mote_cosf", Function([f32], f32));

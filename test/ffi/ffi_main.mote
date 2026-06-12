@@ -8,7 +8,7 @@ c_io.putchar(*heap);
 c_mem.free(heap);
 
 data: Array(char, 5) = ['h', 'e', 'l', 'l', 'o'];
-mut copy: Array(char, 5) = ['\0', '\0', '\0', '\0', '\0'];
+mut copy: Array(char, 5) = @zero(Array(char, 5));
 c_mem.memcpy(&copy[0], &data[0], 5);
 c_mem.memset(&copy[0], 'x', 1);
 
@@ -16,7 +16,7 @@ writer: *void = c_file.fopen("ffi_out.txt", "wb");
 written: i64 = c_file.fwrite(&copy[0], 1, 5, writer);
 c_file.fclose(writer);
 
-mut read_back: Array(char, 5) = ['\0', '\0', '\0', '\0', '\0'];
+mut read_back: Array(char, 5) = @zero(Array(char, 5));
 reader: *void = c_file.fopen("ffi_out.txt", "rb");
 read_count: i64 = c_file.fread(&read_back[0], 1, 5, reader);
 c_file.fclose(reader);

@@ -103,6 +103,7 @@ typedef enum MirTerminatorKind {
     MIR_TERM_BR,
     MIR_TERM_COND_BR,
     MIR_TERM_RET,
+    MIR_TERM_UNREACHABLE,
 } MirTerminatorKind;
 
 typedef struct MirValueInfo {
@@ -1213,6 +1214,11 @@ static void mirEmitRetValue(MirFunctionState *state, MirValueId value)
     mirCurrentFunction(state)->blocks[state->current_block].terminator.kind = MIR_TERM_RET;
     mirCurrentFunction(state)->blocks[state->current_block].terminator.data.ret.has_value = true;
     mirCurrentFunction(state)->blocks[state->current_block].terminator.data.ret.value = value;
+}
+
+static void mirEmitUnreachable(MirFunctionState *state)
+{
+    mirCurrentFunction(state)->blocks[state->current_block].terminator.kind = MIR_TERM_UNREACHABLE;
 }
 
 static bool mirIsCharPointerTarget(ASTDataType *data_type)
@@ -2989,7 +2995,7 @@ static MirValueId lowerUnwrapBuiltinExpr(MirFunctionState *state, MirLowerScope 
                                               newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID),
                                               node->filename, node->line_number, node->column_number);
     (void)panic_call;
-    mirEmitBr(state, end_block);
+    mirEmitUnreachable(state);
 
     mirSwitchToBlock(state, ok_block);
     MirValueId inner_ptr = mirEmitFieldPtr(state, optional_slot, optional_type->child,

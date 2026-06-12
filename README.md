@@ -84,3 +84,11 @@ mote [options] <dir>
   - 编译器 CLI、包导入解析与链接参数
 - [docs/runtime_abi.md](docs/runtime_abi.md)
   - MIR / LLVM 后端当前采用的运行时 ABI 约定
+
+## 标准库说明
+
+- 不再提供聚合入口 `std`，请直接从具体包导入，例如 `std:string`、`std:list`、`std:filesystem`
+- 文件相关标准库优先使用 `std:filesystem`
+- `std:fs` 目前保留为兼容 shim，但新代码建议直接导入 `std:filesystem`
+- `std:path` 只做路径字符串处理，不直接访问文件系统
+- `std:string` 同时包含 C 字符串包装和 Mote slice 字符串工具，两者语义不同，涉及内嵌 `\0` 时应优先使用 slice API

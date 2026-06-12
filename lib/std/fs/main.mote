@@ -1,22 +1,32 @@
 @package("fs");
 
-c = @import("std:internal/c");
+filesystem = @import("std:filesystem");
 
-pub open = c.fopen;
-pub close = c.fclose;
-pub read = c.fread;
-pub write = c.fwrite;
-pub flush = c.fflush;
-pub rewind = c.rewind;
-pub get_char = c.fgetc;
-pub put_char = c.fputc;
-pub get_line = c.fgets;
-pub put_string = c.fputs;
-pub eof = c.feof;
-pub error = c.ferror;
-pub remove = c.remove;
-pub rename = c.rename;
+// Compatibility shim. Prefer importing `std:filesystem` directly in new code.
 
-pub seek_set = c.SEEK_SET;
-pub seek_cur = c.SEEK_CUR;
-pub seek_end = c.SEEK_END;
+pub File = filesystem.File;
+
+pub open = filesystem.open;
+pub close = filesystem.close;
+pub read = filesystem.read;
+pub write = filesystem.write;
+pub flush = filesystem.flush;
+pub rewind = filesystem.rewind;
+pub get_char = filesystem.get_char;
+pub put_char = filesystem.put_char;
+pub get_line = filesystem.get_line;
+pub put_string = filesystem.put_string;
+pub eof = filesystem.eof;
+pub error = filesystem.error;
+pub remove = filesystem.remove;
+pub rename = filesystem.rename;
+pub exists = filesystem.exists;
+pub file_size = filesystem.file_size;
+pub read_all = filesystem.read_all;
+pub write_all = filesystem.write_all;
+pub remove_file = filesystem.remove_file;
+pub rename_file = filesystem.rename_file;
+
+pub seek_set = filesystem.seek_set;
+pub seek_cur = filesystem.seek_cur;
+pub seek_end = filesystem.seek_end;

@@ -1,0 +1,20 @@
+main = fn() i32 {
+    count: u32 = 10;
+    mask: u64 = 255;
+    small: u8 = 7;
+    grown: u32 = count + 1;
+
+    if(count != 10) {
+        return 1;
+    }
+    if(mask != 255) {
+        return 2;
+    }
+    if(small != 7) {
+        return 3;
+    }
+    if(grown != 11) {
+        return 4;
+    }
+    return 0;
+};

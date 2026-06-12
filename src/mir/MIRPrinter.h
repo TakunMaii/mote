@@ -226,6 +226,9 @@ static void printMirTerminator(FILE *stream, MirTerminator *terminator)
             else
                 fprintf(stream, "    ret\n");
             break;
+        case MIR_TERM_UNREACHABLE:
+            fprintf(stream, "    unreachable\n");
+            break;
     }
 }
 

@@ -1,0 +1,105 @@
+path = @import("std:path");
+mem = @import("std:mem");
+
+str_slice = fn(ptr: *char, len: i64) []char {
+    return @slice(char, @as(*mut char, ptr), len);
+};
+
+main = fn() void {
+    unix_path: []char = str_slice("assets/shaders/basic.frag", 25);
+    windows_path: []char = str_slice("C:\\game\\data\\pack.bin", 21);
+    root_path: []char = str_slice("/", 1);
+    drive_rel: []char = str_slice("C:assets", 8);
+    dotfile: []char = str_slice(".gitignore", 10);
+    windows_dir: []char = path.dirname(windows_path);
+    windows_base: []char = path.basename(windows_path);
+
+    if(!path.is_abs(root_path)) {
+        return;
+    }
+    if(!path.is_abs(windows_path)) {
+        return;
+    }
+    if(path.is_abs(unix_path)) {
+        return;
+    }
+    if(path.is_abs(drive_rel)) {
+        return;
+    }
+    if(path.root_len(windows_path) != 3 || path.root_len(drive_rel) != 2) {
+        return;
+    }
+
+    base: []char = path.basename(unix_path);
+    dir: []char = path.dirname(unix_path);
+    ext: []char = path.extension(unix_path);
+    stem: []char = path.stem(unix_path);
+
+    if(@len(base) != 10 || base[0] != 'b' || base[9] != 'g') {
+        return;
+    }
+    if(@len(dir) != 14 || dir[0] != 'a' || dir[13] != 's') {
+        return;
+    }
+    if(@len(ext) != 4 || ext[0] != 'f' || ext[3] != 'g') {
+        return;
+    }
+    if(@len(stem) != 5 || stem[0] != 'b' || stem[4] != 'c') {
+        return;
+    }
+    if(@len(windows_dir) != 12 || windows_dir[0] != 'C' || windows_dir[11] != 'a') {
+        return;
+    }
+    if(@len(windows_base) != 8 || windows_base[0] != 'p' || windows_base[7] != 'n') {
+        return;
+    }
+
+    joined_buf: []char = mem.make_zeroed(char, 64);
+    joined_len: ?i64 = path.join(joined_buf,
+                                 str_slice("assets", 6),
+                                 str_slice("textures/player.png", 19));
+    if(joined_len == null) {
+        mem.free_slice(char, joined_buf);
+        return;
+    }
+    if(@unwrap(joined_len) != 26 || joined_buf[6] != '/' || joined_buf[7] != 't') {
+        mem.free_slice(char, joined_buf);
+        return;
+    }
+
+    normalized_buf: []char = mem.make_zeroed(char, 64);
+    normalized_len: ?i64 = path.normalize(normalized_buf,
+                                          str_slice("assets//./shaders\\\\post.fx", 26));
+    if(normalized_len == null) {
+        mem.free_slice(char, joined_buf);
+        mem.free_slice(char, normalized_buf);
+        return;
+    }
+    if(@unwrap(normalized_len) != 22 || normalized_buf[6] != '/' || normalized_buf[14] != '/' || normalized_buf[15] != 'p') {
+        mem.free_slice(char, joined_buf);
+        mem.free_slice(char, normalized_buf);
+        return;
+    }
+
+    if(!path.has_extension(unix_path)) {
+        mem.free_slice(char, joined_buf);
+        mem.free_slice(char, normalized_buf);
+        return;
+    }
+    if(path.has_extension(dotfile) || @len(path.extension(dotfile)) != 0) {
+        mem.free_slice(char, joined_buf);
+        mem.free_slice(char, normalized_buf);
+        return;
+    }
+
+    root_trimmed: []char = path.trim_trailing_separators(root_path);
+    if(@len(root_trimmed) != 1 || root_trimmed[0] != '/') {
+        mem.free_slice(char, joined_buf);
+        mem.free_slice(char, normalized_buf);
+        return;
+    }
+
+    mem.free_slice(char, joined_buf);
+    mem.free_slice(char, normalized_buf);
+    sink = 1;
+};

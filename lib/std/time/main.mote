@@ -1,0 +1,82 @@
+@package("time");
+
+c = @import("std:internal/c");
+
+pub NANOS_PER_MICROSECOND: u64 = @as(u64, 1000);
+pub NANOS_PER_MILLISECOND: u64 = @as(u64, 1000000);
+pub NANOS_PER_SECOND: u64 = @as(u64, 1000000000);
+
+pub Duration = struct {
+    nanoseconds: u64,
+};
+
+pub Instant = struct {
+    tick_ns: u64,
+};
+
+pub duration_ns = fn(nanoseconds: u64) Duration {
+    return Duration {
+        .nanoseconds = nanoseconds,
+    };
+};
+
+pub duration_us = fn(microseconds: u64) Duration {
+    return duration_ns(microseconds * NANOS_PER_MICROSECOND);
+};
+
+pub duration_ms = fn(milliseconds: u64) Duration {
+    return duration_ns(milliseconds * NANOS_PER_MILLISECOND);
+};
+
+pub duration_seconds = fn(seconds: u64) Duration {
+    return duration_ns(seconds * NANOS_PER_SECOND);
+};
+
+pub ticks_per_second = fn() u64 {
+    return NANOS_PER_SECOND;
+};
+
+pub as_ns = fn(value: Duration) u64 {
+    return value.nanoseconds;
+};
+
+pub as_us = fn(value: Duration) u64 {
+    return value.nanoseconds / NANOS_PER_MICROSECOND;
+};
+
+pub as_ms = fn(value: Duration) u64 {
+    return value.nanoseconds / NANOS_PER_MILLISECOND;
+};
+
+pub as_seconds = fn(value: Duration) u64 {
+    return value.nanoseconds / NANOS_PER_SECOND;
+};
+
+pub now = fn() Instant {
+    return Instant {
+        .tick_ns = c.monotonic_ns(),
+    };
+};
+
+pub now_ticks = fn() u64 {
+    return c.monotonic_ns();
+};
+
+pub elapsed_since = fn(start: Instant, end: Instant) Duration {
+    if(end.tick_ns < start.tick_ns) {
+        return duration_ns(0);
+    }
+    return duration_ns(end.tick_ns - start.tick_ns);
+};
+
+pub elapsed = fn(start: Instant) Duration {
+    return elapsed_since(start, now());
+};
+
+pub sleep = fn(value: Duration) void {
+    c.sleep_ms(@as(i64, as_ms(value)));
+};
+
+pub sleep_ms = fn(milliseconds: u64) void {
+    c.sleep_ms(@as(i64, milliseconds));
+};

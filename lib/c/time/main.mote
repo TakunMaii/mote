@@ -1,0 +1,4 @@
+@package("time");
+
+pub monotonic_ns = @extern("mote_time_monotonic_ns", Function([], u64));
+pub sleep_ms = @extern("mote_sleep_ms", Function([i64], void));
