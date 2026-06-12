@@ -57,7 +57,7 @@ static void print_usage(const char *argv0)
     printf("  - -S writes LLVM IR instead of linking.\n");
     printf("  - mote requires clang to be available in PATH for executable emission.\n");
     printf("  - Predefined collections std, c, and vendor are searched automatically relative to the compiler executable.\n");
-    printf("  - If -o is omitted, the compiler derives output from the package directory name.\n");
+    printf("  - If -o is omitted, the compiler derives output from the root package name.\n");
     printf("\n");
     printf("Examples:\n");
     printf("  %s test\\\\basic\\\\simple\n", argv0);
@@ -67,10 +67,8 @@ static void print_usage(const char *argv0)
     printf("  %s cube_demo -o cube_demo\n", argv0);
 }
 
-static void build_output_path(char *buffer, size_t buffer_size, const char *input_path, const char *extension)
+static void build_output_path(char *buffer, size_t buffer_size, const char *basename, const char *extension)
 {
-    char basename[MAX_IDENTIFIER_LENGTH] = {0};
-    moduleBasename(input_path, basename, sizeof(basename));
     snprintf(buffer, buffer_size, "%s%s", basename, extension);
 }
 
@@ -879,8 +877,11 @@ int main(int argn, char** argv)
 
     add_default_official_link_args(argv[0], packages, package_count, input_path, driver_args, &driver_arg_count);
 
+    ASTNode *root = buildModuleProgramAST(input_path, packages, package_count, emit_exe);
     char default_llvm_output_path[1024] = {0};
     char default_exe_output_path[1024] = {0};
+    const char *default_output_basename = root->package_name[0] != '\0' ? root->package_name : input_path;
+
     if(requested_output_path != NULL)
     {
         if(emit_exe)
@@ -893,7 +894,7 @@ int main(int argn, char** argv)
     {
         if(exe_output_path == NULL)
         {
-            build_output_path(default_exe_output_path, sizeof(default_exe_output_path), input_path,
+            build_output_path(default_exe_output_path, sizeof(default_exe_output_path), default_output_basename,
 #if defined(_WIN32)
                               ".exe"
 #else
@@ -911,9 +912,11 @@ int main(int argn, char** argv)
         }
     }
     else if(emit_llvm && llvm_output_path == NULL)
-        build_output_path(default_llvm_output_path, sizeof(default_llvm_output_path), input_path, ".ll"), llvm_output_path = default_llvm_output_path;
+    {
+        build_output_path(default_llvm_output_path, sizeof(default_llvm_output_path), default_output_basename, ".ll");
+        llvm_output_path = default_llvm_output_path;
+    }
 
-    ASTNode *root = buildModuleProgramAST(input_path, packages, package_count, emit_exe);
     checkAssignSemantics(root);
     checkAssignTypes(root);
     if(dump_ast)

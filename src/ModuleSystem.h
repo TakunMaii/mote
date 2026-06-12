@@ -216,18 +216,6 @@ static bool moduleHasMoteExtension(const char *path)
     return last_dot != NULL && strcmp(last_dot, ".mote") == 0;
 }
 
-static void moduleBasename(const char *path, char *buffer, size_t buffer_size)
-{
-    const char *last_backslash = strrchr(path, '\\');
-    const char *last_slash = strrchr(path, '/');
-    const char *separator = last_backslash;
-    if(separator == NULL || (last_slash != NULL && last_slash > separator))
-        separator = last_slash;
-
-    const char *base = separator == NULL ? path : separator + 1;
-    snprintf(buffer, buffer_size, "%s", base);
-}
-
 static int moduleCompareStrings(const void *lhs, const void *rhs)
 {
     const char *left = (const char*) lhs;
@@ -664,11 +652,6 @@ static ModuleSourceFile* moduleLoadRecursive(ModuleCompileContext *context, cons
     moduleDirectoryName(canonical_path, module->directory);
     module->visit_state = 1;
     module->ast_root = moduleParsePackageDirectory(canonical_path, module->package_name);
-
-    char package_basename[MAX_IDENTIFIER_LENGTH] = {0};
-    moduleBasename(canonical_path, package_basename, sizeof(package_basename));
-    if(strcmp(package_basename, module->package_name) != 0)
-        moduleSystemError("package directory name must match @package name", canonical_path, 0, 0);
 
     moduleScanImports(context, module);
     module->visit_state = 2;

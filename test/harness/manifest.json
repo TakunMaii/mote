@@ -43,6 +43,12 @@
       "input": "test\\basic\\collection_import"
     },
     {
+      "name": "package-dir-name-mismatch-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\pkg\\mismatch_dir"
+    },
+    {
       "name": "import-call-arg-min-llvm",
       "expect": "success",
       "mode": "llvm",
