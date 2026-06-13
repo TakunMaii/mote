@@ -10,23 +10,23 @@ pub Set = fn(T: Type) Type {
         inner: map.Map(T, bool),
 
         deinit: fn(self: &mut Self) void {
-            map.deinit(T, bool, &mut self.inner);
+            self.inner.deinit();
         },
 
         clear: fn(self: &mut Self) void {
-            map.clear(T, bool, &mut self.inner);
+            self.inner.clear();
         },
 
         contains: fn(self: &Self, value: T) bool {
-            return map.contains(T, bool, &self.inner, value);
+            return self.inner.contains(value);
         },
 
         insert: fn(self: &mut Self, value: T) void {
-            map.put(T, bool, &mut self.inner, value, true);
+            self.inner.put(value, true);
         },
 
         remove: fn(self: &mut Self, value: T) bool {
-            return map.remove(T, bool, &mut self.inner, value);
+            return self.inner.remove(value);
         },
     };
 };
@@ -53,24 +53,4 @@ pub init_cap_in_arena = fn(T: Type, arena: mem.Arena, cap: types.size_t, hash_fn
     return Set(T) {
         .inner = map.init_cap_in_arena(T, bool, arena, cap, hash_fn, eq_fn),
     };
-};
-
-pub deinit = fn(T: Type, self: &mut Set(T)) void {
-    map.deinit(T, bool, &mut self.inner);
-};
-
-pub clear = fn(T: Type, self: &mut Set(T)) void {
-    map.clear(T, bool, &mut self.inner);
-};
-
-pub contains = fn(T: Type, self: &Set(T), value: T) bool {
-    return map.contains(T, bool, &self.inner, value);
-};
-
-pub insert = fn(T: Type, self: &mut Set(T), value: T) void {
-    map.put(T, bool, &mut self.inner, value, true);
-};
-
-pub remove = fn(T: Type, self: &mut Set(T), value: T) bool {
-    return map.remove(T, bool, &mut self.inner, value);
 };
