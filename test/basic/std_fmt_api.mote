@@ -41,25 +41,25 @@ main = fn() i32 {
 
     builder_buf: []char = mem.make_zeroed(char, 32);
     mut builder: fmt.Appender = fmt.appender(builder_buf);
-    if(!fmt.append(&mut builder, @slice(char, @as(*mut char, "HP "), 3))) {
+    if(!builder.append(@slice(char, @as(*mut char, "HP "), 3))) {
         mem.free_slice(char, tiny);
         mem.free_slice(char, builder_buf);
         mem.free_slice(char, buf);
         return 6;
     }
-    if(!fmt.append_i64_to(&mut builder, 99)) {
+    if(!builder.append_i64(99)) {
         mem.free_slice(char, tiny);
         mem.free_slice(char, builder_buf);
         mem.free_slice(char, buf);
         return 7;
     }
-    if(!fmt.append_char_to(&mut builder, '/')) {
+    if(!builder.append_char('/')) {
         mem.free_slice(char, tiny);
         mem.free_slice(char, builder_buf);
         mem.free_slice(char, buf);
         return 8;
     }
-    if(!fmt.append_u64_to(&mut builder, 100)) {
+    if(!builder.append_u64(100)) {
         mem.free_slice(char, tiny);
         mem.free_slice(char, builder_buf);
         mem.free_slice(char, buf);
@@ -74,7 +74,7 @@ main = fn() i32 {
 
     small_builder_buf: []char = mem.make_zeroed(char, 4);
     mut small_builder: fmt.Appender = fmt.appender(small_builder_buf);
-    if(fmt.append(&mut small_builder, @slice(char, @as(*mut char, "hello"), 5))) {
+    if(small_builder.append(@slice(char, @as(*mut char, "hello"), 5))) {
         mem.free_slice(char, small_builder_buf);
         mem.free_slice(char, tiny);
         mem.free_slice(char, builder_buf);
