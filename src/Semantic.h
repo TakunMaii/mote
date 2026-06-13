@@ -743,12 +743,14 @@ void checkStatementSemantics(ASTNode *node, ScopeFrame *scope, FunctionContext *
 void checkAssignSemanticsInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context)
 {
     ScopeFrame *current_scope = newScopeFrame(parent_scope);
+    current_scope->instantiation_site = parent_scope != NULL ? parent_scope->instantiation_site : block;
     if(parent_scope == NULL)
         predeclareTopLevelBindings(block, current_scope);
 
     ASTNode *node = block->lhs;
     while(node)
     {
+        current_scope->instantiation_site = node;
         checkStatementSemantics(node, current_scope, function_context);
         node = node->next;
     }
@@ -812,7 +814,7 @@ ASTDataType* resolveCallSemanticFunctionType(ASTNode *call_node, ScopeFrame *sco
     {
         VariableInfo *callee_variable = findVariableInfo(scope, call_node->lhs->identifier);
         if(callee_variable != NULL && callee_variable->function_value != NULL)
-            return instantiateFunctionCallResolvedFunctionType(callee_variable->function_value, call_node->rhs, scope);
+            return instantiateFunctionCallResolvedFunctionType(callee_variable->function_value, call_node->rhs, call_node, scope);
     }
 
     TypeSystemExprType callee_type = inferExprType(call_node->lhs, scope);
@@ -838,10 +840,11 @@ void checkSpecializedCallArguments(ASTNode *call_node, ScopeFrame *scope)
     ASTDataType *specialized_type = instantiateFunctionCallResolvedFunctionType(
         callee_variable->function_value,
         call_node->rhs,
+        call_node,
         scope
     );
     if(specialized_type != NULL && specialized_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
-        checkFunctionCallArguments(specialized_type->parameters, call_node->rhs, scope, specialized_type->is_variadic);
+        checkFunctionCallArguments(specialized_type->parameters, call_node->rhs, scope, specialized_type->is_variadic, call_node);
 }
 
 ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
@@ -1002,6 +1005,7 @@ ASTFunctionParameter* resolveFunctionTypeParameters(ASTFunctionParameter *parame
     ASTFunctionParameter *head = NULL;
     ASTFunctionParameter *tail = NULL;
     ScopeFrame *signature_scope = newScopeFrame(outer_scope);
+    signature_scope->instantiation_site = outer_scope != NULL ? outer_scope->instantiation_site : NULL;
     ASTFunctionParameter *scan = parameter;
 
     while(scan)
@@ -1162,6 +1166,7 @@ ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope,
     ASTFunctionParameter *resolved_parameters = resolveFunctionTypeParameters(node->parameters, outer_scope, self_data_type);
 
     ScopeFrame *signature_scope = newScopeFrame(outer_scope);
+    signature_scope->instantiation_site = node;
     if(self_data_type != NULL)
     {
         VariableInfo *self_variable = declareVariableInfo(signature_scope, "Self");
@@ -1249,6 +1254,7 @@ void checkFunctionExprTypes(ASTNode *node, ScopeFrame *scope, ASTDataType *self_
     node->return_data_type = cloneDataType(node->data_type->return_data_type);
 
     ScopeFrame *function_scope = newScopeFrame(scope);
+    function_scope->instantiation_site = node;
     declareResolvedFunctionParameters(node->data_type->parameters, function_scope, self_data_type);
     declareFunctionCaptures(node->captures, function_scope, scope);
     if(self_data_type != NULL)
@@ -1790,6 +1796,7 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
 void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionContext *function_context)
 {
     ScopeFrame *current_scope = newScopeFrame(parent_scope);
+    current_scope->instantiation_site = parent_scope != NULL ? parent_scope->instantiation_site : block;
     if(parent_scope == NULL)
     {
         predeclareTopLevelBindings(block, current_scope);
@@ -1800,6 +1807,7 @@ void checkAssignTypesInBlock(ASTNode *block, ScopeFrame *parent_scope, FunctionC
     ASTNode *node = block->lhs;
     while(node)
     {
+        current_scope->instantiation_site = node;
         checkStatementTypes(node, current_scope, function_context);
         node = node->next;
     }

@@ -161,28 +161,42 @@ ASTDataType* parsePrimaryDataType(Token **token)
 {
     if((*token)->kind == TK_LEFT_BRACKET && (*token)->next != NULL && (*token)->next->kind == TK_RIGHT_BRACKET)
     {
+        Token *start_token = *token;
         (*token) = (*token)->next->next;
-        return newSliceDataType(parseDataType(token));
+        ASTDataType *data_type = newSliceDataType(parseDataType(token));
+        setASTDataTypeSourceSpanFromToken(data_type, start_token);
+        setASTDataTypeEndFromToken(data_type, *token == NULL ? start_token : (*token)->next != NULL ? (*token)->next : start_token);
+        return data_type;
     }
 
     if((*token)->kind == TK_TYPE)
     {
+        Token *type_token = *token;
         (*token) = (*token)->next;
-        return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
+        ASTDataType *data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
+        setASTDataTypeSourceSpanFromToken(data_type, type_token);
+        return data_type;
     }
 
     if((*token)->kind == TK_VOID)
     {
+        Token *void_token = *token;
         (*token) = (*token)->next;
-        return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
+        ASTDataType *data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
+        setASTDataTypeSourceSpanFromToken(data_type, void_token);
+        return data_type;
     }
 
     if((*token)->kind == TK_OPAQUE)
     {
+        Token *opaque_token = *token;
         (*token) = (*token)->next;
-        return newOpaqueDataType("");
+        ASTDataType *data_type = newOpaqueDataType("");
+        setASTDataTypeSourceSpanFromToken(data_type, opaque_token);
+        return data_type;
     }
 
+    Token *start_token = *token;
     char identifier[MAX_IDENTIFIER_LENGTH] = {0};
     parseQualifiedIdentifier(token, identifier);
 
@@ -203,9 +217,12 @@ ASTDataType* parsePrimaryDataType(Token **token)
         expectToken(*token, TK_COMMA);
         (*token) = (*token)->next;
         ASTDataType *return_data_type = parseDataType(token);
-        expectToken(*token, TK_RIGHT_PARENTHESIS);
+        Token *end_token = expectToken(*token, TK_RIGHT_PARENTHESIS);
         (*token) = (*token)->next;
-        return newFunctionDataType(parameters, is_variadic, return_data_type);
+        ASTDataType *data_type = newFunctionDataType(parameters, is_variadic, return_data_type);
+        setASTDataTypeSourceSpanFromToken(data_type, start_token);
+        setASTDataTypeEndFromToken(data_type, end_token);
+        return data_type;
     }
     else if(strcmp(identifier, "Array") == 0)
     {
@@ -222,9 +239,12 @@ ASTDataType* parsePrimaryDataType(Token **token)
                                   "array length must fit within `i64`");
         long long int array_length = (long long int) length_token->literal_integer;
         (*token) = (*token)->next;
-        expectToken(*token, TK_RIGHT_PARENTHESIS);
+        Token *end_token = expectToken(*token, TK_RIGHT_PARENTHESIS);
         (*token) = (*token)->next;
-        return newArrayDataType(element_type, array_length);
+        ASTDataType *data_type = newArrayDataType(element_type, array_length);
+        setASTDataTypeSourceSpanFromToken(data_type, start_token);
+        setASTDataTypeEndFromToken(data_type, end_token);
+        return data_type;
     }
     else if(strcmp(identifier, "i8") == 0)
         primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I8);
@@ -255,9 +275,14 @@ ASTDataType* parsePrimaryDataType(Token **token)
     else if(strcmp(identifier, "bool") == 0)
         primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL);
     else if(strcmp(identifier, "string") == 0)
-        return newStringDataType();
+    {
+        ASTDataType *data_type = newStringDataType();
+        setASTDataTypeSourceSpanFromToken(data_type, start_token);
+        return data_type;
+    }
     else
         primary = newNamedDataType(identifier);
+    setASTDataTypeSourceSpanFromToken(primary, start_token);
     return primary;
 }
 
@@ -265,20 +290,44 @@ ASTDataType* parseDataType(Token **token)
 {
     if((*token)->kind == TK_QUESTION)
     {
+        Token *start_token = *token;
         (*token) = (*token)->next;
-        return newWrappedDataType(AST_DATA_TYPE_KIND_OPTIONAL, parseDataType(token));
+        ASTDataType *data_type = newWrappedDataType(AST_DATA_TYPE_KIND_OPTIONAL, parseDataType(token));
+        setASTDataTypeSourceSpanFromToken(data_type, start_token);
+        if(data_type->child != NULL)
+            setASTDataTypeSourceSpan(data_type,
+                                     start_token->filename,
+                                     start_token->line_number, start_token->column_number,
+                                     data_type->child->end_line_number, data_type->child->end_column_number);
+        return data_type;
     }
 
     if((*token)->kind == TK_STAR)
     {
+        Token *start_token = *token;
         (*token) = (*token)->next;
-        return newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, parseDataType(token));
+        ASTDataType *data_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, parseDataType(token));
+        setASTDataTypeSourceSpanFromToken(data_type, start_token);
+        if(data_type->child != NULL)
+            setASTDataTypeSourceSpan(data_type,
+                                     start_token->filename,
+                                     start_token->line_number, start_token->column_number,
+                                     data_type->child->end_line_number, data_type->child->end_column_number);
+        return data_type;
     }
 
     if((*token)->kind == TK_AMPERSAND)
     {
+        Token *start_token = *token;
         (*token) = (*token)->next;
-        return newWrappedDataType(AST_DATA_TYPE_KIND_REFERENCE, parseDataType(token));
+        ASTDataType *data_type = newWrappedDataType(AST_DATA_TYPE_KIND_REFERENCE, parseDataType(token));
+        setASTDataTypeSourceSpanFromToken(data_type, start_token);
+        if(data_type->child != NULL)
+            setASTDataTypeSourceSpan(data_type,
+                                     start_token->filename,
+                                     start_token->line_number, start_token->column_number,
+                                     data_type->child->end_line_number, data_type->child->end_column_number);
+        return data_type;
     }
 
     return parseTypeExpr(token);
@@ -289,7 +338,27 @@ ASTDataType* parseTypeExpr(Token **token)
     ASTDataType *data_type = parsePrimaryDataType(token);
 
     while((*token)->kind == TK_LEFT_PARENTHESIS)
-        data_type = newAppliedDataType(data_type, parseTypeArgumentList(token));
+    {
+        ASTTypeArgument *arguments = parseTypeArgumentList(token);
+        ASTDataType *applied = newAppliedDataType(data_type, arguments);
+        if(data_type != NULL && data_type->filename != NULL)
+            setASTDataTypeSourceSpan(applied,
+                                     data_type->filename,
+                                     data_type->line_number, data_type->column_number,
+                                     data_type->end_line_number, data_type->end_column_number);
+        if(arguments != NULL)
+        {
+            ASTTypeArgument *tail = arguments;
+            while(tail->next != NULL)
+                tail = tail->next;
+            if(tail->data_type != NULL)
+            {
+                applied->end_line_number = tail->data_type->end_line_number;
+                applied->end_column_number = tail->data_type->end_column_number;
+            }
+        }
+        data_type = applied;
+    }
 
     return data_type;
 }

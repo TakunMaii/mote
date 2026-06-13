@@ -137,6 +137,11 @@ typedef struct ASTFunctionParameter {
 } ASTFunctionParameter;
 
 typedef struct ASTDataType {
+    const char *filename;
+    int line_number;
+    int column_number;
+    int end_line_number;
+    int end_column_number;
     ASTDataTypeKind kind;
     ASTPrimaryDataType primary;
     char identifier[MAX_IDENTIFIER_LENGTH];
@@ -577,6 +582,46 @@ SourceSpan astEnumVariantSourceSpan(ASTEnumVariant *variant)
     return makeSourceSpan(variant->filename,
                           variant->line_number, variant->column_number,
                           variant->end_line_number, variant->end_column_number);
+}
+
+void setASTDataTypeSourceSpan(ASTDataType *data_type, const char *filename,
+                              int line_number, int column_number,
+                              int end_line_number, int end_column_number)
+{
+    if(data_type == NULL)
+        return;
+    data_type->filename = filename;
+    data_type->line_number = line_number;
+    data_type->column_number = column_number;
+    data_type->end_line_number = end_line_number;
+    data_type->end_column_number = end_column_number;
+}
+
+void setASTDataTypeSourceSpanFromToken(ASTDataType *data_type, Token *token)
+{
+    if(data_type == NULL || token == NULL)
+        return;
+    setASTDataTypeSourceSpan(data_type,
+                             token->filename,
+                             token->line_number, token->column_number,
+                             token->end_line_number, token->end_column_number);
+}
+
+void setASTDataTypeEndFromToken(ASTDataType *data_type, Token *token)
+{
+    if(data_type == NULL || token == NULL)
+        return;
+    data_type->end_line_number = token->end_line_number;
+    data_type->end_column_number = token->end_column_number;
+}
+
+SourceSpan astDataTypeSourceSpan(ASTDataType *data_type)
+{
+    if(data_type == NULL)
+        return makeSourceSpan(NULL, 0, 0, 0, 0);
+    return makeSourceSpan(data_type->filename,
+                          data_type->line_number, data_type->column_number,
+                          data_type->end_line_number, data_type->end_column_number);
 }
 
 ASTDataType* cloneDataTypeInternal(ASTDataType *data_type, ASTDataTypeCloneEntry **memo)

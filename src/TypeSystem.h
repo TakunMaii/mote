@@ -30,12 +30,13 @@ void bindCapturedValuesForInstantiation(ASTFunctionCapture *capture, ScopeFrame 
 void bindCallArgumentsForInstantiation(ASTFunctionParameter *parameter, ASTNode *argument, ScopeFrame *inst_scope, ScopeFrame *outer_scope);
 ASTNode* findReturnedExpr(ASTNode *function_expr);
 ASTDataType* instantiateTypeExprValue(ASTNode *expr, ScopeFrame *inst_scope);
-TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTNode *call_arguments, ScopeFrame *outer_scope);
+TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTNode *call_arguments, ASTNode *call_site, ScopeFrame *outer_scope);
 ASTNode* buildTypeLiteralArgumentExprs(ASTTypeArgument *argument, ScopeFrame *scope, ASTDataType *self_data_type);
 ASTNode* resolveFunctionValueExpr(ASTNode *expr, ScopeFrame *scope);
 ASTNode* resolveExternValueExpr(ASTNode *expr, ScopeFrame *scope);
 bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType *target_type);
 bool canBindReferenceArgument(ASTNode *argument, ScopeFrame *scope, ASTDataType *parameter_type);
+void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argument, ScopeFrame *scope, bool is_variadic, ASTNode *call_site);
 
 typedef struct ResolvedOperatorOverload {
     ASTNode *function_value;
@@ -171,6 +172,84 @@ void typeSystemDescribeExprType(TypeSystemExprType expr_type, char *buffer, size
     appendASTDataTypeString(expr_type.data_type, buffer, buffer_size);
 }
 
+void typeSystemDescribeDataType(ASTDataType *data_type, char *buffer, size_t buffer_size)
+{
+    if(buffer_size == 0)
+        return;
+
+    if(data_type == NULL)
+    {
+        diagnosticFormat(buffer, buffer_size, "<unknown>");
+        return;
+    }
+
+    appendASTDataTypeString(data_type, buffer, buffer_size);
+}
+
+static int typeSystemCountFunctionParameters(ASTFunctionParameter *parameter)
+{
+    int count = 0;
+    while(parameter != NULL)
+    {
+        count++;
+        parameter = parameter->next;
+    }
+    return count;
+}
+
+static int typeSystemCountCallArguments(ASTNode *argument)
+{
+    int count = 0;
+    while(argument != NULL)
+    {
+        count++;
+        argument = argument->next;
+    }
+    return count;
+}
+
+static MOTE_NORETURN void typeSystemAbortExpectedDescriptionFoundExpr(const char *code,
+                                                                      ASTNode *node,
+                                                                      const char *message,
+                                                                      const char *expected_description,
+                                                                      TypeSystemExprType actual_type)
+{
+    char actual_buffer[256] = {0};
+    typeSystemDescribeExprType(actual_type, actual_buffer, sizeof(actual_buffer));
+
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                           code,
+                                           astNodeSourceSpan(node),
+                                           message);
+    diagnosticSetPrimaryLabel(&diagnostic,
+                              "expected %s, found %s",
+                              expected_description,
+                              actual_buffer);
+    diagnosticAbort(diagnostic);
+}
+
+static MOTE_NORETURN void typeSystemAbortExpectedDataTypeFoundExpr(const char *code,
+                                                                   ASTNode *node,
+                                                                   const char *message,
+                                                                   ASTDataType *expected_type,
+                                                                   TypeSystemExprType actual_type)
+{
+    char expected_buffer[256] = {0};
+    char actual_buffer[256] = {0};
+    typeSystemDescribeDataType(expected_type, expected_buffer, sizeof(expected_buffer));
+    typeSystemDescribeExprType(actual_type, actual_buffer, sizeof(actual_buffer));
+
+    Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                           code,
+                                           astNodeSourceSpan(node),
+                                           message);
+    diagnosticSetPrimaryLabel(&diagnostic,
+                              "expected %s, found %s",
+                              expected_buffer,
+                              actual_buffer);
+    diagnosticAbort(diagnostic);
+}
+
 bool isInferDataType(ASTDataType *data_type)
 {
     return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_INFER;
@@ -188,9 +267,9 @@ static ASTDataType* typeSystemResolvePredeclaredVariableType(VariableInfo *varia
            variable_info->data_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
         {
             if(variable_info->resolving)
-                typeSystemAbortNoSpan("T1248",
-                                      "cyclic top-level value dependency is not supported",
-                                      "break the cycle by adding an explicit type or refactoring the initialization");
+                typeSystemAbortNode("T1248", variable_info->value_expr,
+                                    "cyclic top-level value dependency is not supported",
+                                    "break the cycle by adding an explicit type or refactoring the initialization");
 
             variable_info->resolving = true;
             TypeSystemExprType resolved_expr_type = inferExprType(variable_info->value_expr, scope);
@@ -203,9 +282,9 @@ static ASTDataType* typeSystemResolvePredeclaredVariableType(VariableInfo *varia
     if(variable_info->value_expr == NULL)
         return variable_info->data_type;
     if(variable_info->resolving)
-        typeSystemAbortNoSpan("T1248",
-                              "cyclic top-level value dependency is not supported",
-                              "break the cycle by adding an explicit type or refactoring the initialization");
+        typeSystemAbortNode("T1248", variable_info->value_expr,
+                            "cyclic top-level value dependency is not supported",
+                            "break the cycle by adding an explicit type or refactoring the initialization");
 
     variable_info->resolving = true;
     TypeSystemExprType resolved_expr_type = inferExprType(variable_info->value_expr, scope);
@@ -975,9 +1054,14 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
             if(strcmp(data_type->identifier, "Self") == 0)
             {
                 if(self_data_type == NULL)
-                    typeSystemAbortNoSpan("T1201",
-                                          "`Self` is only allowed inside a struct method",
-                                          NULL);
+                    diagnosticAbortFormatted("T1201",
+                                             data_type->filename != NULL
+                                                 ? astDataTypeSourceSpan(data_type)
+                                                 : (scope != NULL && scope->instantiation_site != NULL
+                                                        ? astNodeSourceSpan(scope->instantiation_site)
+                                                        : makeSourceSpan(NULL, 0, 0, 0, 0)),
+                                             NULL,
+                                             "`Self` is only allowed inside a struct method");
                 return self_data_type;
             }
 
@@ -990,7 +1074,11 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
                 if(variable_info != NULL && variable_info->type_value != NULL)
                     return cloneDataType(variable_info->type_value);
                 diagnosticAbortFormatted("T1202",
-                                         makeSourceSpan(NULL, 0, 0, 0, 0),
+                                         data_type->filename != NULL
+                                             ? astDataTypeSourceSpan(data_type)
+                                             : (scope != NULL && scope->instantiation_site != NULL
+                                                    ? astNodeSourceSpan(scope->instantiation_site)
+                                                    : makeSourceSpan(NULL, 0, 0, 0, 0)),
                                          NULL,
                                          "unknown data type `%s`",
                                          astUserFacingIdentifier(data_type->identifier));
@@ -1093,19 +1181,26 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
                            allow_recursive_factory_result)
                             return active_instantiation->instantiating_type_result;
 
-                        typeSystemAbortNoSpan("T1240",
+                        diagnosticAbortSimple("T1240",
                                               "recursive generic instantiation is not supported",
+                                              active_instantiation->instantiation_site != NULL
+                                                  ? astNodeSourceSpan(active_instantiation->instantiation_site)
+                                                  : makeSourceSpan(NULL, 0, 0, 0, 0),
                                               "this recursive type use requires an explicit indirection such as `*T`, `&T`, `Function(...)`, or `[]T`");
                     }
 
                     TypeSystemExprType applied_type = instantiateFunctionCallExprType(
                         callee_variable->function_value,
                         buildTypeLiteralArgumentExprs(data_type->arguments, scope, self_data_type),
+                        scope != NULL ? scope->instantiation_site : NULL,
                         scope
                         );
                     if(applied_type.kind != TYPE_SYSTEM_EXPR_TYPE_TYPE)
-                        typeSystemAbortNoSpan("T1203",
+                        diagnosticAbortSimple("T1203",
                                               "type application requires a constructor returning `Type`",
+                                              scope != NULL && scope->instantiation_site != NULL
+                                                  ? astNodeSourceSpan(scope->instantiation_site)
+                                                  : makeSourceSpan(NULL, 0, 0, 0, 0),
                                               NULL);
                     return cloneDataType(applied_type.data_type);
                 }
@@ -1128,8 +1223,11 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
             return newAppliedDataType(resolved_callee, resolved_arguments);
         }
         default:
-            typeSystemAbortNoSpan("ICE0201",
+            diagnosticAbortSimple("ICE0201",
                                   "resolveNamedDataType hit unsupported AST data type kind",
+                                  scope != NULL && scope->instantiation_site != NULL
+                                      ? astNodeSourceSpan(scope->instantiation_site)
+                                      : makeSourceSpan(NULL, 0, 0, 0, 0),
                                   NULL);
     }
 }
@@ -1339,6 +1437,9 @@ void bindCapturedValuesForInstantiation(ASTFunctionCapture *capture, ScopeFrame 
 
 void bindCallArgumentsForInstantiation(ASTFunctionParameter *parameter, ASTNode *argument, ScopeFrame *inst_scope, ScopeFrame *outer_scope)
 {
+    ASTFunctionParameter *expected_parameters = parameter;
+    ASTNode *provided_arguments = argument;
+
     while(parameter && argument)
     {
         VariableInfo *inst_variable = declareVariableInfo(inst_scope, parameter->identifier);
@@ -1375,17 +1476,19 @@ void bindCallArgumentsForInstantiation(ASTFunctionParameter *parameter, ASTNode 
         if(resolved_parameter_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
         {
             if(!canBindReferenceArgument(argument, outer_scope, resolved_parameter_type))
-                typeSystemAbortNode("T1220", argument,
-                                    "function reference argument type mismatch",
-                                    "argument cannot bind to the reference parameter");
+                typeSystemAbortExpectedDataTypeFoundExpr("T1220", argument,
+                                                         "function reference argument type mismatch",
+                                                         resolved_parameter_type,
+                                                         inferExprType(argument, outer_scope));
         }
         else if(resolved_parameter_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
                 resolved_parameter_type->primary != AST_PRIMARY_DATA_TYPE_TYPE)
         {
             if(!canImplicitConvertExprToType(argument, outer_scope, resolved_parameter_type))
-                typeSystemAbortNode("T1221", argument,
-                                    "function argument type mismatch",
-                                    "argument cannot be implicitly converted to the parameter type");
+                typeSystemAbortExpectedDataTypeFoundExpr("T1221", argument,
+                                                         "function argument type mismatch",
+                                                         resolved_parameter_type,
+                                                         inferExprType(argument, outer_scope));
         }
 
         parameter = parameter->next;
@@ -1393,9 +1496,22 @@ void bindCallArgumentsForInstantiation(ASTFunctionParameter *parameter, ASTNode 
     }
 
     if(parameter != NULL || argument != NULL)
-        typeSystemAbortNoSpan("T1206",
-                              "function call argument count mismatch during instantiation",
-                              NULL);
+    {
+        Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                               "T1206",
+                                               astNodeSourceSpan(
+                                                   argument != NULL
+                                                       ? argument
+                                                       : (inst_scope != NULL ? inst_scope->instantiation_site : provided_arguments)
+                                               ),
+                                               "function argument count mismatch");
+        diagnosticSetPrimaryLabel(&diagnostic,
+                                  "expected %d argument%s, found %d",
+                                  typeSystemCountFunctionParameters(expected_parameters),
+                                  typeSystemCountFunctionParameters(expected_parameters) == 1 ? "" : "s",
+                                  typeSystemCountCallArguments(provided_arguments));
+        diagnosticAbort(diagnostic);
+    }
 }
 
 ASTNode* findReturnedExpr(ASTNode *function_expr)
@@ -1445,8 +1561,11 @@ ASTDataType* instantiateStructTypeExpr(ASTNode *expr, ScopeFrame *inst_scope)
 ASTDataType* instantiateTypeExprValue(ASTNode *expr, ScopeFrame *inst_scope)
 {
     if(expr == NULL)
-        typeSystemAbortNoSpan("T1207",
+        diagnosticAbortSimple("T1207",
                               "expected a type-valued return expression",
+                              inst_scope != NULL && inst_scope->instantiation_site != NULL
+                                  ? astNodeSourceSpan(inst_scope->instantiation_site)
+                                  : makeSourceSpan(NULL, 0, 0, 0, 0),
                               NULL);
 
     if(expr->kind == AST_EXPR_STRUCT)
@@ -1475,7 +1594,23 @@ ASTDataType* instantiateTypeExprValue(ASTNode *expr, ScopeFrame *inst_scope)
         VariableInfo *callee = findVariableInfo(inst_scope, expr->lhs->identifier);
         if(callee != NULL && callee->function_value != NULL)
         {
+            ScopeFrame *active_instantiation = findInstantiatingFunctionScope(inst_scope, callee->function_value);
+            if(active_instantiation != NULL)
+            {
+                if(active_instantiation->instantiating_type_result != NULL)
+                    return active_instantiation->instantiating_type_result;
+
+                diagnosticAbortSimple("T1240",
+                                      "recursive generic instantiation is not supported",
+                                      active_instantiation->instantiation_site != NULL
+                                          ? astNodeSourceSpan(active_instantiation->instantiation_site)
+                                          : astNodeSourceSpan(expr),
+                                      "this recursive type use requires an explicit indirection such as `*T`, `&T`, `Function(...)`, or `[]T`");
+            }
+
             ScopeFrame *nested_scope = newScopeFrame(inst_scope);
+            nested_scope->instantiating_function = callee->function_value;
+            nested_scope->instantiation_site = expr;
             bindCapturedValuesForInstantiation(callee->function_value->captures, nested_scope, inst_scope);
             bindCallArgumentsForInstantiation(callee->function_value->parameters, expr->rhs, nested_scope, inst_scope);
             ASTDataType *result = instantiateTypeExprValue(findReturnedExpr(callee->function_value), nested_scope);
@@ -1505,7 +1640,23 @@ ASTDataType* instantiateTypeExprValue(ASTNode *expr, ScopeFrame *inst_scope)
             ASTStructMember *member = findStructMember(struct_type, member_expr->identifier);
             if(member != NULL && member->value != NULL && member->value->kind == AST_EXPR_FUNCTION)
             {
+                ScopeFrame *active_instantiation = findInstantiatingFunctionScope(inst_scope, member->value);
+                if(active_instantiation != NULL)
+                {
+                    if(active_instantiation->instantiating_type_result != NULL)
+                        return active_instantiation->instantiating_type_result;
+
+                    diagnosticAbortSimple("T1240",
+                                          "recursive generic instantiation is not supported",
+                                          active_instantiation->instantiation_site != NULL
+                                              ? astNodeSourceSpan(active_instantiation->instantiation_site)
+                                              : astNodeSourceSpan(expr),
+                                          "this recursive type use requires an explicit indirection such as `*T`, `&T`, `Function(...)`, or `[]T`");
+                }
+
                 ScopeFrame *nested_scope = newScopeFrame(inst_scope);
+                nested_scope->instantiating_function = member->value;
+                nested_scope->instantiation_site = expr;
                 bindMethodSpecializationScope(nested_scope, struct_type, member);
                 bindCapturedValuesForInstantiation(member->value->captures, nested_scope, inst_scope);
                 bindCallArgumentsForInstantiation(member->value->parameters, expr->rhs, nested_scope, inst_scope);
@@ -1601,11 +1752,11 @@ ASTNode* resolveExternValueExpr(ASTNode *expr, ScopeFrame *scope)
     return NULL;
 }
 
-TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTNode *call_arguments, ScopeFrame *outer_scope)
+TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTNode *call_arguments, ASTNode *call_site, ScopeFrame *outer_scope)
 {
     ScopeFrame *inst_scope = newScopeFrame(outer_scope);
     inst_scope->instantiating_function = function_value;
-    inst_scope->instantiation_site = call_arguments != NULL ? call_arguments : function_value;
+    inst_scope->instantiation_site = call_site != NULL ? call_site : (call_arguments != NULL ? call_arguments : function_value);
     bindCapturedValuesForInstantiation(function_value->captures, inst_scope, outer_scope);
     bindCallArgumentsForInstantiation(function_value->parameters, call_arguments, inst_scope, outer_scope);
 
@@ -1624,9 +1775,11 @@ TypeSystemExprType instantiateFunctionCallExprType(ASTNode *function_value, ASTN
     return result;
 }
 
-ASTDataType* instantiateFunctionCallResolvedFunctionType(ASTNode *function_value, ASTNode *call_arguments, ScopeFrame *outer_scope)
+ASTDataType* instantiateFunctionCallResolvedFunctionType(ASTNode *function_value, ASTNode *call_arguments, ASTNode *call_site, ScopeFrame *outer_scope)
 {
     ScopeFrame *inst_scope = newScopeFrame(outer_scope);
+    inst_scope->instantiating_function = function_value;
+    inst_scope->instantiation_site = call_site != NULL ? call_site : (call_arguments != NULL ? call_arguments : function_value);
     bindCapturedValuesForInstantiation(function_value->captures, inst_scope, outer_scope);
     bindCallArgumentsForInstantiation(function_value->parameters, call_arguments, inst_scope, outer_scope);
 
@@ -2020,9 +2173,10 @@ ASTDataType* inferAsBuiltinValueType(ASTNode *node, ScopeFrame *scope)
 
     TypeSystemExprType source_type = inferExprType(value_expr, scope);
     if(!canExplicitConvertDataType(source_type, value_expr, target_type))
-        typeSystemAbortNode("T1219", value_expr,
-                            "invalid explicit conversion with @as",
-                            "the source value cannot be explicitly converted to the target type");
+        typeSystemAbortExpectedDataTypeFoundExpr("T1219", value_expr,
+                                                 "invalid explicit conversion with @as",
+                                                 target_type,
+                                                 source_type);
 
     return target_type;
 }
@@ -2037,9 +2191,10 @@ ASTDataType* inferLenBuiltinValueType(ASTNode *node, ScopeFrame *scope)
     TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
     if(operand_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
        (!isSliceDataType(operand_type.data_type) && !isStringDataType(operand_type.data_type)))
-        typeSystemAbortNode("T1255", node->lhs,
-                            "@len expects a slice or string value",
-                            "argument must have type `[]T` or `string`");
+        typeSystemAbortExpectedDescriptionFoundExpr("T1255", node->lhs,
+                                                    "@len expects a slice or string value",
+                                                    "`[]T` or `string`",
+                                                    operand_type);
 
     return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
 }
@@ -2072,18 +2227,20 @@ ASTDataType* inferPtrAddBuiltinValueType(ASTNode *node, ScopeFrame *scope)
        pointer_type.data_type == NULL ||
        pointer_type.data_type->kind != AST_DATA_TYPE_KIND_POINTER ||
        !isSameDataType(pointer_type.data_type->child, element_type))
-        typeSystemAbortNode("T1264", pointer_expr,
-                            "@ptr_add expects a pointer to the given element type",
-                            "second argument must have type `*T` matching the first argument");
+        typeSystemAbortExpectedDataTypeFoundExpr("T1264", pointer_expr,
+                                                 "@ptr_add expects a pointer to the given element type",
+                                                 newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, cloneDataType(element_type)),
+                                                 pointer_type);
 
     TypeSystemExprType count_type = inferExprType(count_expr, scope);
     if(count_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
        (count_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
         (count_type.data_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
          !isIntegerPrimary(count_type.data_type->primary))))
-        typeSystemAbortNode("T1265", count_expr,
-                            "@ptr_add expects an integer offset",
-                            "third argument must be an integer value");
+        typeSystemAbortExpectedDescriptionFoundExpr("T1265", count_expr,
+                                                    "@ptr_add expects an integer offset",
+                                                    "an integer value",
+                                                    count_type);
 
     return cloneDataType(pointer_type.data_type);
 }
@@ -2121,9 +2278,24 @@ ASTDataType* inferPtrDiffBuiltinValueType(ASTNode *node, ScopeFrame *scope)
        rhs_type.data_type->kind != AST_DATA_TYPE_KIND_POINTER ||
        !isSameDataType(lhs_type.data_type->child, element_type) ||
        !isSameDataType(rhs_type.data_type->child, element_type))
-        typeSystemAbortNode("T1269", lhs_expr,
-                            "@ptr_diff expects two pointers to the given element type",
-                            "second and third arguments must both have type `*T` matching the first argument");
+    {
+        char expected_buffer[256] = {0};
+        char lhs_buffer[256] = {0};
+        char rhs_buffer[256] = {0};
+        ASTDataType *expected_pointer_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, cloneDataType(element_type));
+        typeSystemDescribeDataType(expected_pointer_type, expected_buffer, sizeof(expected_buffer));
+        typeSystemDescribeExprType(lhs_type, lhs_buffer, sizeof(lhs_buffer));
+        typeSystemDescribeExprType(rhs_type, rhs_buffer, sizeof(rhs_buffer));
+
+        Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                               "T1269",
+                                               astNodeSourceSpan(lhs_expr),
+                                               "@ptr_diff expects two pointers to the given element type");
+        diagnosticSetPrimaryLabel(&diagnostic,
+                                  "expected both operands to be %s, found %s and %s",
+                                  expected_buffer, lhs_buffer, rhs_buffer);
+        diagnosticAbort(diagnostic);
+    }
 
     return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
 }
@@ -2156,18 +2328,20 @@ ASTDataType* inferSliceBuiltinValueType(ASTNode *node, ScopeFrame *scope)
        pointer_type.data_type == NULL ||
        pointer_type.data_type->kind != AST_DATA_TYPE_KIND_POINTER ||
        !isSameDataType(pointer_type.data_type->child, element_type))
-        typeSystemAbortNode("T1259", pointer_expr,
-                            "@slice expects a pointer to the given element type",
-                            "second argument must have type `*T` matching the first argument");
+        typeSystemAbortExpectedDataTypeFoundExpr("T1259", pointer_expr,
+                                                 "@slice expects a pointer to the given element type",
+                                                 newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, cloneDataType(element_type)),
+                                                 pointer_type);
 
     TypeSystemExprType length_type = inferExprType(length_expr, scope);
     if(length_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
        (length_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
         (length_type.data_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
          !isIntegerPrimary(length_type.data_type->primary))))
-        typeSystemAbortNode("T1260", length_expr,
-                            "@slice expects an integer length",
-                            "third argument must be an integer value");
+        typeSystemAbortExpectedDescriptionFoundExpr("T1260", length_expr,
+                                                    "@slice expects an integer length",
+                                                    "an integer value",
+                                                    length_type);
 
     return newSliceDataType(element_type);
 }
@@ -2750,30 +2924,59 @@ ASTDataType* variadicPromotedExprType(TypeSystemExprType expr_type)
     return variadicPromotedDataType(expr_type.data_type);
 }
 
-void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argument, ScopeFrame *scope, bool is_variadic)
+void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argument, ScopeFrame *scope, bool is_variadic, ASTNode *call_site)
 {
+    ASTFunctionParameter *expected_parameters = parameter;
+    ASTNode *provided_arguments = argument;
+
     while(parameter && argument)
     {
         if(parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
         {
             if(!canBindReferenceArgument(argument, scope, parameter->data_type))
-                typeSystemAbortNode("T1220", argument,
-                                    "function reference argument type mismatch",
-                                    "argument cannot bind to the reference parameter");
+                typeSystemAbortExpectedDataTypeFoundExpr("T1220", argument,
+                                                         "function reference argument type mismatch",
+                                                         parameter->data_type,
+                                                         inferExprType(argument, scope));
         }
         else if(!canImplicitConvertExprToType(argument, scope, parameter->data_type))
-            typeSystemAbortNode("T1221", argument,
-                                "function argument type mismatch",
-                                "argument cannot be implicitly converted to the parameter type");
+            typeSystemAbortExpectedDataTypeFoundExpr("T1221", argument,
+                                                     "function argument type mismatch",
+                                                     parameter->data_type,
+                                                     inferExprType(argument, scope));
         parameter = parameter->next;
         argument = argument->next;
     }
 
     if(parameter != NULL)
-        typeSystemAbortNoSpan("T1222", "function argument count mismatch", "too few arguments were provided");
+    {
+        Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                               "T1222",
+                                               astNodeSourceSpan(call_site != NULL ? call_site : provided_arguments),
+                                               "function argument count mismatch");
+        diagnosticSetPrimaryLabel(&diagnostic,
+                                  "expected %d argument%s, found %d",
+                                  typeSystemCountFunctionParameters(expected_parameters),
+                                  typeSystemCountFunctionParameters(expected_parameters) == 1 ? "" : "s",
+                                  typeSystemCountCallArguments(provided_arguments));
+        diagnosticAddNote(&diagnostic, "too few arguments were provided");
+        diagnosticAbort(diagnostic);
+    }
 
     if(!is_variadic && argument != NULL)
-        typeSystemAbortNoSpan("T1223", "function argument count mismatch", "too many arguments were provided");
+    {
+        Diagnostic diagnostic = diagnosticMake(DIAGNOSTIC_SEVERITY_ERROR,
+                                               "T1223",
+                                               astNodeSourceSpan(argument != NULL ? argument : call_site),
+                                               "function argument count mismatch");
+        diagnosticSetPrimaryLabel(&diagnostic,
+                                  "expected %d argument%s, found %d",
+                                  typeSystemCountFunctionParameters(expected_parameters),
+                                  typeSystemCountFunctionParameters(expected_parameters) == 1 ? "" : "s",
+                                  typeSystemCountCallArguments(provided_arguments));
+        diagnosticAddNote(&diagnostic, "too many arguments were provided");
+        diagnosticAbort(diagnostic);
+    }
 
     while(argument)
     {
@@ -3010,9 +3213,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             {
                 TypeSystemExprType current_type = inferExprType(element, scope);
                 if(!canImplicitConvertDataType(current_type, element, element_type))
-                    typeSystemAbortNode("T1230", element,
-                                        "array literal element type mismatch",
-                                        "this element does not match the inferred array element type");
+                    typeSystemAbortExpectedDataTypeFoundExpr("T1230", element,
+                                                             "array literal element type mismatch",
+                                                             element_type,
+                                                             current_type);
                 length ++;
                 element = element->next;
             }
@@ -3041,10 +3245,18 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                                                  astUserFacingIdentifier(member->identifier));
 
                     if(!canImplicitConvertExprToType(field->value, scope, member->data_type))
+                    {
+                        char expected_buffer[256] = {0};
+                        char actual_buffer[256] = {0};
+                        appendASTDataTypeString(member->data_type, expected_buffer, sizeof(expected_buffer));
+                        typeSystemDescribeExprType(inferExprType(field->value, scope), actual_buffer, sizeof(actual_buffer));
                         typeSystemAbortFormatted("T1233", field->value,
                                                  "struct field type mismatch",
-                                                 "struct field `%s` has an incompatible value",
-                                                 astUserFacingIdentifier(member->identifier));
+                                                 "struct field `%s` expects %s, found %s",
+                                                 astUserFacingIdentifier(member->identifier),
+                                                 expected_buffer,
+                                                 actual_buffer);
+                    }
                 }
                 member = member->next;
             }
@@ -3103,9 +3315,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 struct_type = resolveNamedDataType(owner_data_type, scope, NULL);
             if(!isStructDataType(struct_type))
             {
-                typeSystemAbortNode("T1237", node,
-                                    "member access requires a struct type",
-                                    "the receiver is not a struct");
+                typeSystemAbortExpectedDescriptionFoundExpr("T1237", node->lhs,
+                                                            "member access requires a struct type",
+                                                            "a struct value or struct type",
+                                                            owner_type);
             }
 
             ASTStructMember *member = findStructMember(struct_type, node->identifier);
@@ -3144,18 +3357,20 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             if(!isArrayDataType(owner_data_type) &&
                !isSliceDataType(owner_data_type) &&
                !isStringDataType(owner_data_type))
-                typeSystemAbortNode("T1241", node,
-                                    "indexing requires an array, slice, or string type",
-                                    "the indexed expression is not an array, slice, or string");
+                typeSystemAbortExpectedDescriptionFoundExpr("T1241", node->lhs,
+                                                            "indexing requires an array, slice, or string type",
+                                                            "an array, slice, or string value",
+                                                            owner_type);
 
             TypeSystemExprType index_type = inferExprType(node->rhs, scope);
             if(index_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
                (index_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
                 (index_type.data_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
                  !isIntegerPrimary(index_type.data_type->primary))))
-                typeSystemAbortNode("T1242", node->rhs,
-                                    "index must be an integer",
-                                    "this index expression is not an integer");
+                typeSystemAbortExpectedDescriptionFoundExpr("T1242", node->rhs,
+                                                            "index must be an integer",
+                                                            "an integer value",
+                                                            index_type);
 
             return newValueExprType(owner_data_type->child);
         }
@@ -3164,7 +3379,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             {
                 VariableInfo *callee_variable = findVariableInfo(scope, node->lhs->identifier);
                 if(callee_variable != NULL && callee_variable->function_value != NULL)
-                    return instantiateFunctionCallExprType(callee_variable->function_value, node->rhs, scope);
+                    return instantiateFunctionCallExprType(callee_variable->function_value, node->rhs, node, scope);
             }
 
             if(node->lhs->kind == AST_EXPR_MEMBER)
@@ -3221,7 +3436,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                         if(!through_type && parameter != NULL &&
                            canBindMethodReceiver(member_node->lhs, scope, parameter->data_type, struct_type))
                         {
-                            checkFunctionCallArguments(parameter->next, node->rhs, scope, resolved_member_type->is_variadic);
+                            checkFunctionCallArguments(parameter->next, node->rhs, scope, resolved_member_type->is_variadic, node);
                             return newValueExprType(resolved_member_type->return_data_type);
                         }
                     }
@@ -3230,11 +3445,12 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
 
             TypeSystemExprType callee_type = inferExprType(node->lhs, scope);
             if(callee_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || callee_type.data_type->kind != AST_DATA_TYPE_KIND_FUNCTION)
-                typeSystemAbortNode("T1243", node,
-                                    "called expression is not a function",
-                                    "this callee does not have a function type");
+                typeSystemAbortExpectedDescriptionFoundExpr("T1243", node->lhs,
+                                                            "called expression is not a function",
+                                                            "a function value",
+                                                            callee_type);
 
-            checkFunctionCallArguments(callee_type.data_type->parameters, node->rhs, scope, callee_type.data_type->is_variadic);
+            checkFunctionCallArguments(callee_type.data_type->parameters, node->rhs, scope, callee_type.data_type->is_variadic, node);
 
             return newValueExprType(callee_type.data_type->return_data_type);
         }
