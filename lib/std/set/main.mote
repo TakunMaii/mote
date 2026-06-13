@@ -8,6 +8,26 @@ hash :: @import("std:hash");
 pub Set :: fn(T: Type) Type {
     return struct {
         inner: map.Map(T, bool),
+
+        deinit: fn(self: &Self) void {
+            self.inner.deinit();
+        },
+
+        clear: fn(self: &Self) void {
+            self.inner.clear();
+        },
+
+        contains: fn(self: &Self, value: T) bool {
+            return self.inner.contains(value);
+        },
+
+        insert: fn(self: &Self, value: T) void {
+            self.inner.put(value, true);
+        },
+
+        remove: fn(self: &Self, value: T) bool {
+            return self.inner.remove(value);
+        },
     };
 };
 
@@ -33,24 +53,4 @@ pub init_cap_in_arena :: fn(T: Type, arena: mem.Arena, cap: types.size_t, hash_f
     return Set(T) {
         .inner = map.init_cap_in_arena(T, bool, arena, cap, hash_fn, eq_fn),
     };
-};
-
-pub deinit :: fn(T: Type, self: *Set(T)) void {
-    map.deinit(T, bool, &self.inner);
-};
-
-pub clear :: fn(T: Type, self: *Set(T)) void {
-    map.clear(T, bool, &self.inner);
-};
-
-pub contains :: fn(T: Type, self: *Set(T), value: T) bool {
-    return map.contains(T, bool, &self.inner, value);
-};
-
-pub insert :: fn(T: Type, self: *Set(T), value: T) void {
-    map.put(T, bool, &self.inner, value, true);
-};
-
-pub remove :: fn(T: Type, self: *Set(T), value: T) bool {
-    return map.remove(T, bool, &self.inner, value);
 };

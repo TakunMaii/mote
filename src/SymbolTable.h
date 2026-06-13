@@ -64,7 +64,7 @@ ScopeFrame* newScopeFrame(ScopeFrame *parent)
     return scope;
 }
 
-ScopeFrame* cloneScopeFrame(ScopeFrame *scope)
+ScopeFrame* snapshotScopeFrame(ScopeFrame *scope)
 {
     if(scope == NULL)
         return NULL;
@@ -73,10 +73,10 @@ ScopeFrame* cloneScopeFrame(ScopeFrame *scope)
     if(copy == NULL)
         diagnosticAbortInternal("scope clone allocation failed", NULL);
     memset(copy, 0, sizeof(ScopeFrame));
-    copy->parent = cloneScopeFrame(scope->parent);
+    copy->parent = scope->parent;
     copy->instantiating_function = scope->instantiating_function;
     copy->instantiation_site = scope->instantiation_site;
-    copy->instantiating_type_result = cloneDataType(scope->instantiating_type_result);
+    copy->instantiating_type_result = NULL;
 
     copy->variable_count = scope->variable_count;
     for(int i = 0; i < scope->variable_count; i++)
@@ -86,6 +86,9 @@ ScopeFrame* cloneScopeFrame(ScopeFrame *scope)
         *dst = *src;
         dst->data_type = cloneDataType(src->data_type);
         dst->type_value = cloneDataType(src->type_value);
+        dst->value_expr = NULL;
+        dst->function_value = src->function_value;
+        dst->extern_value = src->extern_value;
     }
 
     copy->type_count = scope->type_count;

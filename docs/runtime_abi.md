@@ -48,7 +48,7 @@ This document defines the backend-facing runtime ABI that `MIR` assumes.
 
 - Capture by value stores the capture payload directly in the environment
 - Capture by `&T` stores a pointer to `T`
-- Capture by `&mut T` stores a mutable pointer to `T`
+- Capture by `&T` stores a pointer to `T`
 
 ## Calling Convention
 
@@ -56,7 +56,7 @@ This document defines the backend-facing runtime ABI that `MIR` assumes.
 - Every internal callable entry point receives a hidden first argument:
   - `__env: *ClosureEnv` logically
 - Non-capturing functions are still called through the same ABI shape, with a null environment pointer
-- `&T` / `&mut T` parameters are lowered as pointers in MIR
+- `&T` parameters are lowered as pointers in MIR
 - Arrays, structs, enums, bools, chars, and numeric scalars are passed and returned by value at MIR level
 - Backend-specific target ABI expansion can happen after MIR, but must preserve the logical layout defined here
 

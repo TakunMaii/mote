@@ -676,6 +676,35 @@ static MirRuntimeBinding* declareMirRuntimeBinding(MirLowerScope *scope, const c
     return binding;
 }
 
+static void mirBindLexicalTypeScope(MirLowerScope *scope, ScopeFrame *lexical_scope)
+{
+    if(scope == NULL || lexical_scope == NULL)
+        return;
+
+    for(int i = 0; i < lexical_scope->variable_count; i++)
+    {
+        VariableInfo *src = &(lexical_scope->variable_infos[i]);
+        if(findVariableInfo(&(scope->type_scope), src->identifier) != NULL)
+            continue;
+
+        VariableInfo *dst = declareVariableInfo(&(scope->type_scope), src->identifier);
+        *dst = *src;
+        dst->data_type = cloneDataType(src->data_type);
+        dst->type_value = cloneDataType(src->type_value);
+    }
+
+    for(int i = 0; i < lexical_scope->type_count; i++)
+    {
+        TypeInfo *src = &(lexical_scope->type_infos[i]);
+        if(findTypeInfo(&(scope->type_scope), src->identifier) != NULL)
+            continue;
+
+        TypeInfo *dst = declareTypeInfo(&(scope->type_scope), src->identifier);
+        *dst = *src;
+        dst->data_type = cloneDataType(src->data_type);
+    }
+}
+
 static void initMirLowerScope(MirLowerScope *scope, MirLowerScope *parent, bool declare_as_globals)
 {
     memset(scope, 0, sizeof(MirLowerScope));
@@ -2802,6 +2831,7 @@ static MirValueId lowerMethodFunctionValue(MirFunctionState *state, MirLowerScop
     else
         snprintf(hint, sizeof(hint), "method_%s", member_node->identifier);
 
+    MirLowerScope method_scope_storage = {0};
     MirLowerScope *method_scope = scope;
     if(member_node->lhs != NULL &&
        member_node->lhs->kind == AST_EXPR_CALL &&
@@ -2820,6 +2850,14 @@ static MirValueId lowerMethodFunctionValue(MirFunctionState *state, MirLowerScop
             );
         }
     }
+    else if(member->lexical_type_scope != NULL)
+    {
+        initMirLowerScope(&method_scope_storage, scope, false);
+        method_scope = &method_scope_storage;
+    }
+
+    if(member->lexical_type_scope != NULL)
+        mirBindLexicalTypeScope(method_scope, member->lexical_type_scope);
 
     if(member->value->data_type != NULL && member->data_type != NULL)
         bindSpecializedNamedTypes(method_scope, member->value->data_type, member->data_type);

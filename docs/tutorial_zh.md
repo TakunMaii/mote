@@ -25,7 +25,7 @@ hello/
 ```mote
 @package("hello");
 
-main = fn() i32 {
+main :: fn() i32 {
     return 0;
 };
 ```
@@ -56,17 +56,17 @@ main = fn() i32 {
 Mote 顶层和块内都用同一种“声明/赋值”外观：
 
 ```mote
-mut x = 1;
+x := 1;
 y: i32 = 2;
 x = x + y;
 ```
 
 当前规则可以直接理解成：
 
-- 新名字第一次出现时，`name = expr;` 可以当声明
-- 变量默认是不可变的，`mut name = expr;` 声明可变变量
+- `name :: expr;` 表示把一个值绑定到名字，常用于顶层定义、导入、函数、类型
+- `name := expr;` 表示局部类型推断声明
 - `name: T = expr;` 显式标注类型
-- 后续再写 `name = expr;` 是赋值
+- 已经存在的名字再写 `name = expr;` 是赋值
 
 注意：
 
@@ -78,10 +78,10 @@ x = x + y;
 例子：
 
 ```mote
-main = fn() i32 {
-    mut sum: i32 = 0;
+main :: fn() i32 {
+    sum: i32 = 0;
 
-    for(mut i: i32 = 0; i < 10; i = i + 1) {
+    for(i: i32 = 0; i < 10; i = i + 1) {
         if(i == 5) {
             continue;
         }
@@ -101,8 +101,8 @@ main = fn() i32 {
 - 标量：`bool` `char` `i8` `i16` `i32` `i64` `u8` `u16` `u32` `u64` `f8` `f16` `f32` `f64`
 - `void`
 - `Type`
-- 指针：`*T`、`*mut T`
-- 引用：`&T`、`&mut T`
+- 指针：`*T`
+- 引用：`&T`
 - 可选：`?T`
 - 定长数组：`Array(T, N)`
 - 切片：`[]T`
@@ -123,14 +123,14 @@ maybe: ?i32 = null;
 ### 指针和引用
 
 ```mote
-main = fn() i32 {
-    mut x: i32 = 2;
+main :: fn() i32 {
+    x: i32 = 2;
 
     x_ptr: *i32 = &x;
-    x_mut_ptr: *mut i32 = &mut x;//获得可变指针
+    x_mut_ptr: *i32 = &x;
 
     x_ref: &i32 = x;
-    x_mut_ref: &mut i32 = x;
+    x_mut_ref: &i32 = x;
 
     *x_mut_ptr = 5;
     x_mut_ref = 6;
@@ -140,8 +140,8 @@ main = fn() i32 {
 
 当前实现里有两点值得注意：
 
-- `&mut expr` 要求 `expr` 本身可变
-- 切片构造 `@slice(T, ptr, len)` 的第二个参数必须是 `*mut T`
+- `&expr` 可以得到可写位置的引用
+- 切片构造 `@slice(T, ptr, len)` 的第二个参数必须是 `*T`
 
 ### 可选类型 `?T`
 
@@ -165,9 +165,9 @@ value: i32 = @unwrap(other_num);
 数组是内联定长值，切片是单独的切片类型：
 
 ```mote
-main = fn() i32 {
-    mut values: Array(i32, 3) = [1, 2, 3];
-    xs: []i32 = @slice(i32, &mut values[0], 3);
+main :: fn() i32 {
+    values: Array(i32, 3) = [1, 2, 3];
+    xs: []i32 = @slice(i32, &values[0], 3);
 
     if(@len(xs) == 3 && xs[1] == 2) {
         return 0;
@@ -187,7 +187,7 @@ main = fn() i32 {
 函数字面量就是 `fn(...) ... { ... }`。
 
 ```mote
-add = fn(x: i32, y: i32) i32 {
+add :: fn(x: i32, y: i32) i32 {
     return x + y;
 };
 ```
@@ -195,11 +195,11 @@ add = fn(x: i32, y: i32) i32 {
 返回类型可以省略，当前编译器会做推断：
 
 ```mote
-add = fn(a: i32, b: i32) {
+add :: fn(a: i32, b: i32) {
     return a + b;
 };
 
-noop = fn() {
+noop :: fn() {
 };
 ```
 
@@ -210,13 +210,13 @@ noop = fn() {
 函数类型写成：
 
 ```mote
-Adder = Function([i32, i32], i32);
+Adder :: Function([i32, i32], i32);
 ```
 
 函数可以赋值、返回、作为字段保存：
 
 ```mote
-make_adder = fn(x: i32) Function([i32], i32) {
+make_adder :: fn(x: i32) Function([i32], i32) {
     return fn|x|(y: i32) i32 {
         return x + y;
     };
@@ -229,14 +229,13 @@ make_adder = fn(x: i32) Function([i32], i32) {
 
 - `|x|`
 - `|&x|`
-- `|&mut x|`
 
 一个引用捕获例子：
 
 ```mote
 @package("closure_demo");
 
-main = fn() i32 {
+main :: fn() i32 {
     value: i32 = 41;
     add_ref: Function([], i32) = fn|&value|() i32 {
         return value + 1;
@@ -250,12 +249,12 @@ main = fn() i32 {
 Mote 的一个核心设计是：`struct` 和 `enum` 都是表达式。
 
 ```mote
-Vec2 = struct {
+Vec2 :: struct {
     x: f32,
     y: f32,
 };
 
-State = enum {
+State :: enum {
     idle,
     running,
 };
@@ -266,7 +265,7 @@ State = enum {
 ### 6.1 结构体成员函数
 
 ```mote
-Vec2 = struct {
+Vec2 :: struct {
     x: f32,
     y: f32,
 
@@ -277,7 +276,7 @@ Vec2 = struct {
         };
     },
 
-    add: fn(self: &mut Self, other: Vec2) void {
+    add: fn(self: &Self, other: Vec2) void {
         self.x = self.x + other.x;
         self.y = self.y + other.y;
     },
@@ -288,17 +287,15 @@ Vec2 = struct {
 
 - `Self`
 - `&Self`
-- `&mut Self`
 - `*Self`
-- `*mut Self`
 
 那么调用 `obj.method(...)` 时会自动补 receiver。
 
 也就是说，这样可以直接写：
 
 ```mote
-main = fn() i32 {
-    mut v: Vec2 = Vec2.new(1.0, 2.0);
+main :: fn() i32 {
+    v: Vec2 = Vec2.new(1.0, 2.0);
     v.add(Vec2.new(3.0, 4.0));
     if(v.x == 4.0 && v.y == 6.0) {
         return 0;
@@ -312,7 +309,7 @@ main = fn() i32 {
 当前 `enum` 是纯 tag 枚举，没有 payload：
 
 ```mote
-Option = enum {
+Option :: enum {
     ok,
     not_ok,
 };
@@ -325,14 +322,14 @@ value = Option.ok;
 泛型不是特殊声明，而是“接收 `Type` 的普通函数”。
 
 ```mote
-Vec2 = fn(T: Type) Type {
+Vec2 :: fn(T: Type) Type {
     return struct {
         x: T,
         y: T,
     };
 };
 
-make_vec2 = fn(T: Type, x: T, y: T) Vec2(T) {
+make_vec2 :: fn(T: Type, x: T, y: T) Vec2(T) {
     return Vec2(T) {
         .x = x,
         .y = y,
@@ -349,12 +346,12 @@ v: Vec2(i32) = make_vec2(i32, 1, 2);
 这套思路贯穿整个项目，包括标准库容器：
 
 ```mote
-list = @import("std:list");
+list :: @import("std:list");
 
-main = fn() i32 {
-    mut xs: list.List(i32) = list.init(i32);
-    list.append(i32, &mut xs, 10);
-    list.append(i32, &mut xs, 20);
+main :: fn() i32 {
+    xs: list.List(i32) = list.init(i32);
+    xs.append(10);
+    xs.append(20);
     if(xs.len == 2) {
         return 0;
     }
@@ -394,9 +391,9 @@ main = fn() i32 {
 例子：
 
 ```mote
-mem = @import("std:mem");
-c = @import("c");
-rl = @import("vendor:raylib");
+mem :: @import("std:mem");
+c :: @import("c");
+rl :: @import("vendor:raylib");
 ```
 
 ### `@extern` 和 FFI
@@ -404,17 +401,15 @@ rl = @import("vendor:raylib");
 最直接的写法：
 
 ```mote
-printf = @extern("printf", Function([*char, ...], i32));
+printf :: @extern("printf", Function([*char, ...], i32));
 ```
 
 不过项目已经在 `lib/c` 里封了一层，更常见的写法是：
 
 ```mote
-c = @import("c");
+c :: @import("c");
 
-main = fn() void {
-    c.printf("val=%d %s/n", 42, @as(*char, "ok"));
-};
+c.printf("val=%d %s\n", 42, @as(*char, "ok"));
 ```
 
 当前实现可确认：
@@ -425,17 +420,17 @@ main = fn() void {
 
 ### `@slice`、`@ptr_add`、`@ptr_diff`
 
-- `@slice(T, ptr, len)`：第一个参数必须是类型，第二个参数必须是 `*mut T`
-- `@ptr_add(T, ptr, count)`：第二个参数必须是 `*T` 或 `*mut T`
+- `@slice(T, ptr, len)`：第一个参数必须是类型，第二个参数必须是 `*T`
+- `@ptr_add(T, ptr, count)`：第二个参数必须是 `*T`
 - `@ptr_diff(T, lhs, rhs)`：后两个参数都必须是同元素类型的指针
 
 例子：
 
 ```mote
-main = fn() i32 {
-    mut values: Array(i32, 4) = [10, 20, 30, 40];
-    base: *mut i32 = &mut values[0];
-    p2: *mut i32 = @ptr_add(i32, base, 2);
+main :: fn() i32 {
+    values: Array(i32, 4) = [10, 20, 30, 40];
+    base: *i32 = &values[0];
+    p2: *i32 = @ptr_add(i32, base, 2);
     diff: i64 = @ptr_diff(i32, p2, base);
 
     if(*p2 == 30 && diff == 2) {
@@ -460,13 +455,13 @@ main = fn() i32 {
 例子：
 
 ```mote
-Vec2 = struct {
+Vec2 :: struct {
     x: f32,
     y: f32,
 };
 
 @operator(+)
-vec2_add = fn(lhs: Vec2, rhs: Vec2) Vec2 {
+vec2_add :: fn(lhs: Vec2, rhs: Vec2) Vec2 {
     return Vec2{
         .x = lhs.x + rhs.x,
         .y = lhs.y + rhs.y,
@@ -498,7 +493,7 @@ vec2_add = fn(lhs: Vec2, rhs: Vec2) Vec2 {
 例如：
 
 ```mote
-mem = @import("std:mem");
+mem :: @import("std:mem");
 ```
 
 然后：

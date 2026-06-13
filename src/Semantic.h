@@ -878,9 +878,12 @@ ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
         resolved_member->column_number = member->column_number;
         strcpy(resolved_member->identifier, member->identifier);
         resolved_member->value = member->value;
-        resolved_member->data_type = resolveNamedDataType(member->data_type, scope, struct_type);
+        resolved_member->lexical_type_scope = member->lexical_type_scope;
+        if(member->value != NULL && member->value->kind == AST_EXPR_FUNCTION)
+            resolved_member->data_type = resolveFunctionExprDataType(member->value, scope, struct_type);
+        else
+            resolved_member->data_type = resolveNamedDataType(member->data_type, scope, struct_type);
         typeSystemEnsureNoBareOpaque(resolved_member->data_type, node, "T1132", "struct field");
-        member->data_type = cloneDataType(resolved_member->data_type);
 
         if(resolved_head == NULL)
             resolved_head = resolved_member;
@@ -1145,6 +1148,33 @@ ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope,
     ASTFunctionParameter *resolved_parameters = resolveFunctionTypeParameters(node->parameters, outer_scope, self_data_type);
 
     ScopeFrame *signature_scope = newScopeFrame(outer_scope);
+    if(self_data_type != NULL)
+    {
+        VariableInfo *self_variable = declareVariableInfo(signature_scope, "Self");
+        self_variable->is_compile_time_constant = true;
+        self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
+        self_variable->type_value = cloneDataType(self_data_type);
+    }
+    if(outer_scope != NULL)
+    {
+        ScopeFrame *scan_scope = outer_scope;
+        while(scan_scope != NULL)
+        {
+            for(int i = 0; i < scan_scope->variable_count; i++)
+            {
+                VariableInfo *src = &(scan_scope->variable_infos[i]);
+                if(src->type_value == NULL || findVariableInfoInScope(signature_scope, src->identifier) >= 0)
+                    continue;
+                VariableInfo *dst = declareVariableInfo(signature_scope, src->identifier);
+                dst->is_compile_time_constant = true;
+                dst->data_type = cloneDataType(src->data_type);
+                dst->type_value = cloneDataType(src->type_value);
+                dst->function_value = src->function_value;
+                dst->extern_value = src->extern_value;
+            }
+            scan_scope = scan_scope->parent;
+        }
+    }
     ASTFunctionParameter *parameter = resolved_parameters;
     while(parameter)
     {

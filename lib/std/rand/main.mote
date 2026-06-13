@@ -2,6 +2,62 @@
 
 pub RNG :: struct {
     state: u64,
+
+    next_u64: fn(self: &Self) u64 {
+        x: u64 = self.state;
+        x = x ^ (x >> @as(u64, 12));
+        x = x ^ (x << @as(u64, 25));
+        x = x ^ (x >> @as(u64, 27));
+        self.state = x;
+        return x * @as(u64, 0x2545F4914F6CDD1D);
+    },
+
+    next_u32: fn(self: &Self) u32 {
+        return @as(u32, self.next_u64() >> @as(u64, 32));
+    },
+
+    next_bool: fn(self: &Self) bool {
+        return (self.next_u64() & @as(u64, 1)) != 0;
+    },
+
+    next_f32: fn(self: &Self) f32 {
+        value: u32 = self.next_u32();
+        return @as(f32, value) / @as(f32, 4294967295.0);
+    },
+
+    next_f64: fn(self: &Self) f64 {
+        value: u64 = self.next_u64();
+        return @as(f64, value) / @as(f64, 18446744073709551615.0);
+    },
+
+    range_u64: fn(self: &Self, lower_bound: u64, upper_bound: u64) u64 {
+        if(upper_bound <= lower_bound) {
+            return lower_bound;
+        }
+        return lower_bound + sample_below(self, upper_bound - lower_bound);
+    },
+
+    range_i32: fn(self: &Self, lower_bound: i32, upper_bound: i32) i32 {
+        span: i64 = @as(i64, upper_bound) - @as(i64, lower_bound);
+        if(span <= 0) {
+            return lower_bound;
+        }
+        return @as(i32, @as(i64, lower_bound) + @as(i64, sample_below(self, @as(u64, span))));
+    },
+};
+
+sample_below :: fn(self: &RNG, span: u64) u64 {
+    threshold: u64 = (0 - span) % span;
+    result: u64 = 0;
+    done: bool = false;
+    while(!done) {
+        value: u64 = self.next_u64();
+        if(value >= threshold) {
+            result = value % span;
+            done = true;
+        }
+    }
+    return result;
 };
 
 pub init :: fn(seed: u64) RNG {
@@ -12,56 +68,4 @@ pub init :: fn(seed: u64) RNG {
     return RNG {
         .state = state,
     };
-};
-
-pub next_u64 :: fn(self: *RNG) u64 {
-    x: u64 = self.state;
-    x = x ^ (x >> @as(u64, 12));
-    x = x ^ (x << @as(u64, 25));
-    x = x ^ (x >> @as(u64, 27));
-    self.state = x;
-    return x * @as(u64, 0x2545F4914F6CDD1D);
-};
-
-pub next_u32 :: fn(self: *RNG) u32 {
-    return @as(u32, next_u64(self) >> @as(u64, 32));
-};
-
-pub next_bool :: fn(self: *RNG) bool {
-    return (next_u64(self) & @as(u64, 1)) != 0;
-};
-
-pub next_f32 :: fn(self: *RNG) f32 {
-    value: u32 = next_u32(self);
-    return @as(f32, value) / @as(f32, 4294967295.0);
-};
-
-pub next_f64 :: fn(self: *RNG) f64 {
-    value: u64 = next_u64(self);
-    return @as(f64, value) / @as(f64, 18446744073709551615.0);
-};
-
-pub range_u64 :: fn(self: *RNG, upper_bound: u64) u64 {
-    if(upper_bound == 0) {
-        return 0;
-    }
-
-    threshold: u64 = (0 - upper_bound) % upper_bound;
-    result: u64 = 0;
-    done: bool = false;
-    while(!done) {
-        value: u64 = next_u64(self);
-        if(value >= threshold) {
-            result = value % upper_bound;
-            done = true;
-        }
-    }
-    return result;
-};
-
-pub range_i32 :: fn(self: *RNG, upper_bound: i32) i32 {
-    if(upper_bound <= 0) {
-        return 0;
-    }
-    return @as(i32, range_u64(self, @as(u64, upper_bound)));
 };

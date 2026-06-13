@@ -6,44 +6,44 @@ mem :: @import("std:mem");
 
 main :: fn() i32 {
     list_value: list.List(i32) = list.init(i32);
-    list.append(i32, &list_value, 10);
-    list.append(i32, &list_value, 20);
-    list.insert(i32, &list_value, 1, 15);
-    removed: i32 = list.remove_at(i32, &list_value, 0);
-    popped: i32 = @unwrap(list.pop(i32, &list_value));
+    list_value.append(10);
+    list_value.append(20);
+    list_value.insert(1, 15);
+    removed: i32 = list_value.remove_at(0);
+    popped: i32 = @unwrap(list_value.pop());
 
     arena: mem.Arena = mem.arena_init(256);
     defer mem.arena_destroy(&arena);
 
     arena_list: list.List(i32) = list.init_in_arena(i32, arena);
-    list.append(i32, &arena_list, 1);
-    list.append(i32, &arena_list, 2);
-    list.append(i32, &arena_list, 3);
+    arena_list.append(1);
+    arena_list.append(2);
+    arena_list.append(3);
 
     kv_map: map.Map(i32, i32) = map.init_cap(i32, i32, 8, hash.hash_i32, hash.eq_i32);
-    map.put(i32, i32, &kv_map, 3, 30);
-    map.put(i32, i32, &kv_map, 5, 50);
-    map.put(i32, i32, &kv_map, 3, 31);
-    map.remove(i32, i32, &kv_map, 5);
+    kv_map.put(3, 30);
+    kv_map.put(5, 50);
+    kv_map.put(3, 31);
+    kv_map.remove(5);
 
     set_value: set.Set(i32) = set.init_cap(i32, 8, hash.hash_i32, hash.eq_i32);
-    set.insert(i32, &set_value, 4);
-    set.insert(i32, &set_value, 8);
-    set.remove(i32, &set_value, 4);
+    set_value.insert(4);
+    set_value.insert(8);
+    set_value.remove(4);
 
     ok := removed == 10 &&
          popped == 20 &&
          list_value.len == 1 &&
-         list.get(i32, &list_value, 0) == 15 &&
-         @len(list.as_slice(i32, &arena_list)) == 3 &&
-         @unwrap(map.get(i32, i32, &kv_map, 3)) == 31 &&
-         !map.contains(i32, i32, &kv_map, 5) &&
-         set.contains(i32, &set_value, 8) &&
-         !set.contains(i32, &set_value, 4);
+         list_value.get(0) == 15 &&
+         @len(arena_list.as_slice()) == 3 &&
+         @unwrap(kv_map.get(3)) == 31 &&
+         !kv_map.contains(5) &&
+         set_value.contains(8) &&
+         !set_value.contains(4);
 
-    list.deinit(i32, &list_value);
-    map.deinit(i32, i32, &kv_map);
-    set.deinit(i32, &set_value);
+    list_value.deinit();
+    kv_map.deinit();
+    set_value.deinit();
 
     if(ok) {
         return 0;

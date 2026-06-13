@@ -11,10 +11,8 @@ Vec2 :: struct {
         };
     },
 
-    // Self关键字代表本类型，第一个参数是Self, &Self, &Self, *Self, *Self的时候，调用成员函数时会自动填充
-    // 当然，只有对象本身是mut的才能调用这个函数（因为参数需要&mut）
+    // Self关键字代表本类型，第一个参数是Self, &Self, *Self的时候，调用成员函数时会自动填充
     add: fn(self: &Self, other: Vec2) void {
-        //依赖于self是&mut的，
         self.x = self.x + other.x;
         self.y = self.y + other.y;
     },//逗号是可选的

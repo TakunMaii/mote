@@ -113,6 +113,7 @@ typedef struct ASTEnumVariant ASTEnumVariant;
 typedef struct ASTTypeArgument ASTTypeArgument;
 typedef struct ASTFunctionCapture ASTFunctionCapture;
 typedef struct ScopeFrame ScopeFrame;
+ScopeFrame* snapshotScopeFrame(ScopeFrame *scope);
 
 typedef enum ASTOperatorKind {
     AST_OPERATOR_NONE = 0,
@@ -252,6 +253,7 @@ struct ASTNode {
     ASTFunctionCapture *captures;
     ASTDataType *return_data_type;
     ASTNode *body;
+    ASTStructMember *member_owner;
 
     // struct literal
     ASTStructMember *members;
@@ -648,6 +650,9 @@ ASTStructMember* cloneStructMembersInternal(ASTStructMember *member, ASTDataType
     *new_member = *member;
     new_member->next = NULL;
     new_member->data_type = NULL;
+    new_member->lexical_type_scope = member->lexical_type_scope;
+    if(new_member->value != NULL && new_member->value->kind == AST_EXPR_FUNCTION)
+        new_member->value->member_owner = new_member;
 
     if(member->data_type)
         new_member->data_type = cloneDataTypeInternal(member->data_type, memo);

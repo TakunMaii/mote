@@ -6,14 +6,14 @@ main :: fn() i32 {
     kv_map: map.Map(i32, i32) = map.init(i32, i32, hash.hash_i32, hash.eq_i32);
     i: i32 = 0;
     while(i < 32) {
-        map.put(i32, i32, &kv_map, i, i * 10);
+        kv_map.put(i, i * 10);
         i = i + 1;
     }
 
     ok: bool = true;
     i = 0;
     while(i < 32) {
-        maybe_value: ?i32 = map.get(i32, i32, &kv_map, i);
+        maybe_value: ?i32 = kv_map.get(i);
         if(maybe_value == null || @unwrap(maybe_value) != i * 10) {
             ok = false;
         }
@@ -24,7 +24,7 @@ main :: fn() i32 {
     i = 0;
     while(i < 32) {
         if(i % 2 == 0) {
-            if(!map.remove(i32, i32, &kv_map, i)) {
+            if(!kv_map.remove(i)) {
                 removed_all_even = false;
             }
         }
@@ -34,22 +34,22 @@ main :: fn() i32 {
     set_value: set.Set(i32) = set.init(i32, hash.hash_i32, hash.eq_i32);
     i = 0;
     while(i < 32) {
-        set.insert(i32, &set_value, i);
+        set_value.insert(i);
         i = i + 1;
     }
 
     set_ok: bool = true;
     i = 0;
     while(i < 32) {
-        contains: bool = set.contains(i32, &set_value, i);
+        contains: bool = set_value.contains(i);
         if(!contains) {
             set_ok = false;
         }
         i = i + 1;
     }
 
-    map.deinit(i32, i32, &kv_map);
-    set.deinit(i32, &set_value);
+    kv_map.deinit();
+    set_value.deinit();
 
     if(ok && removed_all_even && set_ok) {
         return 0;
