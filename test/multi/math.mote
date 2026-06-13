@@ -1,13 +1,13 @@
-pub add = fn(a: i32, b: i32) i32 {
+pub add :: fn(a: i32, b: i32) i32 {
     return a + b;
 };
 
-pub State = enum {
+pub State :: enum {
     idle,
     running,
 };
 
-pub Vec2 = struct {
+pub Vec2 :: struct {
     x: i32,
     y: i32,
 

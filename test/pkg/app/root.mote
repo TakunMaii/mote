@@ -1,6 +1,6 @@
 @package("app");
 
-util = @import("util");
+util :: @import("util");
 
 pub base: i32 = 10;
-pub scale = util.scale;
+pub scale :: util.scale;

@@ -1578,7 +1578,7 @@ static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context
         {
             if(strcmp(field->identifier, "ptr") == 0)
             {
-                field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true,
+                field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                 cloneDataType(inst->result_type->child));
                 field_index = 0;
             }

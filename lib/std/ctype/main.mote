@@ -1,5 +1,5 @@
 @package("ctype");
 
-c = @import("std:internal/c");
+c :: @import("std:internal/c");
 
-pub is_digit = c.isdigit;
+pub is_digit :: c.isdigit;

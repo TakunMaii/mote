@@ -1,9 +1,9 @@
-Vec2 = struct {
+Vec2 :: struct {
     x: i32,
     y: i32,
 };
 
-State = struct {
+State :: struct {
     pos: Vec2,
     flags: Array(bool, 4),
     ptr: *char,

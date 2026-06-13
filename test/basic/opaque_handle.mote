@@ -1,8 +1,8 @@
-Handle = opaque;
+Handle :: opaque;
 
 handle: *Handle = 0;
 
-main = fn() i32 {
+main :: fn() i32 {
     if(handle == 0) {
         return 0;
     }

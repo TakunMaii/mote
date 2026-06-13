@@ -1,4 +1,4 @@
-main = fn() void {
+main :: fn() void {
     x: i32 = 1;
-    y = x.foo;
+    y := x.foo;
 };

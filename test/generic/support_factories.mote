@@ -1,154 +1,154 @@
-pub Pair = fn(T: Type) Type {
+pub Pair :: fn(T: Type) Type {
     return struct {
         left: T,
         right: T,
     };
 };
 
-pub make_pair = fn(T: Type, left: T, right: T) Pair(T) {
+pub make_pair :: fn(T: Type, left: T, right: T) Pair(T) {
     return Pair(T) {
         .left = left,
         .right = right,
     };
 };
 
-pub flip_pair = fn(T: Type, value: Pair(T)) Pair(T) {
+pub flip_pair :: fn(T: Type, value: Pair(T)) Pair(T) {
     return make_pair(T, value.right, value.left);
 };
 
-pub replace_pair_left = fn(T: Type, value: &mut Pair(T), next_left: T) void {
+pub replace_pair_left :: fn(T: Type, value: &Pair(T), next_left: T) void {
     value.left = next_left;
 };
 
-pub Box = fn(T: Type) Type {
+pub Box :: fn(T: Type) Type {
     return struct {
         value: T,
     };
 };
 
-pub make_box = fn(T: Type, value: T) Box(T) {
+pub make_box :: fn(T: Type, value: T) Box(T) {
     return Box(T) {
         .value = value,
     };
 };
 
-pub box_get = fn(T: Type, value: Box(T)) T {
+pub box_get :: fn(T: Type, value: Box(T)) T {
     return value.value;
 };
 
-pub box_set = fn(T: Type, value: &mut Box(T), next_value: T) void {
+pub box_set :: fn(T: Type, value: &Box(T), next_value: T) void {
     value.value = next_value;
 };
 
-pub Vec2 = fn(T: Type) Type {
+pub Vec2 :: fn(T: Type) Type {
     return struct {
         x: T,
         y: T,
     };
 };
 
-pub make_vec2 = fn(T: Type, x: T, y: T) Vec2(T) {
+pub make_vec2 :: fn(T: Type, x: T, y: T) Vec2(T) {
     return Vec2(T) {
         .x = x,
         .y = y,
     };
 };
 
-pub add_vec2 = fn(T: Type, self: &mut Vec2(T), other: Vec2(T)) void {
+pub add_vec2 :: fn(T: Type, self: &Vec2(T), other: Vec2(T)) void {
     self.x = self.x + other.x;
     self.y = self.y + other.y;
 };
 
-pub HandlerBox = fn(T: Type) Type {
+pub HandlerBox :: fn(T: Type) Type {
     return struct {
         value: T,
         apply: Function([T], T),
     };
 };
 
-pub make_handler_box = fn(T: Type, value: T, apply: Function([T], T)) HandlerBox(T) {
+pub make_handler_box :: fn(T: Type, value: T, apply: Function([T], T)) HandlerBox(T) {
     return HandlerBox(T) {
         .value = value,
         .apply = apply,
     };
 };
 
-pub run_handler_box = fn(T: Type, self: HandlerBox(T)) T {
+pub run_handler_box :: fn(T: Type, self: HandlerBox(T)) T {
     return self.apply(self.value);
 };
 
-pub id = fn(T: Type, value: T) T {
+pub id :: fn(T: Type, value: T) T {
     return value;
 };
 
-pub choose_type = fn(T: Type) Type {
+pub choose_type :: fn(T: Type) Type {
     return T;
 };
 
-pub type_and_value = fn(T: Type, value: T) T {
+pub type_and_value :: fn(T: Type, value: T) T {
     alias_value: choose_type(T) = value;
     return alias_value;
 };
 
-pub swap = fn(T: Type, a: *mut T, b: *mut T) void {
+pub swap :: fn(T: Type, a: *T, b: *T) void {
     temp: T = *a;
     *a = *b;
     *b = temp;
 };
 
-pub wrap_optional = fn(T: Type, value: T) ?T {
+pub wrap_optional :: fn(T: Type, value: T) ?T {
     return value;
 };
 
-pub first_or_null = fn(T: Type, xs: []T) ?T {
+pub first_or_null :: fn(T: Type, xs: []T) ?T {
     if(@len(xs) == 0) {
         return null;
     }
     return xs[0];
 };
 
-pub unwrap_or = fn(T: Type, value: ?T, fallback: T) T {
+pub unwrap_or :: fn(T: Type, value: ?T, fallback: T) T {
     if(value == null) {
         return fallback;
     }
     return @unwrap(value);
 };
 
-pub ref_write = fn(T: Type, dst: &mut T, value: T) void {
-    dst = value;
+pub ref_write :: fn(T: Type, dst: &T, value: T) void {
+    dst := value;
 };
 
-pub ref_read = fn(T: Type, src: &T) T {
+pub ref_read :: fn(T: Type, src: &T) T {
     return src;
 };
 
-pub ptr_pass = fn(T: Type, ptr: *mut T) *mut T {
+pub ptr_pass :: fn(T: Type, ptr: *T) *T {
     return ptr;
 };
 
-pub chain_inner = fn(T: Type, value: T) ?T {
+pub chain_inner :: fn(T: Type, value: T) ?T {
     return value;
 };
 
-pub chain_mid = fn(T: Type, value: T) ?T {
+pub chain_mid :: fn(T: Type, value: T) ?T {
     return chain_inner(T, value);
 };
 
-pub chain_outer = fn(T: Type, value: T) T {
+pub chain_outer :: fn(T: Type, value: T) T {
     return @unwrap(chain_mid(T, value));
 };
 
-pub add_one_i32 = fn(value: i32) i32 {
+pub add_one_i32 :: fn(value: i32) i32 {
     return value + 1;
 };
 
-pub make_identity = fn(T: Type) Function([T], T) {
+pub make_identity :: fn(T: Type) Function([T], T) {
     return fn(x: T) T {
         return x;
     };
 };
 
-pub make_offset_adder = fn(T: Type, base: T) Function([T], T) {
+pub make_offset_adder :: fn(T: Type, base: T) Function([T], T) {
     return fn|base|(x: T) T {
         return x + base;
     };

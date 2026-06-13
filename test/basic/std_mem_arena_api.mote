@@ -1,30 +1,30 @@
-mem = @import("std:mem");
+mem :: @import("std:mem");
 
-Node = struct {
+Node :: struct {
     value: i32,
 };
 
-main = fn() i32 {
-    mut arena: mem.Arena = mem.arena_init(128);
-    defer mem.arena_destroy(&mut arena);
+main :: fn() i32 {
+    arena: mem.Arena = mem.arena_init(128);
+    defer mem.arena_destroy(&arena);
 
-    first: *mut Node = mem.arena_new_zeroed(Node, arena);
+    first: *Node = mem.arena_new_zeroed(Node, arena);
     first.value = 11;
 
-    xs = mem.arena_make_zeroed(i32, arena, 3);
+    xs := mem.arena_make_zeroed(i32, arena, 3);
     xs[0] = 21;
     xs[1] = 22;
     xs[2] = 23;
 
-    duped = mem.arena_dup_slice(i32, arena, xs);
-    ok = first.value == 11 &&
+    duped := mem.arena_dup_slice(i32, arena, xs);
+    ok := first.value == 11 &&
          @len(xs) == 3 &&
          xs[1] == 22 &&
          duped[2] == 23;
 
     mem.arena_reset(arena);
 
-    after_reset: *mut Node = mem.arena_new_zeroed(Node, arena);
+    after_reset: *Node = mem.arena_new_zeroed(Node, arena);
     if(ok && after_reset.value == 0) {
         return 0;
     }

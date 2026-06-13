@@ -1,6 +1,6 @@
-enet = @import("vendor:enet");
+enet :: @import("vendor:enet");
 
-main = fn() i32 {
+main :: fn() i32 {
     if(enet.Initialize() != 0) {
         return 1;
     }
@@ -11,12 +11,12 @@ main = fn() i32 {
         return 2;
     }
 
-    mut address: enet.Address = enet.Address {
+    address: enet.Address = enet.Address {
         .host = enet.HOST_ANY,
         .port = 0,
     };
 
-    if(enet.AddressSetHostIP(&mut address, "127.0.0.1") != 0) {
+    if(enet.AddressSetHostIP(&address, "127.0.0.1") != 0) {
         enet.Deinitialize();
         return 3;
     }

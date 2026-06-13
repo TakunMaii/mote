@@ -1,4 +1,4 @@
-math = @import("./math");
+math :: @import("./math");
 
 v: math.Vec2 = math.Vec2.new(3, 4);
 state: math.State = math.State.running;

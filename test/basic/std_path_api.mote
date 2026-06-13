@@ -1,11 +1,11 @@
-path = @import("std:path");
-mem = @import("std:mem");
+path :: @import("std:path");
+mem :: @import("std:mem");
 
-str_slice = fn(ptr: *char, len: i64) []char {
-    return @slice(char, @as(*mut char, ptr), len);
+str_slice :: fn(ptr: *char, len: i64) []char {
+    return @slice(char, @as(*char, ptr), len);
 };
 
-main = fn() void {
+main :: fn() void {
     unix_path: []char = str_slice("assets/shaders/basic.frag", 25);
     windows_path: []char = str_slice("C:\\game\\data\\pack.bin", 21);
     root_path: []char = str_slice("/", 1);
@@ -101,5 +101,5 @@ main = fn() void {
 
     mem.free_slice(char, joined_buf);
     mem.free_slice(char, normalized_buf);
-    sink = 1;
+    sink := 1;
 };

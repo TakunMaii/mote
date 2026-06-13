@@ -1,32 +1,32 @@
 @package("fs");
 
-filesystem = @import("std:filesystem");
+filesystem :: @import("std:filesystem");
 
 // Compatibility shim. Prefer importing `std:filesystem` directly in new code.
 
-pub File = filesystem.File;
+pub File :: filesystem.File;
 
-pub open = filesystem.open;
-pub close = filesystem.close;
-pub read = filesystem.read;
-pub write = filesystem.write;
-pub flush = filesystem.flush;
-pub rewind = filesystem.rewind;
-pub get_char = filesystem.get_char;
-pub put_char = filesystem.put_char;
-pub get_line = filesystem.get_line;
-pub put_string = filesystem.put_string;
-pub eof = filesystem.eof;
-pub error = filesystem.error;
-pub remove = filesystem.remove;
-pub rename = filesystem.rename;
-pub exists = filesystem.exists;
-pub file_size = filesystem.file_size;
-pub read_all = filesystem.read_all;
-pub write_all = filesystem.write_all;
-pub remove_file = filesystem.remove_file;
-pub rename_file = filesystem.rename_file;
+pub open :: filesystem.open;
+pub close :: filesystem.close;
+pub read :: filesystem.read;
+pub write :: filesystem.write;
+pub flush :: filesystem.flush;
+pub rewind :: filesystem.rewind;
+pub get_char :: filesystem.get_char;
+pub put_char :: filesystem.put_char;
+pub get_line :: filesystem.get_line;
+pub put_string :: filesystem.put_string;
+pub eof :: filesystem.eof;
+pub error :: filesystem.error;
+pub remove :: filesystem.remove;
+pub rename :: filesystem.rename;
+pub exists :: filesystem.exists;
+pub file_size :: filesystem.file_size;
+pub read_all :: filesystem.read_all;
+pub write_all :: filesystem.write_all;
+pub remove_file :: filesystem.remove_file;
+pub rename_file :: filesystem.rename_file;
 
-pub seek_set = filesystem.seek_set;
-pub seek_cur = filesystem.seek_cur;
-pub seek_end = filesystem.seek_end;
+pub seek_set :: filesystem.seek_set;
+pub seek_cur :: filesystem.seek_cur;
+pub seek_end :: filesystem.seek_end;

@@ -1,6 +1,6 @@
-g = @import("./support_factories");
+g :: @import("./support_factories");
 
-main = fn() i32 {
+main :: fn() i32 {
     id_i32: Function([i32], i32) = g.make_identity(i32);
     if(id_i32(7) == 7) {
         return 0;

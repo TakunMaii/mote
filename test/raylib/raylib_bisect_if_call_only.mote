@@ -1,6 +1,6 @@
-rl = @import("vendor:raylib");
+rl :: @import("vendor:raylib");
 
-mut frames: i32 = 0;
+frames: i32 = 0;
 
 rl.InitWindow(320, 240, "bisect if call");
 rl.SetTargetFPS(60);

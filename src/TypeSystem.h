@@ -25,7 +25,6 @@ bool isSameDataType(ASTDataType *lhs, ASTDataType *rhs);
 ASTDataType* inferDeclaredTypeFromExpr(ASTNode *expr, ScopeFrame *scope);
 ASTStructMember* resolveStructMembers(ASTStructMember *member, ScopeFrame *scope, ASTDataType *self_data_type);
 ASTDataType* resolveNamedDataType(ASTDataType *data_type, ScopeFrame *scope, ASTDataType *self_data_type);
-ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope, ASTDataType *self_data_type);
 void bindCapturedValuesForInstantiation(ASTFunctionCapture *capture, ScopeFrame *inst_scope, ScopeFrame *outer_scope);
 void bindCallArgumentsForInstantiation(ASTFunctionParameter *parameter, ASTNode *argument, ScopeFrame *inst_scope, ScopeFrame *outer_scope);
 ASTNode* findReturnedExpr(ASTNode *function_expr);
@@ -36,7 +35,6 @@ ASTNode* resolveFunctionValueExpr(ASTNode *expr, ScopeFrame *scope);
 ASTNode* resolveExternValueExpr(ASTNode *expr, ScopeFrame *scope);
 bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType *target_type);
 bool canBindReferenceArgument(ASTNode *argument, ScopeFrame *scope, ASTDataType *parameter_type);
-void bindSpecializedNamedTypesInScopeForMethod(ScopeFrame *scope, ASTDataType *source_type, ASTDataType *resolved_type);
 
 typedef struct ResolvedOperatorOverload {
     ASTNode *function_value;
@@ -75,10 +73,6 @@ static ASTStructMember* resolveStructMembersInternal(ASTStructMember *member, Sc
                                                      ASTDataType *self_data_type,
                                                      ResolveDataTypeEntry **memo,
                                                      bool allow_recursive_factory_result);
-static void bindSpecializedNamedTypesInScope(ScopeFrame *scope, ASTDataType *source_type, ASTDataType *resolved_type);
-static ASTDataType* resolveStructMemberDataType(ASTStructMember *member, ScopeFrame *scope, ASTDataType *struct_type);
-static ScopeFrame* buildMethodLexicalTypeScope(ASTStructMember *member, ASTDataType *resolved_member_type,
-                                               ScopeFrame *inst_scope, ASTDataType *struct_type);
 
 TypeSystemExprType newValueExprType(ASTDataType *data_type)
 {
@@ -216,7 +210,7 @@ static ASTDataType* typeSystemResolvePredeclaredVariableType(VariableInfo *varia
        resolved_expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL)
         resolved_type = inferDeclaredTypeFromExpr(variable_info->value_expr, scope);
     else
-        resolved_type = resolveNamedDataType(resolved_expr_type.data_type, scope, NULL);
+        resolved_type = cloneDataType(resolved_expr_type.data_type);
 
     variable_info->data_type = cloneDataType(resolved_type);
     if(resolved_expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
@@ -856,8 +850,6 @@ bool isSameDataTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompa
             return lhs->primary == rhs->primary;
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
-            if(lhs->mutable != rhs->mutable)
-                return false;
             if(hasComparedDataTypePair(*memo, lhs, rhs))
                 return true;
             rememberComparedDataTypePair(memo, lhs, rhs);
@@ -955,16 +947,11 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
 
             if(strcmp(data_type->identifier, "Self") == 0)
             {
-                if(self_data_type != NULL)
-                    return self_data_type;
-
-                VariableInfo *self_variable = findVariableInfo(scope, "Self");
-                if(self_variable != NULL && self_variable->type_value != NULL)
-                    return cloneDataType(self_variable->type_value);
-
-                typeSystemAbortNoSpan("T1201",
-                                      "`Self` is only allowed inside a struct method",
-                                      NULL);
+                if(self_data_type == NULL)
+                    typeSystemAbortNoSpan("T1201",
+                                          "`Self` is only allowed inside a struct method",
+                                          NULL);
+                return self_data_type;
             }
 
             TypeInfo *type_info = findTypeInfo(scope, data_type->identifier);
@@ -1001,10 +988,10 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
         }
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
-            return newWrappedDataType(data_type->kind, data_type->mutable,
+            return newWrappedDataType(data_type->kind,
                                       resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo, true));
         case AST_DATA_TYPE_KIND_OPTIONAL:
-            return newWrappedDataType(data_type->kind, data_type->mutable,
+            return newWrappedDataType(data_type->kind,
                                       resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo, false));
         case AST_DATA_TYPE_KIND_ARRAY:
             return newArrayDataType(resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo, false),
@@ -1024,7 +1011,7 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
                     placeholder_type = newInferDataType();
 
                 VariableInfo *variable_info = declareVariableInfo(signature_scope, scan->identifier);
-                variable_info->mutable = false;
+                variable_info->is_compile_time_constant = false;
                 variable_info->data_type = placeholder_type;
                 if(placeholder_type != NULL &&
                    placeholder_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
@@ -1130,170 +1117,9 @@ static void bindMethodSpecializationScope(ScopeFrame *scope, ASTDataType *struct
         return;
 
     VariableInfo *self_variable = declareVariableInfo(scope, "Self");
-    self_variable->mutable = false;
+    self_variable->is_compile_time_constant = true;
     self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
     self_variable->type_value = cloneDataType(struct_type);
-
-    if(member->value != NULL && member->value->data_type != NULL && member->data_type != NULL)
-        bindSpecializedNamedTypesInScope(scope, member->value->data_type, member->data_type);
-}
-
-static ScopeFrame* buildMethodLexicalTypeScope(ASTStructMember *member, ASTDataType *resolved_member_type,
-                                               ScopeFrame *inst_scope, ASTDataType *struct_type)
-{
-    if(member == NULL || member->value == NULL || member->value->kind != AST_EXPR_FUNCTION ||
-       resolved_member_type == NULL)
-        return NULL;
-
-    ScopeFrame *method_scope = newScopeFrame(NULL);
-    if(struct_type != NULL)
-    {
-        VariableInfo *self_variable = declareVariableInfo(method_scope, "Self");
-        self_variable->mutable = false;
-        self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
-        self_variable->type_value = cloneDataType(struct_type);
-    }
-
-    bindSpecializedNamedTypesInScope(method_scope, member->value->data_type, resolved_member_type);
-
-    if(inst_scope != NULL)
-    {
-        for(int i = 0; i < inst_scope->variable_count; i++)
-        {
-            VariableInfo *src = &(inst_scope->variable_infos[i]);
-            if(findVariableInfoInScope(method_scope, src->identifier) >= 0)
-                continue;
-            VariableInfo *dst = declareVariableInfo(method_scope, src->identifier);
-            *dst = *src;
-            dst->data_type = cloneDataType(src->data_type);
-            dst->type_value = cloneDataType(src->type_value);
-        }
-
-        for(int i = 0; i < inst_scope->type_count; i++)
-        {
-            TypeInfo *src = &(inst_scope->type_infos[i]);
-            if(findTypeInfoInScope(method_scope, src->identifier) >= 0)
-                continue;
-            TypeInfo *dst = declareTypeInfo(method_scope, src->identifier);
-            *dst = *src;
-            dst->data_type = cloneDataType(src->data_type);
-        }
-    }
-
-    return method_scope;
-}
-
-static ASTDataType* resolveStructMemberDataType(ASTStructMember *member, ScopeFrame *scope, ASTDataType *struct_type)
-{
-    if(member == NULL)
-        return NULL;
-
-    if(member->value != NULL && member->value->kind == AST_EXPR_FUNCTION)
-    {
-        ScopeFrame *member_scope = scope;
-        if(member->lexical_type_scope != NULL)
-        {
-            ScopeFrame *combined_scope = newScopeFrame(scope);
-            combined_scope->instantiating_function = member->lexical_type_scope->instantiating_function;
-            combined_scope->instantiation_site = member->lexical_type_scope->instantiation_site;
-            combined_scope->instantiating_type_result = cloneDataType(member->lexical_type_scope->instantiating_type_result);
-
-            for(int i = 0; i < member->lexical_type_scope->variable_count; i++)
-            {
-                VariableInfo *src = &(member->lexical_type_scope->variable_infos[i]);
-                if(findVariableInfoInScope(combined_scope, src->identifier) >= 0)
-                    continue;
-                VariableInfo *dst = declareVariableInfo(combined_scope, src->identifier);
-                *dst = *src;
-                dst->data_type = cloneDataType(src->data_type);
-                dst->type_value = cloneDataType(src->type_value);
-            }
-
-            for(int i = 0; i < member->lexical_type_scope->type_count; i++)
-            {
-                TypeInfo *src = &(member->lexical_type_scope->type_infos[i]);
-                if(findTypeInfoInScope(combined_scope, src->identifier) >= 0)
-                    continue;
-                TypeInfo *dst = declareTypeInfo(combined_scope, src->identifier);
-                *dst = *src;
-                dst->data_type = cloneDataType(src->data_type);
-            }
-            member_scope = combined_scope;
-        }
-        return resolveFunctionExprDataType(member->value, member_scope, struct_type);
-    }
-
-    return resolveNamedDataType(member->data_type, scope, struct_type);
-}
-
-void bindSpecializedNamedTypesInScopeForMethod(ScopeFrame *scope, ASTDataType *source_type, ASTDataType *resolved_type)
-{
-    bindSpecializedNamedTypesInScope(scope, source_type, resolved_type);
-}
-
-static void bindSpecializedNamedTypesInScope(ScopeFrame *scope, ASTDataType *source_type, ASTDataType *resolved_type)
-{
-    if(scope == NULL || source_type == NULL || resolved_type == NULL)
-        return;
-
-    if(source_type->kind == AST_DATA_TYPE_KIND_NAMED)
-    {
-        ASTDataType *builtin_type = builtinIdentifierToDataType(source_type->identifier);
-        bool same_named = resolved_type->kind == AST_DATA_TYPE_KIND_NAMED &&
-                          strcmp(source_type->identifier, resolved_type->identifier) == 0;
-        if(builtin_type == NULL &&
-           strcmp(source_type->identifier, "Self") != 0 &&
-           !same_named &&
-           findVariableInfo(scope, source_type->identifier) == NULL &&
-           findTypeInfo(scope, source_type->identifier) == NULL)
-        {
-            VariableInfo *type_variable = declareVariableInfo(scope, source_type->identifier);
-            type_variable->mutable = false;
-            type_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
-            type_variable->type_value = cloneDataType(resolved_type);
-        }
-        return;
-    }
-
-    if(source_type->kind != resolved_type->kind)
-        return;
-
-    switch(source_type->kind)
-    {
-        case AST_DATA_TYPE_KIND_POINTER:
-        case AST_DATA_TYPE_KIND_REFERENCE:
-        case AST_DATA_TYPE_KIND_ARRAY:
-        case AST_DATA_TYPE_KIND_SLICE:
-        case AST_DATA_TYPE_KIND_OPTIONAL:
-            bindSpecializedNamedTypesInScope(scope, source_type->child, resolved_type->child);
-            return;
-        case AST_DATA_TYPE_KIND_FUNCTION: {
-            ASTFunctionParameter *source_parameter = source_type->parameters;
-            ASTFunctionParameter *resolved_parameter = resolved_type->parameters;
-            while(source_parameter != NULL && resolved_parameter != NULL)
-            {
-                bindSpecializedNamedTypesInScope(scope, source_parameter->data_type, resolved_parameter->data_type);
-                source_parameter = source_parameter->next;
-                resolved_parameter = resolved_parameter->next;
-            }
-            bindSpecializedNamedTypesInScope(scope, source_type->return_data_type, resolved_type->return_data_type);
-            return;
-        }
-        case AST_DATA_TYPE_KIND_APPLY: {
-            bindSpecializedNamedTypesInScope(scope, source_type->callee, resolved_type->callee);
-            ASTTypeArgument *source_argument = source_type->arguments;
-            ASTTypeArgument *resolved_argument = resolved_type->arguments;
-            while(source_argument != NULL && resolved_argument != NULL)
-            {
-                bindSpecializedNamedTypesInScope(scope, source_argument->data_type, resolved_argument->data_type);
-                source_argument = source_argument->next;
-                resolved_argument = resolved_argument->next;
-            }
-            return;
-        }
-        default:
-            return;
-    }
 }
 
 void bindCapturedValuesForInstantiation(ASTFunctionCapture *capture, ScopeFrame *inst_scope, ScopeFrame *outer_scope)
@@ -1311,7 +1137,7 @@ void bindCapturedValuesForInstantiation(ASTFunctionCapture *capture, ScopeFrame 
                                      astUserFacingIdentifier(capture->identifier));
 
         VariableInfo *inst_variable = declareVariableInfo(inst_scope, capture->identifier);
-        inst_variable->mutable = false;
+        inst_variable->is_compile_time_constant = false;
         inst_variable->data_type = cloneDataType(outer_variable->data_type);
         inst_variable->type_value = cloneDataType(outer_variable->type_value);
         inst_variable->function_value = outer_variable->function_value;
@@ -1324,7 +1150,7 @@ void bindCallArgumentsForInstantiation(ASTFunctionParameter *parameter, ASTNode 
     while(parameter && argument)
     {
         VariableInfo *inst_variable = declareVariableInfo(inst_scope, parameter->identifier);
-        inst_variable->mutable = false;
+        inst_variable->is_compile_time_constant = false;
 
         ASTDataType *resolved_parameter_type = resolveNamedDataType(parameter->data_type, inst_scope, NULL);
         inst_variable->data_type = cloneDataType(resolved_parameter_type);
@@ -1365,11 +1191,9 @@ void bindCallArgumentsForInstantiation(ASTFunctionParameter *parameter, ASTNode 
                 resolved_parameter_type->primary != AST_PRIMARY_DATA_TYPE_TYPE)
         {
             if(!canImplicitConvertExprToType(argument, outer_scope, resolved_parameter_type))
-            {
                 typeSystemAbortNode("T1221", argument,
                                     "function argument type mismatch",
                                     "argument cannot be implicitly converted to the parameter type");
-            }
         }
 
         parameter = parameter->next;
@@ -1407,17 +1231,7 @@ ASTDataType* instantiateStructTypeExpr(ASTNode *expr, ScopeFrame *inst_scope)
     ASTStructMember *original_member = expr->members;
     while(resolved_member != NULL && original_member != NULL)
     {
-        if(original_member->value != NULL && original_member->value->kind == AST_EXPR_FUNCTION)
-        {
-            resolved_member->data_type = resolveFunctionExprDataType(original_member->value, inst_scope, struct_type);
-            resolved_member->lexical_type_scope = buildMethodLexicalTypeScope(
-                original_member,
-                resolved_member->data_type,
-                inst_scope,
-                struct_type
-            );
-        }
-        else if(original_member->data_type != NULL)
+        if(original_member->data_type != NULL)
             resolved_member->data_type = resolveNamedDataType(original_member->data_type, inst_scope, struct_type);
         resolved_member = resolved_member->next;
         original_member = original_member->next;
@@ -2116,11 +1930,10 @@ ASTDataType* inferSliceBuiltinValueType(ASTNode *node, ScopeFrame *scope)
     if(pointer_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
        pointer_type.data_type == NULL ||
        pointer_type.data_type->kind != AST_DATA_TYPE_KIND_POINTER ||
-       !pointer_type.data_type->mutable ||
        !isSameDataType(pointer_type.data_type->child, element_type))
         typeSystemAbortNode("T1259", pointer_expr,
-                            "@slice expects a mutable pointer to the given element type",
-                            "second argument must have type `*mut T` matching the first argument");
+                            "@slice expects a pointer to the given element type",
+                            "second argument must have type `*T` matching the first argument");
 
     TypeSystemExprType length_type = inferExprType(length_expr, scope);
     if(length_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||
@@ -2252,31 +2065,10 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
 
     if(source_data_type->kind == AST_DATA_TYPE_KIND_POINTER && target_type->kind == AST_DATA_TYPE_KIND_POINTER)
     {
-        bool mutable_compatible = source_data_type->mutable == target_type->mutable ||
-                                  (source_data_type->mutable && !target_type->mutable);
-        if(!mutable_compatible)
-            return false;
-
         if(isSameDataType(source_data_type->child, target_type->child))
             return true;
 
         if(isVoidDataType(source_data_type->child) || isVoidDataType(target_type->child))
-            return true;
-
-        return false;
-    }
-
-    if(source_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && target_type->kind == AST_DATA_TYPE_KIND_POINTER)
-    {
-        bool mutable_compatible = source_data_type->mutable == target_type->mutable ||
-                                  (source_data_type->mutable && !target_type->mutable);
-        if(!mutable_compatible)
-            return false;
-
-        if(isSameDataType(source_data_type->child, target_type->child))
-            return true;
-
-        if(isVoidDataType(target_type->child))
             return true;
 
         return false;
@@ -2303,11 +2095,7 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
         return true;
 
     if(source_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && target_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-    {
-        if(source_data_type->mutable && !target_type->mutable && isSameDataType(source_data_type->child, target_type->child))
-            return true;
-        return false;
-    }
+        return isSameDataType(source_data_type->child, target_type->child);
 
     return false;
 }
@@ -2594,12 +2382,7 @@ bool isMutableAddressableExpr(ASTNode *node, ScopeFrame *scope)
     if(node->kind == AST_EXPR_VARIABLE)
     {
         VariableInfo *variable_info = findVariableInfo(scope, node->identifier);
-        if(variable_info == NULL)
-            return false;
-        return variable_info->mutable ||
-               (variable_info->data_type != NULL &&
-                variable_info->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE &&
-                variable_info->data_type->mutable);
+        return variable_info != NULL && !variable_info->is_compile_time_constant;
     }
 
     if(node->kind == AST_EXPR_DEREF)
@@ -2608,7 +2391,7 @@ bool isMutableAddressableExpr(ASTNode *node, ScopeFrame *scope)
         if(ptr_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
             return false;
         if(ptr_type.data_type->kind == AST_DATA_TYPE_KIND_POINTER || ptr_type.data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-            return ptr_type.data_type->mutable;
+            return true;
     }
 
     if(node->kind == AST_EXPR_MEMBER)
@@ -2619,7 +2402,7 @@ bool isMutableAddressableExpr(ASTNode *node, ScopeFrame *scope)
 
         ASTDataType *owner_data_type = owner_type.data_type;
         if(owner_data_type->kind == AST_DATA_TYPE_KIND_POINTER || owner_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-            return owner_data_type->mutable;
+            return true;
 
         return isMutableAddressableExpr(node->lhs, scope);
     }
@@ -2640,57 +2423,24 @@ bool canBindReferenceArgument(ASTNode *argument, ScopeFrame *scope, ASTDataType 
     if(parameter_type->kind != AST_DATA_TYPE_KIND_REFERENCE)
         return false;
 
-    ASTDataType *resolved_parameter_type = resolveNamedDataType(parameter_type, scope, NULL);
-    if(resolved_parameter_type == NULL || resolved_parameter_type->kind != AST_DATA_TYPE_KIND_REFERENCE)
-        return false;
-
     if(argument->kind == AST_EXPR_ADDRESS_OF || argument->kind == AST_EXPR_ADDRESS_OF_MUT)
     {
-        if(resolved_parameter_type->mutable && argument->kind != AST_EXPR_ADDRESS_OF_MUT)
-            return false;
-
         TypeSystemExprType argument_type = inferExprType(argument, scope);
         if(argument_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
             return false;
-        ASTDataType *resolved_argument_type = resolveNamedDataType(argument_type.data_type, scope, NULL);
         if(argument_type.data_type->kind == AST_DATA_TYPE_KIND_POINTER)
-            return resolved_argument_type != NULL &&
-                   resolved_argument_type->kind == AST_DATA_TYPE_KIND_POINTER &&
-                   isSameDataType(resolved_argument_type->child, resolved_parameter_type->child);
-        return resolved_argument_type != NULL &&
-               isSameDataType(getReferenceTargetType(resolved_argument_type), resolved_parameter_type->child);
+            return isSameDataType(argument_type.data_type->child, parameter_type->child);
+        return isSameDataType(getReferenceTargetType(argument_type.data_type), parameter_type->child);
     }
 
     if(!isAddressableExpr(argument))
-        return false;
-
-    if(resolved_parameter_type->mutable && !isMutableAddressableExpr(argument, scope))
         return false;
 
     TypeSystemExprType argument_type = inferExprType(argument, scope);
     if(argument_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
         return false;
 
-    if(argument->kind == AST_EXPR_VARIABLE)
-    {
-        VariableInfo *variable_info = findVariableInfo(scope, argument->identifier);
-        if(variable_info != NULL && variable_info->data_type != NULL)
-        {
-            ASTDataType *resolved_variable_type = resolveNamedDataType(variable_info->data_type, scope, NULL);
-            if(resolved_variable_type != NULL && resolved_variable_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-            {
-                if(resolved_parameter_type->mutable && !resolved_variable_type->mutable)
-                    return false;
-                return isSameDataType(resolved_variable_type->child, resolved_parameter_type->child);
-            }
-            if(resolved_variable_type != NULL && resolved_variable_type->kind == AST_DATA_TYPE_KIND_POINTER)
-                return isSameDataType(resolved_variable_type->child, resolved_parameter_type->child);
-        }
-    }
-
-    ASTDataType *resolved_argument_type = resolveNamedDataType(argument_type.data_type, scope, NULL);
-    return resolved_argument_type != NULL &&
-           isSameDataType(getReferenceTargetType(resolved_argument_type), resolved_parameter_type->child);
+    return isSameDataType(getReferenceTargetType(argument_type.data_type), parameter_type->child);
 }
 
 int countFunctionParameters(ASTFunctionParameter *parameter)
@@ -2779,11 +2529,9 @@ void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argume
                                     "argument cannot bind to the reference parameter");
         }
         else if(!canImplicitConvertExprToType(argument, scope, parameter->data_type))
-        {
             typeSystemAbortNode("T1221", argument,
                                 "function argument type mismatch",
                                 "argument cannot be implicitly converted to the parameter type");
-        }
         parameter = parameter->next;
         argument = argument->next;
     }
@@ -2829,41 +2577,30 @@ void checkFunctionCallArguments(ASTFunctionParameter *parameter, ASTNode *argume
 bool canBindMethodReceiver(ASTNode *receiver, ScopeFrame *scope, ASTDataType *parameter_type, ASTDataType *owner_type)
 {
     TypeSystemExprType receiver_type = inferExprType(receiver, scope);
-    ASTDataType *resolved_parameter_type = resolveNamedDataType(parameter_type, scope, NULL);
-    ASTDataType *resolved_owner_type = resolveNamedDataType(owner_type, scope, NULL);
-    ASTDataType *resolved_receiver_type = receiver_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE
-        ? resolveNamedDataType(receiver_type.data_type, scope, NULL)
-        : NULL;
 
-    if(resolved_parameter_type != NULL && resolved_parameter_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+    if(parameter_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
     {
         if(!isAddressableExpr(receiver))
             return false;
-        if(resolved_parameter_type->mutable && !isMutableAddressableExpr(receiver, scope))
-            return false;
-        return resolved_receiver_type != NULL &&
-               isSameDataType(getReferenceTargetType(resolved_receiver_type), resolved_parameter_type->child);
+        return receiver_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+               isSameDataType(getReferenceTargetType(receiver_type.data_type), parameter_type->child);
     }
 
-    if(resolved_parameter_type != NULL && resolved_parameter_type->kind == AST_DATA_TYPE_KIND_POINTER)
+    if(parameter_type->kind == AST_DATA_TYPE_KIND_POINTER)
     {
         if(receiver_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
-           resolved_receiver_type != NULL &&
-           resolved_receiver_type->kind == AST_DATA_TYPE_KIND_POINTER &&
-           canImplicitConvertDataType(newValueExprType(resolved_receiver_type), receiver, resolved_parameter_type))
+           receiver_type.data_type->kind == AST_DATA_TYPE_KIND_POINTER &&
+           canImplicitConvertDataType(receiver_type, receiver, parameter_type))
             return true;
 
         return isAddressableExpr(receiver) &&
-               (!resolved_parameter_type->mutable || isMutableAddressableExpr(receiver, scope)) &&
-               resolved_receiver_type != NULL &&
-               isSameDataType(getReferenceTargetType(resolved_receiver_type), resolved_parameter_type->child);
+               receiver_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+               isSameDataType(getReferenceTargetType(receiver_type.data_type), parameter_type->child);
     }
 
-    return resolved_receiver_type != NULL &&
-           resolved_parameter_type != NULL &&
-           resolved_owner_type != NULL &&
-           isSameDataType(resolved_receiver_type, resolved_parameter_type) &&
-           isSameDataType(resolved_owner_type, resolved_parameter_type);
+    return receiver_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+           isSameDataType(receiver_type.data_type, parameter_type) &&
+           isSameDataType(owner_type, parameter_type);
 }
 
 static bool operatorSignatureMatches(ASTNode *function_value,
@@ -3156,10 +2893,9 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                                          "struct field `%s` cannot be accessed on the type itself",
                                          astUserFacingIdentifier(node->identifier));
 
-            ASTDataType *resolved_member_type = resolveStructMemberDataType(member, scope, struct_type);
-            if(resolved_member_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-                return newValueExprType(resolved_member_type->child);
-            return newValueExprType(resolved_member_type);
+            if(member->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+                return newValueExprType(member->data_type->child);
+            return newValueExprType(member->data_type);
         }
         case AST_EXPR_INDEX: {
             TypeSystemExprType owner_type = inferExprType(node->lhs, scope);
@@ -3216,10 +2952,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 {
                     ASTStructMember *member = findStructMember(struct_type, member_node->identifier);
                     if(member != NULL && member->value != NULL && member->value->kind == AST_EXPR_FUNCTION)
-                    {
-                        ASTDataType *resolved_member_type = resolveStructMemberDataType(member, scope, struct_type);
-                        return newValueExprType(resolved_member_type->return_data_type);
-                    }
+                        return newValueExprType(member->data_type->return_data_type);
                 }
             }
 
@@ -3242,16 +2975,15 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 if(isStructDataType(struct_type))
                 {
                     ASTStructMember *member = findStructMember(struct_type, member_node->identifier);
-                    ASTDataType *resolved_member_type = resolveStructMemberDataType(member, scope, struct_type);
-                    if(member != NULL && resolved_member_type != NULL &&
-                       resolved_member_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
+                    if(member != NULL && member->data_type != NULL &&
+                       member->data_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
                     {
-                        ASTFunctionParameter *parameter = resolved_member_type->parameters;
+                        ASTFunctionParameter *parameter = member->data_type->parameters;
                         if(!through_type && parameter != NULL &&
                            canBindMethodReceiver(member_node->lhs, scope, parameter->data_type, struct_type))
                         {
-                            checkFunctionCallArguments(parameter->next, node->rhs, scope, resolved_member_type->is_variadic);
-                            return newValueExprType(resolved_member_type->return_data_type);
+                            checkFunctionCallArguments(parameter->next, node->rhs, scope, member->data_type->is_variadic);
+                            return newValueExprType(member->data_type->return_data_type);
                         }
                     }
                 }
@@ -3317,7 +3049,6 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             {
                 return newTypeExprType(newWrappedDataType(
                     AST_DATA_TYPE_KIND_REFERENCE,
-                    node->kind == AST_EXPR_ADDRESS_OF_MUT,
                     cloneDataType(operand_type.data_type)
                 ));
             }
@@ -3327,21 +3058,22 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                                     "cannot take address of non-addressable expression",
                                     "this expression has no stable address");
 
-            if(node->kind == AST_EXPR_ADDRESS_OF_MUT && !isMutableAddressableExpr(node->lhs, scope))
-                typeSystemAbortNode("T1245", node,
-                                    "cannot take mutable address of immutable expression",
-                                    "the target expression is not mutable");
-
             if(operand_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE)
                 typeSystemAbortNode("T1246", node,
                                     "cannot take address of literal",
                                     "literals do not have an addressable storage location");
 
-            bool mutable_pointer = node->kind == AST_EXPR_ADDRESS_OF_MUT || isMutableAddressableExpr(node->lhs, scope);
+            if(node->lhs->kind == AST_EXPR_VARIABLE)
+            {
+                VariableInfo *variable_info = findVariableInfo(scope, node->lhs->identifier);
+                if(variable_info != NULL && variable_info->is_compile_time_constant)
+                    typeSystemAbortNode("T1245", node,
+                                        "cannot take address of compile-time constant",
+                                        "compile-time constants do not have runtime storage");
+            }
 
             return newValueExprType(newWrappedDataType(
                 AST_DATA_TYPE_KIND_POINTER,
-                mutable_pointer,
                 cloneDataType(getReferenceTargetType(operand_type.data_type))
             ));
         } break;
@@ -3351,7 +3083,6 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             {
                 return newTypeExprType(newWrappedDataType(
                     AST_DATA_TYPE_KIND_POINTER,
-                    false,
                     cloneDataType(operand_type.data_type)
                 ));
             }
@@ -3484,8 +3215,8 @@ ASTDataType* inferDeclaredTypeFromExpr(ASTNode *expr, ScopeFrame *scope)
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_LITERAL_FLOAT)
         return defaultFloatDataType();
     if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
-        return resolveNamedDataType(expr_type.data_type, scope, NULL);
-    return resolveNamedDataType(expr_type.data_type, scope, NULL);
+        return cloneDataType(expr_type.data_type);
+    return cloneDataType(expr_type.data_type);
 }
 
 static ASTStructMember* resolveStructMembersInternal(ASTStructMember *member, ScopeFrame *scope,
@@ -3503,11 +3234,8 @@ static ASTStructMember* resolveStructMembersInternal(ASTStructMember *member, Sc
         new_member->filename = member->filename;
         new_member->line_number = member->line_number;
         new_member->column_number = member->column_number;
-        new_member->end_line_number = member->end_line_number;
-        new_member->end_column_number = member->end_column_number;
         strcpy(new_member->identifier, member->identifier);
         new_member->value = member->value;
-        new_member->lexical_type_scope = member->lexical_type_scope;
         if(member->data_type)
             new_member->data_type = resolveNamedDataTypeInternal(member->data_type, scope, self_data_type, memo,
                                                                  allow_recursive_factory_result);

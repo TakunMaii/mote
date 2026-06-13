@@ -1,9 +1,9 @@
-Fn = Function([i32], i32);
+Fn :: Function([i32], i32);
 
 raw: *void = 0;
 func: Fn = @as(Fn, raw);
 
-main = fn() i32 {
+main :: fn() i32 {
     if(func == 0) {
         return 1;
     }

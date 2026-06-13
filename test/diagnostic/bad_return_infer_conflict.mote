@@ -1,4 +1,4 @@
-main = fn(flag: bool) {
+main :: fn(flag: bool) {
     if(flag) {
         return 1;
     }

@@ -1,9 +1,9 @@
-g = @import("./support_factories");
+g :: @import("./support_factories");
 
-main = fn() i32 {
-    mut local: i32 = 41;
-    ptr: *mut i32 = &mut local;
-    ok = g.id(bool, true) &&
+main :: fn() i32 {
+    local: i32 = 41;
+    ptr: *i32 = &local;
+    ok := g.id(bool, true) &&
          g.id(i8, 1) == 1 &&
          g.id(i16, 2) == 2 &&
          g.id(i32, 3) == 3 &&

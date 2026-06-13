@@ -1,10 +1,10 @@
-g = @import("./support_factories");
+g :: @import("./support_factories");
 
-main = fn() i32 {
+main :: fn() i32 {
     base: g.Pair(i32) = g.make_pair(i32, 1, 2);
     flipped: g.Pair(i32) = g.flip_pair(i32, base);
-    mut changed: g.Pair(i32) = base;
-    g.replace_pair_left(i32, &mut changed, 7);
+    changed: g.Pair(i32) = base;
+    g.replace_pair_left(i32, &changed, 7);
     floats: g.Pair(f32) = g.make_pair(f32, 1.5, 2.5);
 
     if(flipped.left == 2 &&

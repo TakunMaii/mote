@@ -1,14 +1,14 @@
-bytes = @import("std:bytes");
+bytes :: @import("std:bytes");
 
-to_u8 = fn(ptr: *char, len: i64) []u8 {
-    return @slice(u8, @as(*mut u8, ptr), len);
+to_u8 :: fn(ptr: *char, len: i64) []u8 {
+    return @slice(u8, @as(*u8, ptr), len);
 };
 
-main = fn() void {
-    mut storage: Array(u8, 6) = [1, 2, 3, 4, 5, 0];
-    data: []u8 = @slice(u8, &mut storage[0], 6);
-    prefix: []u8 = @slice(u8, &mut storage[0], 2);
-    suffix: []u8 = @slice(u8, &mut storage[3], 3);
+main :: fn() void {
+    storage: Array(u8, 6) = [1, 2, 3, 4, 5, 0];
+    data: []u8 = @slice(u8, &storage[0], 6);
+    prefix: []u8 = @slice(u8, &storage[0], 2);
+    suffix: []u8 = @slice(u8, &storage[3], 3);
 
     if(bytes.is_empty(data)) {
         return;
@@ -23,14 +23,14 @@ main = fn() void {
         return;
     }
 
-    mut needle_storage: Array(u8, 2) = [3, 4];
-    needle: []u8 = @slice(u8, &mut needle_storage[0], 2);
+    needle_storage: Array(u8, 2) = [3, 4];
+    needle: []u8 = @slice(u8, &needle_storage[0], 2);
     if(@unwrap(bytes.index_of_slice(data, needle)) != 2) {
         return;
     }
 
-    mut dst_storage: Array(u8, 6) = [0, 0, 0, 0, 0, 0];
-    dst: []u8 = @slice(u8, &mut dst_storage[0], 6);
+    dst_storage: Array(u8, 6) = [0, 0, 0, 0, 0, 0];
+    dst: []u8 = @slice(u8, &dst_storage[0], 6);
     if(bytes.copy(dst, data) != 6) {
         return;
     }
@@ -48,7 +48,7 @@ main = fn() void {
         return;
     }
 
-    empty: []u8 = @slice(u8, @as(*mut u8, 0), 0);
+    empty: []u8 = @slice(u8, @as(*u8, 0), 0);
     if(!bytes.is_empty(empty)) {
         return;
     }
@@ -56,8 +56,8 @@ main = fn() void {
         return;
     }
 
-    mut embedded_needle_storage: Array(u8, 2) = [5, 0];
-    embedded_needle: []u8 = @slice(u8, &mut embedded_needle_storage[0], 2);
+    embedded_needle_storage: Array(u8, 2) = [5, 0];
+    embedded_needle: []u8 = @slice(u8, &embedded_needle_storage[0], 2);
     if(@unwrap(bytes.index_of_slice(data, embedded_needle)) != 4) {
         return;
     }
@@ -65,5 +65,5 @@ main = fn() void {
         return;
     }
 
-    sink = 1;
+    sink := 1;
 };

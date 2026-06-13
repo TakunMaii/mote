@@ -1,7 +1,7 @@
-rl = @import("vendor:raylib");
+rl :: @import("vendor:raylib");
 
-mut color_index: i32 = 0;
-mut pulse: f64 = 0.0;
+color_index: i32 = 0;
+pulse: f64 = 0.0;
 
 rl.InitWindow(960, 540, "mote + raylib");
 rl.SetTargetFPS(60);
@@ -19,7 +19,7 @@ while(!rl.WindowShouldClose()) {
         pulse = pulse - 360.0;
     }
 
-    mut draw_color: rl.Color = rl.BLUE;
+    draw_color: rl.Color = rl.BLUE;
     if(color_index == 1) {
         draw_color = rl.GREEN;
     } else if(color_index == 2) {

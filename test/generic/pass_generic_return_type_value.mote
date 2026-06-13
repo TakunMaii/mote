@@ -1,6 +1,6 @@
-g = @import("./support_factories");
+g :: @import("./support_factories");
 
-main = fn() i32 {
+main :: fn() i32 {
     value: g.choose_type(i64) = 9;
     copied: g.choose_type(i64) = g.type_and_value(i64, value);
 

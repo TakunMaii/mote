@@ -1,5 +1,5 @@
-g = @import("../generic/support_factories");
+g :: @import("../generic/support_factories");
 
-main = fn() i32 {
+main :: fn() i32 {
     return g.id(i32, 1, 2);
 };

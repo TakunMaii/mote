@@ -1,6 +1,6 @@
 @package("enet");
 
-c = @import("std:internal/c");
+c :: @import("std:internal/c");
 
 pub VERSION_MAJOR: u32 = @as(u32, 1);
 pub VERSION_MINOR: u32 = @as(u32, 3);
@@ -23,27 +23,27 @@ pub PACKET_FLAG_NO_ALLOCATE: u32 = @as(u32, 1) << 2;
 pub PACKET_FLAG_UNRELIABLE_FRAGMENT: u32 = @as(u32, 1) << 3;
 pub PACKET_FLAG_SENT: u32 = @as(u32, 1) << 8;
 
-pub Version = u32;
-pub size_t = c.size_t;
+pub Version :: u32;
+pub size_t :: c.size_t;
 
-pub Address = struct {
+pub Address :: struct {
     host: u32,
     port: u16,
 };
 
-pub Host = opaque;
-pub Peer = opaque;
+pub Host :: opaque;
+pub Peer :: opaque;
 
-pub Packet = struct {
+pub Packet :: struct {
     referenceCount: size_t,
     flags: u32,
-    data: *mut u8,
+    data: *u8,
     dataLength: size_t,
     freeCallback: *void,
     userData: *void,
 };
 
-pub Event = struct {
+pub Event :: struct {
     type: i32,
     peer: *Peer,
     channelID: u8,
@@ -51,35 +51,35 @@ pub Event = struct {
     packet: *Packet,
 };
 
-pub Initialize = @extern("enet_initialize", Function([], i32));
-pub Deinitialize = @extern("enet_deinitialize", Function([], void));
-pub LinkedVersion = @extern("enet_linked_version", Function([], Version));
+pub Initialize :: @extern("enet_initialize", Function([], i32));
+pub Deinitialize :: @extern("enet_deinitialize", Function([], void));
+pub LinkedVersion :: @extern("enet_linked_version", Function([], Version));
 
-pub AddressSetHostIP = @extern("enet_address_set_host_ip", Function([*mut Address, *char], i32));
-pub AddressSetHost = @extern("enet_address_set_host", Function([*mut Address, *char], i32));
-pub AddressGetHostIP = @extern("enet_address_get_host_ip", Function([*Address, *mut char, size_t], i32));
-pub AddressGetHost = @extern("enet_address_get_host", Function([*Address, *mut char, size_t], i32));
+pub AddressSetHostIP :: @extern("enet_address_set_host_ip", Function([*Address, *char], i32));
+pub AddressSetHost :: @extern("enet_address_set_host", Function([*Address, *char], i32));
+pub AddressGetHostIP :: @extern("enet_address_get_host_ip", Function([*Address, *char, size_t], i32));
+pub AddressGetHost :: @extern("enet_address_get_host", Function([*Address, *char, size_t], i32));
 
-pub PacketCreate = @extern("enet_packet_create", Function([*void, size_t, u32], *Packet));
-pub PacketDestroy = @extern("enet_packet_destroy", Function([*Packet], void));
-pub PacketResize = @extern("enet_packet_resize", Function([*Packet, size_t], i32));
+pub PacketCreate :: @extern("enet_packet_create", Function([*void, size_t, u32], *Packet));
+pub PacketDestroy :: @extern("enet_packet_destroy", Function([*Packet], void));
+pub PacketResize :: @extern("enet_packet_resize", Function([*Packet, size_t], i32));
 
-pub HostCreate = @extern("enet_host_create", Function([*Address, size_t, size_t, u32, u32], *Host));
-pub HostDestroy = @extern("enet_host_destroy", Function([*Host], void));
-pub HostConnect = @extern("enet_host_connect", Function([*Host, *Address, size_t, u32], *Peer));
-pub HostCheckEvents = @extern("enet_host_check_events", Function([*Host, *mut Event], i32));
-pub HostService = @extern("enet_host_service", Function([*Host, *mut Event, u32], i32));
-pub HostFlush = @extern("enet_host_flush", Function([*Host], void));
-pub HostBroadcast = @extern("enet_host_broadcast", Function([*Host, u8, *Packet], void));
-pub HostChannelLimit = @extern("enet_host_channel_limit", Function([*Host, size_t], void));
-pub HostBandwidthLimit = @extern("enet_host_bandwidth_limit", Function([*Host, u32, u32], void));
+pub HostCreate :: @extern("enet_host_create", Function([*Address, size_t, size_t, u32, u32], *Host));
+pub HostDestroy :: @extern("enet_host_destroy", Function([*Host], void));
+pub HostConnect :: @extern("enet_host_connect", Function([*Host, *Address, size_t, u32], *Peer));
+pub HostCheckEvents :: @extern("enet_host_check_events", Function([*Host, *Event], i32));
+pub HostService :: @extern("enet_host_service", Function([*Host, *Event, u32], i32));
+pub HostFlush :: @extern("enet_host_flush", Function([*Host], void));
+pub HostBroadcast :: @extern("enet_host_broadcast", Function([*Host, u8, *Packet], void));
+pub HostChannelLimit :: @extern("enet_host_channel_limit", Function([*Host, size_t], void));
+pub HostBandwidthLimit :: @extern("enet_host_bandwidth_limit", Function([*Host, u32, u32], void));
 
-pub PeerSend = @extern("enet_peer_send", Function([*Peer, u8, *Packet], i32));
-pub PeerReceive = @extern("enet_peer_receive", Function([*Peer, *mut u8], *Packet));
-pub PeerPing = @extern("enet_peer_ping", Function([*Peer], void));
-pub PeerPingInterval = @extern("enet_peer_ping_interval", Function([*Peer, u32], void));
-pub PeerTimeout = @extern("enet_peer_timeout", Function([*Peer, u32, u32, u32], void));
-pub PeerReset = @extern("enet_peer_reset", Function([*Peer], void));
-pub PeerDisconnect = @extern("enet_peer_disconnect", Function([*Peer, u32], void));
-pub PeerDisconnectNow = @extern("enet_peer_disconnect_now", Function([*Peer, u32], void));
-pub PeerDisconnectLater = @extern("enet_peer_disconnect_later", Function([*Peer, u32], void));
+pub PeerSend :: @extern("enet_peer_send", Function([*Peer, u8, *Packet], i32));
+pub PeerReceive :: @extern("enet_peer_receive", Function([*Peer, *u8], *Packet));
+pub PeerPing :: @extern("enet_peer_ping", Function([*Peer], void));
+pub PeerPingInterval :: @extern("enet_peer_ping_interval", Function([*Peer, u32], void));
+pub PeerTimeout :: @extern("enet_peer_timeout", Function([*Peer, u32, u32, u32], void));
+pub PeerReset :: @extern("enet_peer_reset", Function([*Peer], void));
+pub PeerDisconnect :: @extern("enet_peer_disconnect", Function([*Peer, u32], void));
+pub PeerDisconnectNow :: @extern("enet_peer_disconnect_now", Function([*Peer, u32], void));
+pub PeerDisconnectLater :: @extern("enet_peer_disconnect_later", Function([*Peer, u32], void));

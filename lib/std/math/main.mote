@@ -1,6 +1,6 @@
 @package("math");
 
-c = @import("std:internal/c");
+c :: @import("std:internal/c");
 
 pub PI_F32: f32 = 3.1415927;
 pub PI_F64: f64 = 3.141592653589793;
@@ -9,21 +9,21 @@ pub TAU_F64: f64 = 6.283185307179586;
 pub E_F32: f32 = 2.7182817;
 pub E_F64: f64 = 2.718281828459045;
 
-pub min = fn(T: Type, a: T, b: T) T {
+pub min :: fn(T: Type, a: T, b: T) T {
     if(a < b) {
         return a;
     }
     return b;
 };
 
-pub max = fn(T: Type, a: T, b: T) T {
+pub max :: fn(T: Type, a: T, b: T) T {
     if(a > b) {
         return a;
     }
     return b;
 };
 
-pub clamp = fn(T: Type, x: T, lo: T, hi: T) T {
+pub clamp :: fn(T: Type, x: T, lo: T, hi: T) T {
     if(x < lo) {
         return lo;
     }
@@ -33,79 +33,79 @@ pub clamp = fn(T: Type, x: T, lo: T, hi: T) T {
     return x;
 };
 
-pub lerp_f32 = fn(a: f32, b: f32, t: f32) f32 {
+pub lerp_f32 :: fn(a: f32, b: f32, t: f32) f32 {
     return a + (b - a) * t;
 };
 
-pub lerp_f64 = fn(a: f64, b: f64, t: f64) f64 {
+pub lerp_f64 :: fn(a: f64, b: f64, t: f64) f64 {
     return a + (b - a) * t;
 };
 
-pub deg_to_rad_f32 = fn(deg: f32) f32 {
+pub deg_to_rad_f32 :: fn(deg: f32) f32 {
     return deg * (PI_F32 / 180.0);
 };
 
-pub deg_to_rad_f64 = fn(deg: f64) f64 {
+pub deg_to_rad_f64 :: fn(deg: f64) f64 {
     return deg * (PI_F64 / 180.0);
 };
 
-pub rad_to_deg_f32 = fn(rad: f32) f32 {
+pub rad_to_deg_f32 :: fn(rad: f32) f32 {
     return rad * (180.0 / PI_F32);
 };
 
-pub rad_to_deg_f64 = fn(rad: f64) f64 {
+pub rad_to_deg_f64 :: fn(rad: f64) f64 {
     return rad * (180.0 / PI_F64);
 };
 
-pub sin_f32 = c.sinf;
-pub sin_f64 = c.sin;
-pub cos_f32 = c.cosf;
-pub cos_f64 = c.cos;
-pub tan_f32 = c.tanf;
-pub tan_f64 = c.tan;
+pub sin_f32 :: c.sinf;
+pub sin_f64 :: c.sin;
+pub cos_f32 :: c.cosf;
+pub cos_f64 :: c.cos;
+pub tan_f32 :: c.tanf;
+pub tan_f64 :: c.tan;
 
-pub asin_f32 = c.asinf;
-pub asin_f64 = c.asin;
-pub acos_f32 = c.acosf;
-pub acos_f64 = c.acos;
-pub atan_f32 = c.atanf;
-pub atan_f64 = c.atan;
-pub atan2_f32 = c.atan2f;
-pub atan2_f64 = c.atan2;
+pub asin_f32 :: c.asinf;
+pub asin_f64 :: c.asin;
+pub acos_f32 :: c.acosf;
+pub acos_f64 :: c.acos;
+pub atan_f32 :: c.atanf;
+pub atan_f64 :: c.atan;
+pub atan2_f32 :: c.atan2f;
+pub atan2_f64 :: c.atan2;
 
-pub sqrt_f32 = c.sqrtf;
-pub sqrt_f64 = c.sqrt;
-pub exp_f32 = c.expf;
-pub exp_f64 = c.exp;
-pub log_f32 = c.logf;
-pub log_f64 = c.log;
-pub log2_f32 = c.log2f;
-pub log2_f64 = c.log2;
-pub log10_f32 = c.log10f;
-pub log10_f64 = c.log10;
-pub pow_f32 = c.powf;
-pub pow_f64 = c.pow;
+pub sqrt_f32 :: c.sqrtf;
+pub sqrt_f64 :: c.sqrt;
+pub exp_f32 :: c.expf;
+pub exp_f64 :: c.exp;
+pub log_f32 :: c.logf;
+pub log_f64 :: c.log;
+pub log2_f32 :: c.log2f;
+pub log2_f64 :: c.log2;
+pub log10_f32 :: c.log10f;
+pub log10_f64 :: c.log10;
+pub pow_f32 :: c.powf;
+pub pow_f64 :: c.pow;
 
-pub floor_f32 = c.floorf;
-pub floor_f64 = c.floor;
-pub ceil_f32 = c.ceilf;
-pub ceil_f64 = c.ceil;
-pub round_f32 = c.roundf;
-pub round_f64 = c.round;
-pub trunc_f32 = c.truncf;
-pub trunc_f64 = c.trunc;
+pub floor_f32 :: c.floorf;
+pub floor_f64 :: c.floor;
+pub ceil_f32 :: c.ceilf;
+pub ceil_f64 :: c.ceil;
+pub round_f32 :: c.roundf;
+pub round_f64 :: c.round;
+pub trunc_f32 :: c.truncf;
+pub trunc_f64 :: c.trunc;
 
-pub abs_f64 = c.fabs;
-pub abs_f32 = c.fabsf;
-pub min_f32 = c.fminf;
-pub min_f64 = c.fmin;
-pub max_f32 = c.fmaxf;
-pub max_f64 = c.fmax;
+pub abs_f64 :: c.fabs;
+pub abs_f32 :: c.fabsf;
+pub min_f32 :: c.fminf;
+pub min_f64 :: c.fmin;
+pub max_f32 :: c.fmaxf;
+pub max_f64 :: c.fmax;
 
-pub clamp_f32 = fn(x: f32, lo: f32, hi: f32) f32 {
+pub clamp_f32 :: fn(x: f32, lo: f32, hi: f32) f32 {
     return clamp(f32, x, lo, hi);
 };
 
-pub clamp_f64 = fn(x: f64, lo: f64, hi: f64) f64 {
+pub clamp_f64 :: fn(x: f64, lo: f64, hi: f64) f64 {
     return clamp(f64, x, lo, hi);
 };

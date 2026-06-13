@@ -1,5 +1,5 @@
-c = @import("c");
+c :: @import("c");
 
-main = fn() void {
+main :: fn() void {
     c.printf("val=%d %s\n", 42, @as(*char, "ok"));
 };

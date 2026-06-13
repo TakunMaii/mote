@@ -1,11 +1,11 @@
-fs = @import("std:fs");
-mem = @import("std:mem");
+fs :: @import("std:fs");
+mem :: @import("std:mem");
 
-main = fn() i32 {
+main :: fn() i32 {
     path: *char = "test/artifacts/fs_shim_api.txt";
     renamed: *char = "test/artifacts/fs_shim_api_renamed.txt";
-    mut bytes_storage: Array(u8, 3) = ['o', 'k', '\n'];
-    bytes: []u8 = @slice(u8, &mut bytes_storage[0], 3);
+    bytes_storage: Array(u8, 3) = ['o', 'k', '\n'];
+    bytes: []u8 = @slice(u8, &bytes_storage[0], 3);
 
     if(!fs.write_all(path, bytes)) {
         return 1;
@@ -27,7 +27,7 @@ main = fn() i32 {
         return 4;
     }
     data: []u8 = @unwrap(maybe_data);
-    ok = @len(data) == 3 && data[0] == @as(u8, 'o') && data[2] == @as(u8, '\n');
+    ok := @len(data) == 3 && data[0] == @as(u8, 'o') && data[2] == @as(u8, '\n');
     mem.free_slice(u8, data);
     if(!ok) {
         fs.remove_file(path);

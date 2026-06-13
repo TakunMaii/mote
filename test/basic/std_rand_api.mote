@@ -1,13 +1,13 @@
-rand = @import("std:rand");
+rand :: @import("std:rand");
 
-main = fn() i32 {
-    mut a: rand.RNG = rand.init(12345);
-    mut b: rand.RNG = rand.init(12345);
-    mut c: rand.RNG = rand.init(54321);
+main :: fn() i32 {
+    a: rand.RNG = rand.init(12345);
+    b: rand.RNG = rand.init(12345);
+    c: rand.RNG = rand.init(54321);
 
-    a0: u64 = a.next_u64();
-    b0: u64 = b.next_u64();
-    c0: u64 = c.next_u64();
+    a0: u64 = rand.next_u64(&a);
+    b0: u64 = rand.next_u64(&b);
+    c0: u64 = rand.next_u64(&c);
 
     if(a0 != b0) {
         return 1;
@@ -16,33 +16,23 @@ main = fn() i32 {
         return 2;
     }
 
-    bounded: u64 = a.range_u64(10, 20);
-    if(bounded < 10 || bounded >= 20) {
+    bounded: u64 = rand.range_u64(&a, 10);
+    if(bounded >= 10) {
         return 3;
     }
 
-    int_bounded: i32 = a.range_i32(-3, 7);
-    if(int_bounded < -3 || int_bounded >= 7) {
+    int_bounded: i32 = rand.range_i32(&a, 7);
+    if(int_bounded < 0 || int_bounded >= 7) {
         return 4;
     }
 
-    unchanged_u64: u64 = a.range_u64(42, 42);
-    if(unchanged_u64 != 42) {
+    value_f32: f32 = rand.next_f32(&a);
+    value_f64: f64 = rand.next_f64(&a);
+    if(value_f32 < 0.0 || value_f32 > 1.0) {
         return 5;
     }
-
-    unchanged_i32: i32 = a.range_i32(9, 9);
-    if(unchanged_i32 != 9) {
-        return 6;
-    }
-
-    value_f32: f32 = a.next_f32();
-    value_f64: f64 = a.next_f64();
-    if(value_f32 < 0.0 || value_f32 > 1.0) {
-        return 7;
-    }
     if(value_f64 < 0.0 || value_f64 > 1.0) {
-        return 8;
+        return 6;
     }
 
     return 0;

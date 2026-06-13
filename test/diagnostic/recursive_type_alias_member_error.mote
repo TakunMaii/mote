@@ -1,7 +1,7 @@
-Node = struct {
-    next: ?*mut Self,
+Node :: struct {
+    next: ?*Self,
 };
 
-main = fn() i32 {
+main :: fn() i32 {
     return Node.missing;
 };

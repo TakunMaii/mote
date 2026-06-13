@@ -146,15 +146,6 @@ Token* tokenize(char *code, const char* filename)
             code ++;
             column ++;
         }
-        else if(expectStr("mut", 3, code)) {
-            if(isIdentifier(code[3]))
-                goto tokenize_identifier;
-            token->next = newToken(TK_MUT, filename, line, column);
-            token = token->next;
-            code += 3;
-            column += 3;
-            setTokenEnd(token, line, column);
-        }
         else if(expectStr("pub", 3, code)) {
             if(isIdentifier(code[3]))
                 goto tokenize_identifier;
@@ -540,6 +531,20 @@ Token* tokenize(char *code, const char* filename)
             token = token->next;
             code += 1;
             column += 1;
+            setTokenEnd(token, line, column);
+        }
+        else if(expectStr(":=", 2, code)) {
+            token->next = newToken(TK_COLON_EQUAL, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
+            setTokenEnd(token, line, column);
+        }
+        else if(expectStr("::", 2, code)) {
+            token->next = newToken(TK_DOUBLE_COLON, filename, line, column);
+            token = token->next;
+            code += 2;
+            column += 2;
             setTokenEnd(token, line, column);
         }
         else if(expectStr(":", 1, code)) {

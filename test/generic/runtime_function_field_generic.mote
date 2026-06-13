@@ -1,6 +1,6 @@
-g = @import("./support_factories");
+g :: @import("./support_factories");
 
-main = fn() i32 {
+main :: fn() i32 {
     box: g.HandlerBox(i32) = g.make_handler_box(i32, 9, g.add_one_i32);
     if(g.run_handler_box(i32, box) == 10) {
         return 0;

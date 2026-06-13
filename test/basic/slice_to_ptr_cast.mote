@@ -1,7 +1,7 @@
-ptr_from_slice = fn(T: Type, xs: []T) *mut T {
-    return @as(*mut T, xs);
+ptr_from_slice :: fn(T: Type, xs: []T) *T {
+    return @as(*T, xs);
 };
 
-main = fn() i32 {
+main :: fn() i32 {
     return 0;
 };

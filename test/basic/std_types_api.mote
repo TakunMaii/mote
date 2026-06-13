@@ -1,6 +1,6 @@
-types = @import("std:types");
+types :: @import("std:types");
 
-main = fn() i32 {
+main :: fn() i32 {
     if(@sizeof(types.byte) != 1) {
         return 1;
     }

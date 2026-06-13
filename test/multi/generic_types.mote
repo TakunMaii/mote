@@ -1,4 +1,4 @@
-pub Pair = fn(T: Type) Type {
+pub Pair :: fn(T: Type) Type {
     return struct {
         left: T,
         right: T,
@@ -12,6 +12,6 @@ pub Pair = fn(T: Type) Type {
     };
 };
 
-pub make_pair = fn(T: Type, left: T, right: T) Pair(T) {
+pub make_pair :: fn(T: Type, left: T, right: T) Pair(T) {
     return Pair(T).make(left, right);
 };

@@ -1,11 +1,11 @@
-g = @import("./support_factories");
+g :: @import("./support_factories");
 
-main = fn() i32 {
-    mut left: i32 = 10;
-    mut right: i32 = 20;
+main :: fn() i32 {
+    left: i32 = 10;
+    right: i32 = 20;
 
     value: i32 = g.id(i32, 33);
-    g.swap(i32, &mut left, &mut right);
+    g.swap(i32, &left, &right);
 
     if(value == 33 && left == 20 && right == 10) {
         return 0;

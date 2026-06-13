@@ -136,7 +136,6 @@ typedef struct ASTFunctionParameter {
 
 typedef struct ASTDataType {
     ASTDataTypeKind kind;
-    bool mutable;
     ASTPrimaryDataType primary;
     char identifier[MAX_IDENTIFIER_LENGTH];
     struct ASTDataType *child;
@@ -158,7 +157,6 @@ struct ASTTypeArgument {
 typedef enum ASTFunctionCaptureKind {
     AST_FUNCTION_CAPTURE_VALUE,
     AST_FUNCTION_CAPTURE_REFERENCE,
-    AST_FUNCTION_CAPTURE_MUT_REFERENCE,
 } ASTFunctionCaptureKind;
 
 struct ASTFunctionCapture {
@@ -208,8 +206,9 @@ struct ASTStructLiteralField {
 };
 
 typedef struct {
-    bool mutable;
     bool explicit_type;
+    bool is_runtime_binding;
+    bool is_compile_time_binding;
 } ASTAssignModifier;
 
 typedef struct ASTIntegerLiteralValue {
@@ -364,12 +363,11 @@ ASTDataType* newSliceDataType(ASTDataType *element_type)
     return data_type;
 }
 
-ASTDataType* newWrappedDataType(ASTDataTypeKind kind, bool mutable, ASTDataType *child)
+ASTDataType* newWrappedDataType(ASTDataTypeKind kind, ASTDataType *child)
 {
     ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
     memset(data_type, 0, sizeof(ASTDataType));
     data_type->kind = kind;
-    data_type->mutable = mutable;
     data_type->child = child;
     return data_type;
 }
@@ -805,8 +803,6 @@ void printFunctionCaptures(ASTFunctionCapture *capture)
     {
         if(capture->kind == AST_FUNCTION_CAPTURE_REFERENCE)
             printf("&");
-        else if(capture->kind == AST_FUNCTION_CAPTURE_MUT_REFERENCE)
-            printf("&mut ");
         printf("%s", capture->identifier);
         if(capture->next)
             printf(", ");
@@ -869,14 +865,10 @@ void printASTDataType(ASTDataType *data_type)
         } break;
         case AST_DATA_TYPE_KIND_POINTER: {
             printf("*");
-            if(data_type->mutable)
-                printf("mut ");
             printASTDataType(data_type->child);
         } break;
         case AST_DATA_TYPE_KIND_REFERENCE: {
             printf("&");
-            if(data_type->mutable)
-                printf("mut ");
             printASTDataType(data_type->child);
         } break;
         case AST_DATA_TYPE_KIND_OPTIONAL: {
@@ -1096,14 +1088,10 @@ static void appendASTDataTypeStringInternal(ASTDataType *data_type, char *buffer
             break;
         case AST_DATA_TYPE_KIND_POINTER:
             appendStringFragment(buffer, buffer_size, "*");
-            if(data_type->mutable)
-                appendStringFragment(buffer, buffer_size, "mut ");
             appendASTDataTypeStringInternal(data_type->child, buffer, buffer_size, stack);
             break;
         case AST_DATA_TYPE_KIND_REFERENCE:
             appendStringFragment(buffer, buffer_size, "&");
-            if(data_type->mutable)
-                appendStringFragment(buffer, buffer_size, "mut ");
             appendASTDataTypeStringInternal(data_type->child, buffer, buffer_size, stack);
             break;
         case AST_DATA_TYPE_KIND_OPTIONAL:
@@ -1186,10 +1174,11 @@ void appendASTDataTypeString(ASTDataType *data_type, char *buffer, size_t buffer
 
 const char* modifierToString(ASTAssignModifier modifier)
 {
-    if(modifier.mutable)
-        return "mutable";
-    else
-        return "immutable";
+    if(modifier.is_compile_time_binding)
+        return modifier.explicit_type ? "compile_time_typed" : "compile_time_infer";
+    if(modifier.is_runtime_binding)
+        return modifier.explicit_type ? "runtime_typed" : "runtime_infer";
+    return modifier.explicit_type ? "typed" : "assign";
 }
 
 const char* astOperatorKindToString(ASTOperatorKind kind)
@@ -1543,7 +1532,7 @@ void printASTNode(ASTNode node)
             printf(")");
         } break;
         case AST_EXPR_ADDRESS_OF_MUT: {
-            printf("AST_EXPR_ADDRESS_OF_MUT(&mut ");
+            printf("AST_EXPR_ADDRESS_OF_MUT(&");
             printASTNode(*(node.lhs));
             printf(")");
         } break;

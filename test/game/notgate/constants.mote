@@ -1,45 +1,45 @@
 @package("notgate");
 
-pub WINDOW_WIDTH = 1200;
-pub WINDOW_HEIGHT = 800;
+pub WINDOW_WIDTH :: 1200;
+pub WINDOW_HEIGHT :: 800;
 
-pub MAP_MAX_WIDTH = 23;
-pub MAP_MAX_HEIGHT = 15;
-pub MAP_MAX_CELLS = 345;
-pub MAP_COUNT = 25;
+pub MAP_MAX_WIDTH :: 23;
+pub MAP_MAX_HEIGHT :: 15;
+pub MAP_MAX_CELLS :: 345;
+pub MAP_COUNT :: 25;
 
-pub UNDO_MAX = 256;
-pub COMMAND_BUFFER_CAP = 32;
-pub HINT_BUFFER_CAP = 64;
+pub UNDO_MAX :: 256;
+pub COMMAND_BUFFER_CAP :: 32;
+pub HINT_BUFFER_CAP :: 64;
 
-pub KEY_0 = 48;
-pub KEY_1 = 49;
-pub KEY_2 = 50;
-pub KEY_3 = 51;
-pub KEY_4 = 52;
-pub KEY_5 = 53;
-pub KEY_6 = 54;
-pub KEY_7 = 55;
-pub KEY_8 = 56;
-pub KEY_9 = 57;
-pub KEY_E = 69;
-pub KEY_L = 76;
-pub KEY_O = 79;
-pub KEY_S_LOWER = 83;
-pub KEY_V = 86;
+pub KEY_0 :: 48;
+pub KEY_1 :: 49;
+pub KEY_2 :: 50;
+pub KEY_3 :: 51;
+pub KEY_4 :: 52;
+pub KEY_5 :: 53;
+pub KEY_6 :: 54;
+pub KEY_7 :: 55;
+pub KEY_8 :: 56;
+pub KEY_9 :: 57;
+pub KEY_E :: 69;
+pub KEY_L :: 76;
+pub KEY_O :: 79;
+pub KEY_S_LOWER :: 83;
+pub KEY_V :: 86;
 
-pub STATIC_TILE_EMPTY = 0;
-pub STATIC_TILE_WALL = 1;
-pub STATIC_TILE_PORTAL = 2;
-pub STATIC_TILE_FIXED_SIGNAL_SOURCE = 3;
-pub STATIC_TILE_FIXED_REPEATER = 4;
-pub STATIC_TILE_FIXED_NOT_SIGNAL = 5;
+pub STATIC_TILE_EMPTY :: 0;
+pub STATIC_TILE_WALL :: 1;
+pub STATIC_TILE_PORTAL :: 2;
+pub STATIC_TILE_FIXED_SIGNAL_SOURCE :: 3;
+pub STATIC_TILE_FIXED_REPEATER :: 4;
+pub STATIC_TILE_FIXED_NOT_SIGNAL :: 5;
 
-pub DYNAMIC_TILE_NONE = 0;
-pub DYNAMIC_TILE_BOX = 1;
-pub DYNAMIC_TILE_SIGNAL_SOURCE = 2;
-pub DYNAMIC_TILE_REPEATER = 3;
-pub DYNAMIC_TILE_NOT_SIGNAL = 4;
+pub DYNAMIC_TILE_NONE :: 0;
+pub DYNAMIC_TILE_BOX :: 1;
+pub DYNAMIC_TILE_SIGNAL_SOURCE :: 2;
+pub DYNAMIC_TILE_REPEATER :: 3;
+pub DYNAMIC_TILE_NOT_SIGNAL :: 4;
 
 pub COLOR_BG: rl.Color = rl.Color {.r = 22, .g = 28, .b = 34, .a = 255};
 pub COLOR_FLOOR: rl.Color = rl.Color {.r = 47, .g = 62, .b = 70, .a = 255};
@@ -55,9 +55,9 @@ pub COLOR_PORTAL_ON: rl.Color = rl.Color {.r = 72, .g = 199, .b = 142, .a = 255}
 pub COLOR_HERO: rl.Color = rl.Color {.r = 245, .g = 245, .b = 245, .a = 255};
 pub COLOR_AMBIENT: rl.Color = rl.Color {.r = 114, .g = 199, .b = 216, .a = 112};
 
-pub AMBIENT_FLOATING_SQUARE_COUNT = 16;
-pub PARTICLE_MAX = 100;
-pub PARTICLES_PER_EMITTER_BURST = 6;
+pub AMBIENT_FLOATING_SQUARE_COUNT :: 16;
+pub PARTICLE_MAX :: 100;
+pub PARTICLES_PER_EMITTER_BURST :: 6;
 pub PARTICLE_SPAWN_INTERVAL: f32 = 0.12;
 pub SFX_ACTIVE_VOLUME: f32 = 0.8;
 pub SFX_INACTIVE_VOLUME: f32 = 0.8;

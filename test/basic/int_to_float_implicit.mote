@@ -1,17 +1,17 @@
-Pair = struct {
+Pair :: struct {
     x: f32,
     y: f32,
 };
 
-take_sum = fn(a: f32, b: f32) f32 {
+take_sum :: fn(a: f32, b: f32) f32 {
     return a + b;
 };
 
-from_i32 = fn(x: i32) f32 {
+from_i32 :: fn(x: i32) f32 {
     return x;
 };
 
-main = fn() i32 {
+main :: fn() i32 {
     px: i32 = 3;
     py: i32 = 4;
     size: i32 = 8;

@@ -1,4 +1,4 @@
-main = fn() i32 {
+main :: fn() i32 {
     count: u32 = 10;
     mask: u64 = 255;
     small: u8 = 7;

@@ -1,5 +1,5 @@
-glfw = @import("vendor:glfw");
-gl = @import("vendor:opengl");
+glfw :: @import("vendor:glfw");
+gl :: @import("vendor:opengl");
 
 clear_mask: u32 = gl.COLOR_BUFFER_BIT;
 draw_mode: u32 = gl.TRIANGLES;
@@ -7,7 +7,7 @@ buffer_target: u32 = gl.ARRAY_BUFFER;
 shader_kind: u32 = gl.VERTEX_SHADER;
 texture_unit: u32 = gl.TEXTURE0;
 
-main = fn() i32 {
+main :: fn() i32 {
     if(clear_mask == 0 || draw_mode == 0 || buffer_target == 0 ||
        shader_kind == 0 || texture_unit == 0) {
         return 1;
@@ -22,7 +22,7 @@ main = fn() i32 {
     glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3);
     glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE);
 
-    window = glfw.CreateWindow(160, 120, "opengl smoke", 0, 0);
+    window := glfw.CreateWindow(160, 120, "opengl smoke", 0, 0);
     if(window == 0) {
         glfw.Terminate();
         return 3;

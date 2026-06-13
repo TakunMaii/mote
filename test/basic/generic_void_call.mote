@@ -1,9 +1,9 @@
-foo = fn(T: Type, p: *mut T) void {
+foo :: fn(T: Type, p: *T) void {
     return;
 };
 
-main = fn() i32 {
-    p: *mut i32 = 0;
+main :: fn() i32 {
+    p: *i32 = 0;
     foo(i32, p);
     return 0;
 };

@@ -1,8 +1,8 @@
-g = @import("../generic/support_factories");
+g :: @import("../generic/support_factories");
 
-main = fn() i32 {
-    mut values: Array(i32, 2) = [1, 2];
-    xs: []i32 = @slice(i32, &mut values[0], 2);
-    ptr: *mut i32 = g.ptr_pass(i32, xs);
+main :: fn() i32 {
+    values: Array(i32, 2) = [1, 2];
+    xs: []i32 = @slice(i32, &values[0], 2);
+    ptr: *i32 = g.ptr_pass(i32, xs);
     return *ptr;
 };

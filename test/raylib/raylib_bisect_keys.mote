@@ -1,7 +1,7 @@
-rl = @import("vendor:raylib");
+rl :: @import("vendor:raylib");
 
-mut color_index: i32 = 0;
-mut frames: i32 = 0;
+color_index: i32 = 0;
+frames: i32 = 0;
 
 rl.InitWindow(320, 240, "bisect keys");
 rl.SetTargetFPS(60);

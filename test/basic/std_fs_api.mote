@@ -1,7 +1,7 @@
-filesystem = @import("std:filesystem");
-mem = @import("std:mem");
+filesystem :: @import("std:filesystem");
+mem :: @import("std:mem");
 
-main = fn() i32 {
+main :: fn() i32 {
     if(filesystem.seek_set != 0 || filesystem.seek_cur != 1 || filesystem.seek_end != 2) {
         return 1;
     }
@@ -30,8 +30,8 @@ main = fn() i32 {
     path: *char = "test/artifacts/filesystem_api.txt";
     renamed_path: *char = "test/artifacts/filesystem_api_renamed.txt";
     dir_path: *char = "test/artifacts/filesystem_api_dir";
-    mut bytes_storage: Array(u8, 5) = ['m', 'o', 't', 'e', '\n'];
-    bytes: []u8 = @slice(u8, &mut bytes_storage[0], 5);
+    bytes_storage: Array(u8, 5) = ['m', 'o', 't', 'e', '\n'];
+    bytes: []u8 = @slice(u8, &bytes_storage[0], 5);
 
     if(!filesystem.write_all(path, bytes)) {
         return 2;
@@ -53,7 +53,7 @@ main = fn() i32 {
     }
 
     data: []u8 = @unwrap(maybe_data);
-    ok = @len(data) == 5 && data[0] == @as(u8, 'm') && data[4] == @as(u8, '\n');
+    ok := @len(data) == 5 && data[0] == @as(u8, 'm') && data[4] == @as(u8, '\n');
     mem.free_slice(u8, data);
     if(!ok) {
         filesystem.remove_file(path);
@@ -108,7 +108,7 @@ main = fn() i32 {
         return 22;
     }
     names: []char = @unwrap(maybe_names);
-    names_ok = @len(names) >= 8 &&
+    names_ok := @len(names) >= 8 &&
         names[0] == 'n' &&
         names[4] == '.' &&
         names[7] == 't' &&

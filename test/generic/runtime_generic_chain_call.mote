@@ -1,6 +1,6 @@
-g = @import("./support_factories");
+g :: @import("./support_factories");
 
-main = fn() i32 {
+main :: fn() i32 {
     value: i32 = g.chain_outer(i32, 33);
     if(value == 33) {
         return 0;

@@ -1,33 +1,33 @@
-string = @import("std:string");
+string :: @import("std:string");
 
-str_slice = fn(ptr: *char, len: i64) []char {
-    return @slice(char, @as(*mut char, ptr), len);
+str_slice :: fn(ptr: *char, len: i64) []char {
+    return @slice(char, @as(*char, ptr), len);
 };
 
-main = fn() void {
-    len_ok = string.len("abc") == 3;
-    cmp_ok = string.compare("abc", "abd") < 0;
-    cmp_n_ok = string.compare_n("abc", "abd", 2) == 0;
-    atoi_ok = string.to_int("42") == 42;
-    eq_ok = string.equal(str_slice("mote", 4), str_slice("mote", 4));
-    prefix_ok = string.starts_with(str_slice("mote-lang", 9), str_slice("mote", 4));
-    suffix_ok = string.ends_with(str_slice("mote-lang", 9), str_slice("lang", 4));
-    index_ok = @unwrap(string.index_of(str_slice("shader", 6), 'd')) == 3;
+main :: fn() void {
+    len_ok := string.len("abc") == 3;
+    cmp_ok := string.compare("abc", "abd") < 0;
+    cmp_n_ok := string.compare_n("abc", "abd", 2) == 0;
+    atoi_ok := string.to_int("42") == 42;
+    eq_ok := string.equal(str_slice("mote", 4), str_slice("mote", 4));
+    prefix_ok := string.starts_with(str_slice("mote-lang", 9), str_slice("mote", 4));
+    suffix_ok := string.ends_with(str_slice("mote-lang", 9), str_slice("lang", 4));
+    index_ok := @unwrap(string.index_of(str_slice("shader", 6), 'd')) == 3;
     trimmed: []char = string.trim(str_slice("..level..", 9), '.');
-    trim_ok = @len(trimmed) == 5 && trimmed[0] == 'l' && trimmed[4] == 'l';
+    trim_ok := @len(trimmed) == 5 && trimmed[0] == 'l' && trimmed[4] == 'l';
     empty: []char = str_slice("", 0);
-    empty_ok = string.is_empty(empty) && string.index_of(empty, 'x') == null;
+    empty_ok := string.is_empty(empty) && string.index_of(empty, 'x') == null;
 
-    mut embedded_storage: Array(char, 5) = ['a', '\0', 'b', 'c', 'd'];
-    embedded: []char = @slice(char, &mut embedded_storage[0], 5);
-    embedded_ok = string.equal(embedded, embedded) &&
+    embedded_storage: Array(char, 5) = ['a', '\0', 'b', 'c', 'd'];
+    embedded: []char = @slice(char, &embedded_storage[0], 5);
+    embedded_ok := string.equal(embedded, embedded) &&
                   !string.equal(embedded, str_slice("a", 1)) &&
                   @unwrap(string.index_of(embedded, '\0')) == 1;
 
-    parse_u_ok = @unwrap(string.parse_u64(str_slice("18446744073709551615", 20))) == @as(u64, 18446744073709551615);
-    parse_i_ok = @unwrap(string.parse_i64(str_slice("-9223372036854775808", 20))) == ((0 - @as(i64, 9223372036854775807)) - 1);
-    parse_plus_ok = @unwrap(string.parse_i64(str_slice("+17", 3))) == 17;
-    parse_fail_ok = string.parse_u64(str_slice("", 0)) == null &&
+    parse_u_ok := @unwrap(string.parse_u64(str_slice("18446744073709551615", 20))) == @as(u64, 18446744073709551615);
+    parse_i_ok := @unwrap(string.parse_i64(str_slice("-9223372036854775808", 20))) == ((0 - @as(i64, 9223372036854775807)) - 1);
+    parse_plus_ok := @unwrap(string.parse_i64(str_slice("+17", 3))) == 17;
+    parse_fail_ok := string.parse_u64(str_slice("", 0)) == null &&
                     string.parse_u64(str_slice("12x", 3)) == null &&
                     string.parse_u64(str_slice("18446744073709551616", 20)) == null &&
                     string.parse_i64(str_slice("-", 1)) == null &&
@@ -37,6 +37,6 @@ main = fn() void {
        eq_ok && prefix_ok && suffix_ok && index_ok && trim_ok &&
        empty_ok && embedded_ok &&
        parse_u_ok && parse_i_ok && parse_plus_ok && parse_fail_ok) {
-        sink = 1;
+        sink := 1;
     }
 };

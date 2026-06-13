@@ -1,7 +1,7 @@
-make_printer = fn() Function([*char, ...], i32) {
+make_printer :: fn() Function([*char, ...], i32) {
     return @extern("printf", Function([*char, ...], i32));
 };
 
-main = fn() void {
-    printer = make_printer();
+main :: fn() void {
+    printer := make_printer();
 };

@@ -1,15 +1,15 @@
-Node = fn(T: Type) Type {
+Node :: fn(T: Type) Type {
     return struct {
         visit: Function([Node(T)], i32),
         value: T,
     };
 };
 
-visit_i32 = fn(node: Node(i32)) i32 {
+visit_i32 :: fn(node: Node(i32)) i32 {
     return node.value;
 };
 
-main = fn() i32 {
+main :: fn() i32 {
     local_visit: Function([Node(i32)], i32) = fn(node: Node(i32)) i32 {
         return node.value;
     };

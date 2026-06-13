@@ -254,7 +254,6 @@ typedef struct MirCaptureDesc {
     ASTDataType *source_data_type;
     ASTDataType *runtime_data_type;
     bool by_reference;
-    bool mutable_reference;
     MirValueId input_value;
 } MirCaptureDesc;
 
@@ -314,7 +313,7 @@ typedef struct MirGlobal {
     MirGlobalKind kind;
     char name[MIR_MAX_NAME_LENGTH];
     ASTDataType *data_type;
-    bool mutable;
+    bool is_runtime_storage;
     bool has_const_string_initializer;
     char const_string_initializer[MAX_STRING_LITERAL_LENGTH];
 } MirGlobal;
@@ -352,14 +351,12 @@ typedef enum MirRuntimeBindingKind {
 typedef struct MirRuntimeBinding {
     char identifier[MAX_IDENTIFIER_LENGTH];
     MirRuntimeBindingKind kind;
-    bool mutable;
+    bool is_compile_time_constant;
     ASTDataType *declared_data_type;
     ASTDataType *type_value;
     ASTNode *function_value;
     ASTNode *extern_value;
     MirValueId local_value;
-    int owner_function_index;
-    ASTNode *alias_source_expr;
     char global_name[MIR_MAX_NAME_LENGTH];
 } MirRuntimeBinding;
 
@@ -644,7 +641,7 @@ static ASTDataType* mirPreferredExprValueType(ASTNode *node, ScopeFrame *scope, 
 static ASTDataType* mirRuntimeParameterType(ASTDataType *source_type)
 {
     if(source_type != NULL && source_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
-        return newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, source_type->mutable, cloneDataType(source_type->child));
+        return newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, cloneDataType(source_type->child));
     return cloneDataType(source_type);
 }
 
@@ -754,7 +751,7 @@ static int findEnumVariantOrdinal(ASTDataType *enum_type, const char *identifier
 
 static ASTDataType* mirClosureEnvPointerType(ASTDataType *env_type)
 {
-    return newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false, cloneDataType(env_type));
+    return newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, cloneDataType(env_type));
 }
 
 static ASTDataType* mirDynamicFunctionEnvType(void)
@@ -762,7 +759,7 @@ static ASTDataType* mirDynamicFunctionEnvType(void)
     ASTStructMember *member = (ASTStructMember*) malloc(sizeof(ASTStructMember));
     memset(member, 0, sizeof(ASTStructMember));
     strcpy(member->identifier, "fn_ptr");
-    member->data_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false,
+    member->data_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                            newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID));
     return newStructDataType("", member);
 }
@@ -1085,7 +1082,7 @@ static MirValueId mirEmitBinary(MirFunctionState *state, MirInstKind kind, MirVa
 static MirValueId mirEmitAlloca(MirFunctionState *state, ASTDataType *alloca_type,
                                 const char *filename, int line, int column)
 {
-    ASTDataType *pointer_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true, cloneDataType(alloca_type));
+    ASTDataType *pointer_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, cloneDataType(alloca_type));
     MirValueId result = mirEmitResultInst(state, MIR_INST_ALLOCA, pointer_type, filename, line, column);
     mirGetLastInst(state)->data.alloca_inst.alloca_type = cloneDataType(alloca_type);
     return result;
@@ -1119,7 +1116,7 @@ static MirValueId mirEmitGlobalAddr(MirFunctionState *state, const char *global_
     MirValueId result = mirEmitResultInst(
         state,
         MIR_INST_GLOBAL_ADDR,
-        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true, cloneDataType(global_type)),
+        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, cloneDataType(global_type)),
         filename, line, column
     );
     strcpy(mirGetLastInst(state)->data.global_addr.global_name, global_name);
@@ -1153,7 +1150,7 @@ static MirValueId mirEmitFieldPtr(MirFunctionState *state, MirValueId base_addre
     MirValueId result = mirEmitResultInst(
         state,
         MIR_INST_FIELD_PTR,
-        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true, cloneDataType(field_type)),
+        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, cloneDataType(field_type)),
         filename, line, column
     );
     MirInst *inst = mirGetLastInst(state);
@@ -1170,7 +1167,7 @@ static MirValueId mirEmitIndexPtr(MirFunctionState *state, MirValueId base_addre
     MirValueId result = mirEmitResultInst(
         state,
         MIR_INST_INDEX_PTR,
-        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true, cloneDataType(element_type)),
+        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, cloneDataType(element_type)),
         filename, line, column
     );
     MirInst *inst = mirGetLastInst(state);
@@ -1447,7 +1444,7 @@ static ASTDataType* mirDebugExternType0Void(void)
 static ASTDataType* mirDebugExternTypeCharPtrVoid(void)
 {
     ASTFunctionParameter *parameter = mirNewDebugParam(
-        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR))
+        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR))
     );
     return newFunctionDataType(parameter, false, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID));
 }
@@ -1455,7 +1452,7 @@ static ASTDataType* mirDebugExternTypeCharPtrVoid(void)
 static ASTDataType* mirDebugExternTypeCharPtrI64Void(void)
 {
     ASTFunctionParameter *file_param = mirNewDebugParam(
-        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR))
+        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR))
     );
     ASTFunctionParameter *line_param = mirNewDebugParam(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64));
     file_param->next = line_param;
@@ -1489,7 +1486,7 @@ static ASTDataType* mirDebugExternTypeF64Void(void)
 static ASTDataType* mirDebugExternTypeVoidPtrVoid(void)
 {
     ASTFunctionParameter *parameter = mirNewDebugParam(
-        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID))
+        newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID))
     );
     return newFunctionDataType(parameter, false, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID));
 }
@@ -1514,7 +1511,7 @@ static void mirEmitDebugRuntimeCall(MirFunctionState *state, ASTNode *node,
 
 static void mirEmitDebugWriteCStrLiteral(MirFunctionState *state, ASTNode *node, const char *text)
 {
-    ASTDataType *char_ptr_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false,
+    ASTDataType *char_ptr_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                     newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR));
     ASTDataType *global_type = newArrayDataType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR), strlen(text) + 1);
     const char *global_name = mirEnsureStringLiteralGlobal(state->lowering, text);
@@ -1666,11 +1663,11 @@ static void mirEmitDebugValueBody(MirFunctionState *state, MirLowerScope *scope,
             MirValueId ptr_value = value;
             if(resolved_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
                 ptr_value = mirEmitConvert(state, value,
-                                           newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, resolved_type->mutable,
+                                           newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                               cloneDataType(resolved_type->child)),
                                            node->filename, node->line_number, node->column_number);
             MirValueId void_ptr = mirEmitConvert(state, ptr_value,
-                                                 newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false,
+                                                 newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                                     newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID)),
                                                  node->filename, node->line_number, node->column_number);
             MirOperandList arguments = newMirOperandList(1);
@@ -1680,7 +1677,7 @@ static void mirEmitDebugValueBody(MirFunctionState *state, MirLowerScope *scope,
         }
         case AST_DATA_TYPE_KIND_FUNCTION: {
             MirValueId closure_address = mirDebugValueAddress(state, scope, node);
-            ASTDataType *void_ptr_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false,
+            ASTDataType *void_ptr_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                             newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID));
             mirEmitDebugTypeAndOpen(state, node, data_type);
             mirEmitDebugWriteCStrLiteral(state, node, "code=");
@@ -1754,7 +1751,7 @@ static void mirEmitDebugValueBody(MirFunctionState *state, MirLowerScope *scope,
         }
         case AST_DATA_TYPE_KIND_SLICE: {
             MirValueId slice_address = mirDebugValueAddress(state, scope, node);
-            ASTDataType *ptr_field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true,
+            ASTDataType *ptr_field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                              cloneDataType(resolved_type->child));
             MirValueId ptr_field_ptr = mirEmitFieldPtr(state, slice_address, ptr_field_type, "ptr", 0,
                                                        node->filename, node->line_number, node->column_number);
@@ -1771,7 +1768,7 @@ static void mirEmitDebugValueBody(MirFunctionState *state, MirLowerScope *scope,
             mirEmitDebugRuntimeCall(state, node, "mote_debug_write_i64", mirDebugExternTypeI64Void(), len_args);
             mirEmitDebugWriteCStrLiteral(state, node, ", ptr=");
             MirValueId void_ptr = mirEmitConvert(state, ptr_value,
-                                                 newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false,
+                                                 newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                                     newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID)),
                                                  node->filename, node->line_number, node->column_number);
             MirOperandList ptr_args = newMirOperandList(1);
@@ -1915,15 +1912,9 @@ static void mirEmitDebugValue(MirFunctionState *state, MirLowerScope *scope, AST
         mirEmitDebugClose(state, node);
 }
 
-static MirValueId mirBindingAddress(MirFunctionState *state, MirLowerScope *scope, MirRuntimeBinding *binding, ASTNode *use_node)
+static MirValueId mirBindingAddress(MirFunctionState *state, MirRuntimeBinding *binding, ASTNode *use_node)
 {
-    if(binding->kind == MIR_RUNTIME_BINDING_ALIAS_ADDRESS)
-    {
-        if(binding->owner_function_index == state->function_index || binding->alias_source_expr == NULL)
-            return binding->local_value;
-        return lowerExprAsAddress(state, scope, binding->alias_source_expr);
-    }
-    if(binding->kind == MIR_RUNTIME_BINDING_LOCAL_SLOT)
+    if(binding->kind == MIR_RUNTIME_BINDING_ALIAS_ADDRESS || binding->kind == MIR_RUNTIME_BINDING_LOCAL_SLOT)
         return binding->local_value;
     if(binding->kind == MIR_RUNTIME_BINDING_GLOBAL_SLOT)
         return mirEmitGlobalAddr(state, binding->global_name, binding->declared_data_type,
@@ -1952,7 +1943,7 @@ static MirValueId lowerVariableValue(MirFunctionState *state, MirLowerScope *sco
     ASTDataType *expr_type = binding->declared_data_type != NULL
         ? cloneDataType(binding->declared_data_type)
         : mirResolvedExprValueType(node, &(scope->type_scope));
-    MirValueId address = mirBindingAddress(state, scope, binding, node);
+    MirValueId address = mirBindingAddress(state, binding, node);
     MirValueId value = mirEmitLoad(state, address, expr_type, node->filename, node->line_number, node->column_number);
     return mirMaybeConvertValue(state, scope, node, value, expected_type);
 }
@@ -2003,7 +1994,7 @@ static MirGlobal* mirEnsureGlobal(MirLowering *lowering, const char *name, ASTDa
     global->kind = MIR_GLOBAL_VAR;
     strcpy(global->name, name);
     global->data_type = cloneDataType(data_type);
-    global->mutable = mutable;
+    global->is_runtime_storage = true;
     return global;
 }
 
@@ -2034,7 +2025,7 @@ static void mirDeclareVariableInfo(MirLowerScope *scope, ASTNode *assign_node, A
     VariableInfo *variable_info = existing_index >= 0
         ? &(scope->type_scope.variable_infos[existing_index])
         : declareVariableInfo(&(scope->type_scope), binding_name);
-    variable_info->mutable = assign_node->modifier.mutable;
+    variable_info->is_compile_time_constant = assign_node->modifier.is_compile_time_binding;
     variable_info->predeclared = false;
     variable_info->operator_kind = assign_node->operator_kind;
     variable_info->data_type = cloneDataType(declared_type);
@@ -2081,7 +2072,7 @@ static void mirPredeclareTopLevelBindings(MirLowerScope *scope, ASTNode *block_n
         if(findVariableInfoInScope(&(scope->type_scope), binding_name) < 0)
         {
             VariableInfo *variable_info = declareVariableInfo(&(scope->type_scope), binding_name);
-            variable_info->mutable = statement->modifier.mutable;
+            variable_info->is_compile_time_constant = statement->modifier.is_compile_time_binding;
             variable_info->predeclared = true;
             if(isTypeDeclAssign(statement, &(scope->type_scope)))
                 variable_info->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
@@ -2169,7 +2160,7 @@ static void mirPredeclareTopLevelRuntimeBindings(MirLowering *lowering, MirLower
             declared_type->is_variadic))
         {
             MirRuntimeBinding *binding = declareMirRuntimeBinding(scope, binding_name);
-            binding->mutable = statement->modifier.mutable;
+            binding->is_compile_time_constant = true;
             binding->declared_data_type = cloneDataType(declared_type);
             binding->type_value = expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ? cloneDataType(expr_type.data_type) : NULL;
             binding->function_value = resolved_function_value;
@@ -2182,13 +2173,13 @@ static void mirPredeclareTopLevelRuntimeBindings(MirLowering *lowering, MirLower
             continue;
 
         MirRuntimeBinding *binding = declareMirRuntimeBinding(scope, binding_name);
-        binding->mutable = statement->modifier.mutable;
+        binding->is_compile_time_constant = statement->modifier.is_compile_time_binding;
         binding->declared_data_type = cloneDataType(declared_type);
         binding->function_value = resolved_function_value;
         binding->extern_value = extern_value;
         binding->kind = MIR_RUNTIME_BINDING_GLOBAL_SLOT;
         strcpy(binding->global_name, binding_name);
-        mirEnsureGlobal(lowering, binding_name, declared_type, statement->modifier.mutable);
+        mirEnsureGlobal(lowering, binding_name, declared_type, false);
     }
 }
 
@@ -2203,7 +2194,7 @@ static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirL
     if(self_data_type != NULL)
     {
         VariableInfo *self_variable = declareVariableInfo(&(inst_scope->type_scope), "Self");
-        self_variable->mutable = false;
+        self_variable->is_compile_time_constant = true;
         self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
         self_variable->type_value = cloneDataType(self_data_type);
     }
@@ -2215,7 +2206,7 @@ static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirL
         if(outer_variable != NULL)
         {
             VariableInfo *inst_variable = declareVariableInfo(&(inst_scope->type_scope), capture->identifier);
-            inst_variable->mutable = false;
+            inst_variable->is_compile_time_constant = false;
             inst_variable->data_type = cloneDataType(outer_variable->data_type);
             inst_variable->type_value = cloneDataType(outer_variable->type_value);
             inst_variable->function_value = outer_variable->function_value;
@@ -2236,9 +2227,7 @@ static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirL
     {
         ASTDataType *resolved_parameter_type = resolveNamedDataType(parameter->data_type, &(inst_scope->type_scope), self_data_type);
         VariableInfo *inst_variable = declareVariableInfo(&(inst_scope->type_scope), parameter->identifier);
-        inst_variable->mutable = parameter->data_type != NULL &&
-                                 ((parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && parameter->data_type->mutable) ||
-                                  (parameter->data_type->kind == AST_DATA_TYPE_KIND_POINTER && parameter->data_type->mutable));
+        inst_variable->is_compile_time_constant = false;
         inst_variable->data_type = cloneDataType(resolved_parameter_type);
 
         if(resolved_parameter_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
@@ -2270,11 +2259,9 @@ static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirL
         {
             MirRuntimeBinding *binding = declareMirRuntimeBinding(inst_scope, parameter->identifier);
             binding->kind = MIR_RUNTIME_BINDING_ALIAS_ADDRESS;
-            binding->mutable = false;
+            binding->is_compile_time_constant = false;
             binding->declared_data_type = cloneDataType(resolved_parameter_type);
             binding->local_value = lowerExprAsAddress(state, outer_scope, argument);
-            binding->owner_function_index = state->function_index;
-            binding->alias_source_expr = argument;
         }
         else
         {
@@ -2288,7 +2275,7 @@ static MirLowerScope* instantiateFunctionCallScope(MirFunctionState *state, MirL
 
             MirRuntimeBinding *binding = declareMirRuntimeBinding(inst_scope, parameter->identifier);
             binding->kind = MIR_RUNTIME_BINDING_LOCAL_SLOT;
-            binding->mutable = false;
+            binding->is_compile_time_constant = false;
             binding->declared_data_type = cloneDataType(resolved_parameter_type);
             binding->local_value = slot;
         }
@@ -2503,7 +2490,7 @@ static void bindSpecializedNamedTypes(MirLowerScope *scope, ASTDataType *source_
            findTypeInfo(&(scope->type_scope), source_type->identifier) == NULL)
         {
             VariableInfo *type_variable = declareVariableInfo(&(scope->type_scope), source_type->identifier);
-            type_variable->mutable = false;
+            type_variable->is_compile_time_constant = true;
             type_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
             type_variable->type_value = cloneDataType(resolved_type);
         }
@@ -2518,8 +2505,6 @@ static void bindSpecializedNamedTypes(MirLowerScope *scope, ASTDataType *source_
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
         case AST_DATA_TYPE_KIND_ARRAY:
-        case AST_DATA_TYPE_KIND_SLICE:
-        case AST_DATA_TYPE_KIND_OPTIONAL:
             bindSpecializedNamedTypes(scope, source_type->child, resolved_type->child);
             return;
         case AST_DATA_TYPE_KIND_FUNCTION: {
@@ -2600,7 +2585,7 @@ static MirValueId lowerFunctionExprAsValue(MirFunctionState *state, MirLowerScop
                 captures.items[capture_index++] = lowerVariableValue(state, scope, &fake_var, NULL);
             }
             else
-                captures.items[capture_index++] = mirBindingAddress(state, scope, binding, function_expr);
+                captures.items[capture_index++] = mirBindingAddress(state, binding, function_expr);
         }
         capture = capture->next;
     }
@@ -2631,7 +2616,7 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
     if(self_data_type != NULL)
     {
         VariableInfo *self_variable = declareVariableInfo(&(function_scope->type_scope), "Self");
-        self_variable->mutable = false;
+        self_variable->is_compile_time_constant = true;
         self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
         self_variable->type_value = cloneDataType(self_data_type);
     }
@@ -2643,7 +2628,7 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
         if(outer_variable != NULL)
         {
             VariableInfo *capture_variable = declareVariableInfo(&(function_scope->type_scope), capture->identifier);
-            capture_variable->mutable = false;
+            capture_variable->is_compile_time_constant = false;
             capture_variable->data_type = cloneDataType(outer_variable->data_type);
             capture_variable->type_value = cloneDataType(outer_variable->type_value);
             capture_variable->function_value = outer_variable->function_value;
@@ -2677,9 +2662,8 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
             strcpy(desc->identifier, capture->identifier);
             desc->source_data_type = cloneDataType(outer_variable->data_type);
             desc->by_reference = capture->kind != AST_FUNCTION_CAPTURE_VALUE;
-            desc->mutable_reference = capture->kind == AST_FUNCTION_CAPTURE_MUT_REFERENCE;
             desc->runtime_data_type = desc->by_reference
-                ? newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, desc->mutable_reference,
+                ? newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                      cloneDataType(getReferenceTargetType(outer_variable->data_type)))
                 : cloneDataType(getReferenceTargetType(outer_variable->data_type));
             desc->input_value = -1;
@@ -2700,7 +2684,7 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
         {
             MirCaptureDesc *desc = &(function->captures[i]);
             MirRuntimeBinding *binding = declareMirRuntimeBinding(function_scope, desc->identifier);
-            binding->mutable = false;
+            binding->is_compile_time_constant = false;
             binding->declared_data_type = cloneDataType(desc->source_data_type);
             binding->kind = MIR_RUNTIME_BINDING_ALIAS_ADDRESS;
 
@@ -2725,13 +2709,9 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
                     function_expr->line_number,
                     function_expr->column_number
                 );
-                binding->owner_function_index = function_index;
             }
             else
-            {
                 binding->local_value = field_address;
-                binding->owner_function_index = function_index;
-            }
         }
     }
 
@@ -2740,9 +2720,7 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
     {
         ASTDataType *resolved_type = resolveNamedDataType(parameter->data_type, &(function_scope->type_scope), self_data_type);
         VariableInfo *variable_info = declareVariableInfo(&(function_scope->type_scope), parameter->identifier);
-        variable_info->mutable = parameter->data_type != NULL &&
-                                 ((parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && parameter->data_type->mutable) ||
-                                  (parameter->data_type->kind == AST_DATA_TYPE_KIND_POINTER && parameter->data_type->mutable));
+        variable_info->is_compile_time_constant = false;
         variable_info->data_type = cloneDataType(resolved_type);
         if(resolved_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
            resolved_type->primary == AST_PRIMARY_DATA_TYPE_TYPE)
@@ -2765,13 +2743,12 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
         desc->input_value = mirCreateInput(function, desc->runtime_data_type, desc->identifier);
 
         MirRuntimeBinding *binding = declareMirRuntimeBinding(function_scope, desc->identifier);
-        binding->mutable = false;
+        binding->is_compile_time_constant = false;
         binding->declared_data_type = cloneDataType(resolved_type);
         if(desc->by_reference)
         {
             binding->kind = MIR_RUNTIME_BINDING_ALIAS_ADDRESS;
             binding->local_value = desc->input_value;
-            binding->owner_function_index = function_index;
         }
         else
         {
@@ -2842,17 +2819,6 @@ static MirValueId lowerMethodFunctionValue(MirFunctionState *state, MirLowerScop
                 struct_type
             );
         }
-    }
-
-    if(member->lexical_type_scope != NULL &&
-       member->lexical_type_scope != &(method_scope->type_scope))
-    {
-        MirLowerScope *lexical_scope = (MirLowerScope*) malloc(sizeof(MirLowerScope));
-        initMirLowerScope(lexical_scope, method_scope, false);
-        lexical_scope->self_data_type = struct_type;
-        lexical_scope->type_scope = *(member->lexical_type_scope);
-        lexical_scope->type_scope.parent = &(method_scope->type_scope);
-        method_scope = lexical_scope;
     }
 
     if(member->value->data_type != NULL && member->data_type != NULL)
@@ -2997,7 +2963,7 @@ static MirValueId lowerZeroBuiltinExpr(MirFunctionState *state, MirLowerScope *s
 static MirValueId lowerDebugBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node)
 {
     MirOperandList begin_args = newMirOperandList(2);
-    ASTDataType *char_ptr_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false,
+    ASTDataType *char_ptr_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                     newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR));
     ASTDataType *file_global_type = newArrayDataType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR),
                                                      strlen(node->filename) + 1);
@@ -3053,7 +3019,7 @@ static MirValueId lowerSlicePtrValue(MirFunctionState *state, MirLowerScope *sco
     MirValueId slice_address = isAddressableExpr(slice_expr)
                                ? lowerExprAsAddress(state, scope, slice_expr)
                                : lowerExprMaterializedAddress(state, scope, slice_expr);
-    ASTDataType *ptr_field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true,
+    ASTDataType *ptr_field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                      cloneDataType(slice_type.data_type->child));
     MirValueId ptr_field_address = mirEmitFieldPtr(state, slice_address, ptr_field_type, "ptr", 0,
                                                    slice_expr->filename, slice_expr->line_number, slice_expr->column_number);
@@ -3152,7 +3118,7 @@ static MirValueId lowerAsBuiltinExpr(MirFunctionState *state, MirLowerScope *sco
 
     if(value_expr != NULL && target_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
     {
-        ASTDataType *pointer_target = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, false,
+        ASTDataType *pointer_target = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                          newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID));
         if(target_type->is_variadic)
             mirLoweringAbortNode("M2014", node,
@@ -3187,7 +3153,7 @@ static MirValueId lowerSliceBuiltinExpr(MirFunctionState *state, MirLowerScope *
     MirFieldValueList fields = newMirFieldValueList(2);
     strcpy(fields.items[0].identifier, "ptr");
     fields.items[0].value = lowerExprAsValue(state, scope, pointer_expr,
-                                             newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true,
+                                             newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                                 cloneDataType(slice_type->child)));
     strcpy(fields.items[1].identifier, "len");
     fields.items[1].value = lowerExprAsValue(state, scope, length_expr,
@@ -3967,7 +3933,7 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
                                               "this variable does not have addressable runtime storage",
                                               "variable `%s` is not addressable",
                                               astUserFacingIdentifier(node->identifier));
-            return mirBindingAddress(state, scope, binding, node);
+            return mirBindingAddress(state, binding, node);
         }
         case AST_EXPR_DEREF:
             return lowerExprAsValue(state, scope, node->lhs, NULL);
@@ -3997,7 +3963,7 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
             {
                 ASTDataType *field_type = NULL;
                 if(strcmp(node->identifier, "ptr") == 0)
-                    field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true, cloneDataType(struct_type->child));
+                    field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, cloneDataType(struct_type->child));
                 else if(strcmp(node->identifier, "len") == 0)
                     field_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
                 else
@@ -4036,7 +4002,7 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
                 MirValueId slice_address = isAddressableExpr(node->lhs)
                                            ? lowerExprAsAddress(state, scope, node->lhs)
                                            : lowerExprMaterializedAddress(state, scope, node->lhs);
-                ASTDataType *ptr_field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, true,
+                ASTDataType *ptr_field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                                  cloneDataType(array_type->child));
                 MirValueId ptr_field_address = mirEmitFieldPtr(state, slice_address, ptr_field_type, "ptr", 0,
                                                                node->filename, node->line_number, node->column_number);
@@ -4126,7 +4092,7 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
             MirRuntimeBinding *binding = existing_binding;
             if(binding == NULL)
                 binding = declareMirRuntimeBinding(scope, node->identifier);
-            binding->mutable = node->modifier.mutable;
+            binding->is_compile_time_constant = node->modifier.is_compile_time_binding;
             binding->declared_data_type = cloneDataType(declared_type);
             binding->function_value = resolved_function_value;
             binding->extern_value = resolveExternValueExpr(node->rhs, &(scope->type_scope));
@@ -4148,8 +4114,6 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
             {
                 binding->kind = MIR_RUNTIME_BINDING_ALIAS_ADDRESS;
                 binding->local_value = lowerExprAsAddress(state, scope, node->rhs);
-                binding->owner_function_index = state->function_index;
-                binding->alias_source_expr = node->rhs;
                 return;
             }
 
@@ -4157,7 +4121,7 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
             {
                 binding->kind = MIR_RUNTIME_BINDING_GLOBAL_SLOT;
                 strcpy(binding->global_name, node->identifier);
-                mirEnsureGlobal(state->lowering, node->identifier, declared_type, node->modifier.mutable);
+                mirEnsureGlobal(state->lowering, node->identifier, declared_type, false);
 
                 if(state->is_top_level_init &&
                    node->rhs->kind == AST_EXPR_BUILTIN &&
@@ -4193,7 +4157,7 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
         if(target_type != NULL && target_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
             target_type = target_type->child;
 
-        MirValueId address = mirBindingAddress(state, scope, existing_binding, node);
+        MirValueId address = mirBindingAddress(state, existing_binding, node);
         MirValueId value = lowerExprAsValue(state, scope, node->rhs, target_type);
         value = mirMaybeConvertValue(state, scope, node->rhs, value, target_type);
         mirEmitStore(state, address, value, node->filename, node->line_number, node->column_number);

@@ -1,8 +1,8 @@
-slice = @import("std:slice");
+slice :: @import("std:slice");
 
-main = fn() void {
-    mut values: Array(i32, 5) = [1, 2, 3, 4, 5];
-    xs: []i32 = @slice(i32, &mut values[0], 5);
+main :: fn() void {
+    values: Array(i32, 5) = [1, 2, 3, 4, 5];
+    xs: []i32 = @slice(i32, &values[0], 5);
 
     if(slice.is_empty(i32, xs)) {
         return;
@@ -19,7 +19,7 @@ main = fn() void {
         return;
     }
 
-    third_ptr: ?*mut i32 = slice.get_ptr(i32, xs, 2);
+    third_ptr: ?*i32 = slice.get_ptr(i32, xs, 2);
     if(third_ptr == null) {
         return;
     }
@@ -52,8 +52,8 @@ main = fn() void {
         return;
     }
 
-    mut copied_buf: Array(i32, 3) = [0, 0, 0];
-    copied: []i32 = @slice(i32, &mut copied_buf[0], 3);
+    copied_buf: Array(i32, 3) = [0, 0, 0];
+    copied: []i32 = @slice(i32, &copied_buf[0], 3);
     if(slice.copy(i32, copied, xs) != 3) {
         return;
     }
@@ -61,7 +61,7 @@ main = fn() void {
         return;
     }
 
-    singleton: []i32 = @slice(i32, &mut values[0], 1);
+    singleton: []i32 = @slice(i32, &values[0], 1);
     if(@unwrap(slice.first(i32, singleton)) != 1 || @unwrap(slice.last(i32, singleton)) != 1) {
         return;
     }
@@ -71,9 +71,9 @@ main = fn() void {
         return;
     }
 
-    mut overlap_storage: Array(i32, 5) = [1, 2, 3, 4, 5];
-    overlap_src: []i32 = @slice(i32, &mut overlap_storage[0], 4);
-    overlap_dst: []i32 = @slice(i32, &mut overlap_storage[1], 4);
+    overlap_storage: Array(i32, 5) = [1, 2, 3, 4, 5];
+    overlap_src: []i32 = @slice(i32, &overlap_storage[0], 4);
+    overlap_dst: []i32 = @slice(i32, &overlap_storage[1], 4);
     if(slice.copy(i32, overlap_dst, overlap_src) != 4) {
         return;
     }
@@ -91,7 +91,7 @@ main = fn() void {
         return;
     }
 
-    empty: []i32 = @slice(i32, @as(*mut i32, 0), 0);
+    empty: []i32 = @slice(i32, @as(*i32, 0), 0);
     if(slice.first(i32, empty) != null ||
        slice.last(i32, empty) != null ||
        slice.get(i32, empty, 0) != null ||
@@ -99,5 +99,5 @@ main = fn() void {
         return;
     }
 
-    sink = 1;
+    sink := 1;
 };

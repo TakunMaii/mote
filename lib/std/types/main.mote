@@ -1,8 +1,8 @@
 @package("types");
 
-c = @import("std:internal/c");
+c :: @import("std:internal/c");
 
-pub byte = u8;
-pub usize = c.size_t;
-pub isize = i64;
-pub size_t = c.size_t;
+pub byte :: u8;
+pub usize :: c.size_t;
+pub isize :: i64;
+pub size_t :: c.size_t;

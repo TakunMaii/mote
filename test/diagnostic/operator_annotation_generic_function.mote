@@ -1,8 +1,8 @@
 @operator(+)
-bad = fn(T: Type, lhs: T, rhs: T) T {
+bad :: fn(T: Type, lhs: T, rhs: T) T {
     return lhs;
 };
 
-main = fn() i32 {
+main :: fn() i32 {
     return 0;
 };

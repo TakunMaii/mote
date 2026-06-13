@@ -97,11 +97,6 @@ void parseQualifiedIdentifier(Token **token, char *buffer)
 ASTAssignModifier parseModifier(Token **token)
 {
     ASTAssignModifier modifier = {0};
-    if((*token)->kind == TK_MUT)
-    {
-        modifier.mutable = true;
-        (*token) = (*token)->next;
-    }
     return modifier;
 }
 
@@ -269,35 +264,19 @@ ASTDataType* parseDataType(Token **token)
     if((*token)->kind == TK_QUESTION)
     {
         (*token) = (*token)->next;
-        return newWrappedDataType(AST_DATA_TYPE_KIND_OPTIONAL, false, parseDataType(token));
+        return newWrappedDataType(AST_DATA_TYPE_KIND_OPTIONAL, parseDataType(token));
     }
 
     if((*token)->kind == TK_STAR)
     {
         (*token) = (*token)->next;
-
-        bool mutable = false;
-        if((*token)->kind == TK_MUT)
-        {
-            mutable = true;
-            (*token) = (*token)->next;
-        }
-
-        return newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, mutable, parseDataType(token));
+        return newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, parseDataType(token));
     }
 
     if((*token)->kind == TK_AMPERSAND)
     {
         (*token) = (*token)->next;
-
-        bool mutable = false;
-        if((*token)->kind == TK_MUT)
-        {
-            mutable = true;
-            (*token) = (*token)->next;
-        }
-
-        return newWrappedDataType(AST_DATA_TYPE_KIND_REFERENCE, mutable, parseDataType(token));
+        return newWrappedDataType(AST_DATA_TYPE_KIND_REFERENCE, parseDataType(token));
     }
 
     return parseTypeExpr(token);
@@ -583,9 +562,6 @@ bool isStatementAssign(Token *token)
     if(token != NULL && token->kind == TK_PUB)
         token = token->next;
 
-    if(token->kind == TK_MUT)
-        token = token->next;
-
     if(token == NULL)
         return false;
 
@@ -604,7 +580,17 @@ bool isStatementAssign(Token *token)
             brace_depth ++;
         else if(token->kind == TK_RIGHT_BRACE)
             brace_depth --;
-        else if(parenthesis_depth == 0 && brace_depth == 0 && token->kind == TK_EQUAL)
+        else if(parenthesis_depth == 0 &&
+                brace_depth == 0 &&
+                (token->kind == TK_EQUAL ||
+                 token->kind == TK_COLON_EQUAL ||
+                 token->kind == TK_DOUBLE_COLON))
+            return true;
+        else if(parenthesis_depth == 0 &&
+                brace_depth == 0 &&
+                token->kind == TK_COLON &&
+                token->next != NULL &&
+                (token->next->kind == TK_EQUAL || token->next->kind == TK_COLON))
             return true;
 
         token = token->next;
@@ -719,11 +705,6 @@ ASTFunctionCapture* parseFunctionCaptures(Token **token)
         {
             (*token) = (*token)->next;
             kind = AST_FUNCTION_CAPTURE_REFERENCE;
-            if((*token)->kind == TK_MUT)
-            {
-                (*token) = (*token)->next;
-                kind = AST_FUNCTION_CAPTURE_MUT_REFERENCE;
-            }
         }
 
         Token *capture_token = expectToken(*token, TK_IDENTIFIER);
@@ -1013,23 +994,12 @@ ASTNode* parseUnary(Token **token)
         kind = AST_EXPR_UNARY_LOGICAL_NOT;
     else if((*token)->kind == TK_TILDE)
         kind = AST_EXPR_UNARY_BIT_NOT;
-    else if((*token)->kind == TK_STAR && (*token)->next != NULL && (*token)->next->kind == TK_MUT)
-    {
-        ASTNode *node = newASTNodeFromToken(AST_EXPR_TYPE_LITERAL, *token);
-        node->data_type = parseDataType(token);
-        return node;
-    }
     else if((*token)->kind == TK_STAR)
         kind = AST_EXPR_DEREF;
     else if((*token)->kind == TK_AMPERSAND)
     {
         kind = AST_EXPR_ADDRESS_OF;
         (*token) = (*token)->next;
-        if((*token)->kind == TK_MUT)
-        {
-            kind = AST_EXPR_ADDRESS_OF_MUT;
-            (*token) = (*token)->next;
-        }
 
         ASTNode *node = newASTNodeFromToken(kind, (*token));
         node->lhs = parseUnary(token);
@@ -1362,9 +1332,24 @@ ASTNode* parseSimpleAssignNoSemicolon(Token **token)
         node->modifier.explicit_type = true;
         (*token) = (*token)->next;
         node->data_type = parseDataType(token);
+        if((*token)->kind == TK_EQUAL)
+            node->modifier.is_runtime_binding = true;
+        else if((*token)->kind == TK_COLON)
+            node->modifier.is_compile_time_binding = true;
+        else
+            expectToken(*token, TK_EQUAL);
     }
+    else if(node->lhs->kind == AST_EXPR_VARIABLE && (*token)->kind == TK_COLON_EQUAL)
+    {
+        node->modifier.is_runtime_binding = true;
+    }
+    else if(node->lhs->kind == AST_EXPR_VARIABLE && (*token)->kind == TK_DOUBLE_COLON)
+    {
+        node->modifier.is_compile_time_binding = true;
+    }
+    else
+        expectToken(*token, TK_EQUAL);
 
-    expectToken(*token, TK_EQUAL);
     (*token) = (*token)->next;
     node->rhs = parseExpr(token);
 

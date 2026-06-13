@@ -1,6 +1,6 @@
-time = @import("std:time");
+time :: @import("std:time");
 
-main = fn() i32 {
+main :: fn() i32 {
     if(time.ticks_per_second() != 1000000000) {
         return 4;
     }

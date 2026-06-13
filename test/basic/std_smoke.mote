@@ -1,11 +1,11 @@
-string = @import("std:string");
-io = @import("std:io");
+string :: @import("std:string");
+io :: @import("std:io");
 
-main = fn() void {
-    len_ok = string.len("abc") == 3;
-    cmp_ok = string.compare("abc", "abd") < 0;
-    cmp_n_ok = string.compare_n("abc", "abd", 2) == 0;
-    atoi_ok = string.to_int("42") == 42;
+main :: fn() void {
+    len_ok := string.len("abc") == 3;
+    cmp_ok := string.compare("abc", "abd") < 0;
+    cmp_n_ok := string.compare_n("abc", "abd", 2) == 0;
+    atoi_ok := string.to_int("42") == 42;
 
     if(len_ok && cmp_ok && cmp_n_ok && atoi_ok) {
         io.put_char('O');

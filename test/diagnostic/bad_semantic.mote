@@ -1,1 +1,1 @@
-main = fn() void { x = y; };
+main :: fn() void { x = y; };

@@ -1,12 +1,12 @@
-rl = @import("vendor:raylib");
+rl :: @import("vendor:raylib");
 
-mut frames: i32 = 0;
+frames: i32 = 0;
 
 rl.InitWindow(320, 240, "raylib color test");
 rl.SetTargetFPS(60);
 
 while(!rl.WindowShouldClose() && frames < 2) {
-    mut draw_color: rl.Color = rl.BLUE;
+    draw_color: rl.Color = rl.BLUE;
     if(frames == 1) {
         draw_color = rl.RED;
     }

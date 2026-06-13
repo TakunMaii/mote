@@ -1,6 +1,6 @@
-rl = @import("vendor:raylib");
+rl :: @import("vendor:raylib");
 
-main = fn() i32 {
+main :: fn() i32 {
     x: i32 = 7;
     y: f32 = x;
     z: i32 = @as(i32, y);

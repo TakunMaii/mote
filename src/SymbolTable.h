@@ -7,7 +7,7 @@
 #include <string.h>
 
 typedef struct VariableInfo {
-    bool mutable;
+    bool is_compile_time_constant;
     bool predeclared;
     bool resolving;
     ASTDataType *data_type;

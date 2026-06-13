@@ -1,4 +1,4 @@
-main = fn() i32 {
+main :: fn() i32 {
     some_value: ?i32 = 7;
     none_value: ?i32 = null;
 

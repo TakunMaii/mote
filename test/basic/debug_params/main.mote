@@ -1,10 +1,10 @@
 @package("debug_params");
 
-add = fn(a: i32, b: i32) i32 {
-    c = a + b;
+add :: fn(a: i32, b: i32) i32 {
+    c := a + b;
     return c;
 };
 
-main = fn() i32 {
+main :: fn() i32 {
     return add(2, 3);
 };

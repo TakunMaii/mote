@@ -1,8 +1,8 @@
 @package("enet_pkg");
 
-enet = @import("vendor:enet");
+enet :: @import("vendor:enet");
 
-main = fn() i32 {
+main :: fn() i32 {
     if(enet.Initialize() != 0) {
         return 1;
     }

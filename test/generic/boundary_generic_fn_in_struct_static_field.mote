@@ -1,10 +1,10 @@
-g = @import("./support_factories");
+g :: @import("./support_factories");
 
-Registry = struct {
+Registry :: struct {
     make_i32_identity: Function([], Function([i32], i32)),
 };
 
-main = fn() i32 {
+main :: fn() i32 {
     reg: Registry = Registry {
         .make_i32_identity = fn() Function([i32], i32) {
             return g.make_identity(i32);

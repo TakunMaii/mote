@@ -1,10 +1,10 @@
-g = @import("./support_factories");
+g :: @import("./support_factories");
 
-main = fn() i32 {
-    mut values: Array(i32, 3) = [4, 5, 6];
-    xs: []i32 = @slice(i32, &mut values[0], 3);
+main :: fn() i32 {
+    values: Array(i32, 3) = [4, 5, 6];
+    xs: []i32 = @slice(i32, &values[0], 3);
     maybe_first: ?i32 = g.first_or_null(i32, xs);
-    none_first: ?i32 = g.first_or_null(i32, @slice(i32, @as(*mut i32, 0), 0));
+    none_first: ?i32 = g.first_or_null(i32, @slice(i32, @as(*i32, 0), 0));
     first_value: i32 = g.unwrap_or(i32, maybe_first, 0);
     none_value: i32 = g.unwrap_or(i32, none_first, 11);
 

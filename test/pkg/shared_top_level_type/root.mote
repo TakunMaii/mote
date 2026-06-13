@@ -1,6 +1,6 @@
 @package("shared_top_level_type");
 
-pub main = fn() void {
+pub main :: fn() void {
     item: Pair = Pair {
         .left = 1,
         .right = 2,

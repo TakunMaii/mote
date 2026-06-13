@@ -1,6 +1,6 @@
-t = @import("./support_public_types");
+t :: @import("./support_public_types");
 
-main = fn() i32 {
+main :: fn() i32 {
     value: t.PairType(i32) = t.make_pair(i32, 4, 5);
 
     if(value.left == 4 && value.right == 5) {

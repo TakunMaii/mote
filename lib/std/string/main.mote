@@ -1,52 +1,52 @@
 @package("string");
 
-c = @import("std:internal/c");
-slice = @import("std:slice");
-types = @import("std:types");
+c :: @import("std:internal/c");
+slice :: @import("std:slice");
+types :: @import("std:types");
 
 // `len` / `compare` / `compare_n` / `to_int` are C-string helpers.
 // The remaining APIs operate on Mote slices and preserve embedded `\0` bytes.
 
-pub len = c.strlen;
-pub compare = c.strcmp;
-pub compare_n = c.strncmp;
-pub to_int = c.atoi;
+pub len :: c.strlen;
+pub compare :: c.strcmp;
+pub compare_n :: c.strncmp;
+pub to_int :: c.atoi;
 
-is_digit = fn(ch: char) bool {
+is_digit :: fn(ch: char) bool {
     return ch >= '0' && ch <= '9';
 };
 
-digit_value = fn(ch: char) u64 {
+digit_value :: fn(ch: char) u64 {
     return @as(u64, ch - '0');
 };
 
-pub is_empty = fn(value: []char) bool {
+pub is_empty :: fn(value: []char) bool {
     return @len(value) == 0;
 };
 
-pub equal = fn(lhs: []char, rhs: []char) bool {
+pub equal :: fn(lhs: []char, rhs: []char) bool {
     return slice.equal(char, lhs, rhs);
 };
 
-pub starts_with = fn(value: []char, prefix: []char) bool {
+pub starts_with :: fn(value: []char, prefix: []char) bool {
     return slice.starts_with(char, value, prefix);
 };
 
-pub ends_with = fn(value: []char, suffix: []char) bool {
+pub ends_with :: fn(value: []char, suffix: []char) bool {
     return slice.ends_with(char, value, suffix);
 };
 
-pub index_of = fn(value: []char, needle: char) ?types.size_t {
+pub index_of :: fn(value: []char, needle: char) ?types.size_t {
     return slice.index_of(char, value, needle);
 };
 
-pub parse_u64 = fn(value: []char) ?u64 {
+pub parse_u64 :: fn(value: []char) ?u64 {
     if(@len(value) == 0) {
         return null;
     }
 
-    mut parsed: u64 = 0;
-    mut index: types.size_t = 0;
+    parsed: u64 = 0;
+    index: types.size_t = 0;
     while(index < @len(value)) {
         ch: char = value[index];
         if(!is_digit(ch)) {
@@ -67,13 +67,13 @@ pub parse_u64 = fn(value: []char) ?u64 {
     return parsed;
 };
 
-pub parse_i64 = fn(value: []char) ?i64 {
+pub parse_i64 :: fn(value: []char) ?i64 {
     if(@len(value) == 0) {
         return null;
     }
 
-    mut index: types.size_t = 0;
-    mut negative: bool = false;
+    index: types.size_t = 0;
+    negative: bool = false;
     if(value[0] == '+' || value[0] == '-') {
         negative = value[0] == '-';
         index = 1;
@@ -82,8 +82,8 @@ pub parse_i64 = fn(value: []char) ?i64 {
         return null;
     }
 
-    mut parsed: u64 = 0;
-    mut limit: u64 = @as(u64, 9223372036854775807);
+    parsed: u64 = 0;
+    limit: u64 = @as(u64, 9223372036854775807);
     if(negative) {
         limit = @as(u64, 9223372036854775808);
     }
@@ -115,22 +115,22 @@ pub parse_i64 = fn(value: []char) ?i64 {
     return @as(i64, parsed);
 };
 
-pub trim_start = fn(value: []char, ch: char) []char {
-    mut index: types.size_t = 0;
+pub trim_start :: fn(value: []char, ch: char) []char {
+    index: types.size_t = 0;
     while(index < @len(value) && value[index] == ch) {
         index = index + 1;
     }
     return slice.subslice(char, value, index, @len(value) - index);
 };
 
-pub trim_end = fn(value: []char, ch: char) []char {
-    mut len_value: types.size_t = @len(value);
+pub trim_end :: fn(value: []char, ch: char) []char {
+    len_value: types.size_t = @len(value);
     while(len_value > 0 && value[len_value - 1] == ch) {
         len_value = len_value - 1;
     }
     return slice.head(char, value, len_value);
 };
 
-pub trim = fn(value: []char, ch: char) []char {
+pub trim :: fn(value: []char, ch: char) []char {
     return trim_end(trim_start(value, ch), ch);
 };

@@ -1,17 +1,17 @@
 @package("hash");
 
-c = @import("std:internal/c");
+c :: @import("std:internal/c");
 
-pub HashFn = fn(K: Type) Type {
+pub HashFn :: fn(K: Type) Type {
     return Function([K], u64);
 };
 
-pub EqFn = fn(K: Type) Type {
+pub EqFn :: fn(K: Type) Type {
     return Function([K, K], bool);
 };
 
-pub mix_u64 = fn(x: u64) u64 {
-    mut value: u64 = x;
+pub mix_u64 :: fn(x: u64) u64 {
+    value: u64 = x;
     value = value ^ (value >> @as(u64, 30));
     value = value * @as(u64, 0xbf58476d1ce4e5b9);
     value = value ^ (value >> @as(u64, 27));
@@ -20,76 +20,76 @@ pub mix_u64 = fn(x: u64) u64 {
     return value;
 };
 
-pub hash_bool = fn(value: bool) u64 {
+pub hash_bool :: fn(value: bool) u64 {
     if(value) {
         return 1;
     }
     return 0;
 };
 
-pub hash_i32 = fn(value: i32) u64 {
+pub hash_i32 :: fn(value: i32) u64 {
     if(value == 0) {
         return @as(u64, 1);
     }
     return mix_u64(@as(u64, value) ^ @as(u64, 0x9e3779b97f4a7c15));
 };
 
-pub hash_i64 = fn(value: i64) u64 {
+pub hash_i64 :: fn(value: i64) u64 {
     if(value == 0) {
         return @as(u64, 1);
     }
     return mix_u64(@as(u64, value) ^ @as(u64, 0x9e3779b97f4a7c15));
 };
 
-pub hash_u32 = fn(value: u32) u64 {
+pub hash_u32 :: fn(value: u32) u64 {
     if(value == 0) {
         return @as(u64, 1);
     }
     return mix_u64(@as(u64, value) ^ @as(u64, 0x9e3779b97f4a7c15));
 };
 
-pub hash_u64 = fn(value: u64) u64 {
+pub hash_u64 :: fn(value: u64) u64 {
     if(value == 0) {
         return @as(u64, 1);
     }
     return mix_u64(value ^ @as(u64, 0x9e3779b97f4a7c15));
 };
 
-pub hash_ptr = fn(T: Type, ptr: *T) u64 {
+pub hash_ptr :: fn(T: Type, ptr: *T) u64 {
     ptr_u8: *u8 = @as(*u8, ptr);
     zero_u8: *u8 = @as(*u8, 0);
     return mix_u64(@as(u64, @ptr_diff(u8, ptr_u8, zero_u8)));
 };
 
-pub eq_bool = fn(a: bool, b: bool) bool {
+pub eq_bool :: fn(a: bool, b: bool) bool {
     return a == b;
 };
 
-pub eq_i32 = fn(a: i32, b: i32) bool {
+pub eq_i32 :: fn(a: i32, b: i32) bool {
     return a == b;
 };
 
-pub eq_i64 = fn(a: i64, b: i64) bool {
+pub eq_i64 :: fn(a: i64, b: i64) bool {
     return a == b;
 };
 
-pub eq_u32 = fn(a: u32, b: u32) bool {
+pub eq_u32 :: fn(a: u32, b: u32) bool {
     return a == b;
 };
 
-pub eq_u64 = fn(a: u64, b: u64) bool {
+pub eq_u64 :: fn(a: u64, b: u64) bool {
     return a == b;
 };
 
-pub eq_ptr = fn(T: Type, a: *T, b: *T) bool {
+pub eq_ptr :: fn(T: Type, a: *T, b: *T) bool {
     return a == b;
 };
 
-pub hash_c_string = fn(value: *char) u64 {
-    mut hash: u64 = @as(u64, 1469598103934665603);
+pub hash_c_string :: fn(value: *char) u64 {
+    hash: u64 = @as(u64, 1469598103934665603);
     len: c.size_t = c.strlen(value);
-    mut ptr: *char = value;
-    mut idx: c.size_t = 0;
+    ptr: *char = value;
+    idx: c.size_t = 0;
     while(idx < len) {
         hash = hash ^ @as(u64, *ptr);
         hash = hash * @as(u64, 1099511628211);
@@ -99,6 +99,6 @@ pub hash_c_string = fn(value: *char) u64 {
     return mix_u64(hash);
 };
 
-pub eq_c_string = fn(a: *char, b: *char) bool {
+pub eq_c_string :: fn(a: *char, b: *char) bool {
     return c.strcmp(a, b) == 0;
 };

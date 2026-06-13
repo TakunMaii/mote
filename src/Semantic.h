@@ -53,7 +53,7 @@ void semanticAbortTypeDataType(const char *code, ASTNode *node, const char *mess
 
 bool isExplicitDeclared(ASTNode *node)
 {
-    return node->modifier.mutable || node->modifier.explicit_type;
+    return node->modifier.is_runtime_binding || node->modifier.is_compile_time_binding;
 }
 
 bool isReferenceDataType(ASTDataType *data_type)
@@ -118,7 +118,6 @@ bool exprLooksLikeTypeDeclValue(ASTNode *node, ScopeFrame *scope)
         case AST_EXPR_PARENTHESIS:
         case AST_EXPR_DEREF:
         case AST_EXPR_ADDRESS_OF:
-        case AST_EXPR_ADDRESS_OF_MUT:
             return exprLooksLikeTypeDeclValue(node->lhs, scope);
         case AST_EXPR_VARIABLE:
             if(strcmp(node->identifier, "Self") == 0 ||
@@ -197,7 +196,7 @@ static void semanticBindTypeDeclarationValue(ASTNode *node, ScopeFrame *scope, A
         ? &(scope->variable_infos[variable_index])
         : declareVariableInfo(scope, binding_name);
 
-    variable_info->mutable = false;
+    variable_info->is_compile_time_constant = true;
     variable_info->predeclared = false;
     variable_info->data_type = cloneDataType(declared_type);
     variable_info->type_value = cloneDataType(declared_type);
@@ -217,7 +216,7 @@ static void predeclareTopLevelVariableBinding(ASTNode *node, ScopeFrame *scope)
         return;
 
     VariableInfo *variable_info = declareVariableInfo(scope, binding_name);
-    variable_info->mutable = node->modifier.mutable;
+    variable_info->is_compile_time_constant = node->modifier.is_compile_time_binding;
     variable_info->predeclared = true;
     if(isTypeDeclAssign(node, scope))
         variable_info->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
@@ -274,7 +273,7 @@ void declareFunctionParameters(ASTFunctionParameter *parameter, ScopeFrame *scop
         }
 
         VariableInfo *variable_info = declareVariableInfo(scope, parameter->identifier);
-        variable_info->mutable = false;
+        variable_info->is_compile_time_constant = false;
         variable_info->data_type = resolveNamedDataType(parameter->data_type, scope, self_data_type);
         if(parameter->data_type != NULL &&
            parameter->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
@@ -314,7 +313,7 @@ void declareFunctionCaptures(ASTFunctionCapture *capture, ScopeFrame *target_sco
         }
 
         VariableInfo *variable_info = declareVariableInfo(target_scope, capture->identifier);
-        variable_info->mutable = false;
+        variable_info->is_compile_time_constant = false;
         variable_info->data_type = cloneDataType(outer_variable->data_type);
         variable_info->type_value = cloneDataType(outer_variable->type_value);
         variable_info->function_value = outer_variable->function_value;
@@ -339,7 +338,7 @@ void checkFunctionExprSemantics(ASTNode *node, ScopeFrame *scope, ASTDataType *s
     if(self_data_type != NULL)
     {
         VariableInfo *self_variable = declareVariableInfo(function_scope, "Self");
-        self_variable->mutable = false;
+        self_variable->is_compile_time_constant = true;
         self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
         self_variable->type_value = cloneDataType(self_data_type);
     }
@@ -356,13 +355,13 @@ void checkFunctionExprSemantics(ASTNode *node, ScopeFrame *scope, ASTDataType *s
     deleteScopeFrame(function_scope);
 }
 
-void checkStructExprSemantics(ASTNode *node, ScopeFrame *scope)
+void checkStructExprSemantics(ASTNode *node, ScopeFrame *scope, ASTDataType *self_data_type)
 {
     ASTStructMember *member = node->members;
     while(member)
     {
         if(member->value)
-            checkFunctionExprSemantics(member->value, scope, node->data_type);
+            checkFunctionExprSemantics(member->value, scope, self_data_type);
         member = member->next;
     }
 }
@@ -398,7 +397,7 @@ void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
 
     if(node->kind == AST_EXPR_STRUCT)
     {
-        checkStructExprSemantics(node, scope);
+        checkStructExprSemantics(node, scope, NULL);
         return;
     }
 
@@ -518,7 +517,7 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
         }
         node->data_type = cloneDataType(type_info->data_type);
         if(node->rhs->kind == AST_EXPR_STRUCT)
-            checkStructExprSemantics(node->rhs, scope);
+            checkStructExprSemantics(node->rhs, scope, node->data_type);
         return;
     }
 
@@ -543,26 +542,12 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
 
     if(node->lhs->kind == AST_EXPR_MEMBER)
     {
-        if(node->modifier.mutable)
-        {
-            semanticAbortNode("S1010", node,
-                              "member assignment cannot use `mut` declaration syntax",
-                              "remove `mut` from this assignment");
-        }
-
         checkExprDeclaredVariable(node->lhs->lhs, scope);
         return;
     }
 
     if(node->lhs->kind == AST_EXPR_INDEX)
     {
-        if(node->modifier.mutable)
-        {
-            semanticAbortNode("S1011", node,
-                              "index assignment cannot use `mut` declaration syntax",
-                              "remove `mut` from this assignment");
-        }
-
         checkExprDeclaredVariable(node->lhs->lhs, scope);
         checkExprDeclaredVariable(node->lhs->rhs, scope);
         return;
@@ -593,13 +578,13 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
         if(local_variable_info == NULL)
         {
             VariableInfo *new_variable_info = declareVariableInfo(scope, binding_name);
-            new_variable_info->mutable = node->modifier.mutable;
+            new_variable_info->is_compile_time_constant = node->modifier.is_compile_time_binding;
             new_variable_info->data_type = newInferDataType();
             new_variable_info->operator_kind = node->operator_kind;
         }
         else
         {
-            local_variable_info->mutable = node->modifier.mutable;
+            local_variable_info->is_compile_time_constant = node->modifier.is_compile_time_binding;
             local_variable_info->operator_kind = node->operator_kind;
             local_variable_info->predeclared = false;
         }
@@ -612,19 +597,16 @@ void checkAssignSemanticsNode(ASTNode *node, ScopeFrame *scope)
 
         if(resolved_variable_info == NULL || (is_top_level_scope && resolved_variable_info->predeclared))
         {
-            VariableInfo *new_variable_info = resolved_variable_info;
-            if(new_variable_info == NULL)
-                new_variable_info = declareVariableInfo(scope, binding_name);
-            new_variable_info->mutable = false;
-            new_variable_info->predeclared = false;
-            new_variable_info->data_type = newInferDataType();
-            new_variable_info->operator_kind = node->operator_kind;
+            semanticAbortNodeFormatted("S1014", node,
+                                       "assignment target must already exist",
+                                       "use `:=`, `: T =`, `::`, or `: T :` to declare `%s`",
+                                       astUserFacingIdentifier(binding_name));
         }
-        else if(!resolved_variable_info->mutable && !isReferenceDataType(resolved_variable_info->data_type))
+        else if(resolved_variable_info->is_compile_time_constant)
         {
             semanticAbortNodeFormatted("S1014", node,
-                                       "immutable assignment target",
-                                       "cannot assign to immutable variable `%s`",
+                                       "compile-time constant cannot be assigned",
+                                       "cannot assign to compile-time constant `%s`",
                                        astUserFacingIdentifier(binding_name));
         }
     }
@@ -805,23 +787,6 @@ void checkFunctionCallArgumentSemantics(ASTNode *call_node, ASTDataType *functio
 
     while(parameter && argument)
     {
-        if(parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && parameter->data_type->mutable)
-        {
-            if(argument->kind == AST_EXPR_ADDRESS_OF_MUT)
-            {
-                parameter = parameter->next;
-                argument = argument->next;
-                continue;
-            }
-
-            if(!isMutableAddressableExpr(argument, scope))
-            {
-                semanticAbortTypeNode("T1101", argument,
-                                      "mutable reference argument requires a mutable expression",
-                                      "this argument is not mutable");
-            }
-        }
-
         parameter = parameter->next;
         argument = argument->next;
     }
@@ -913,11 +878,9 @@ ASTDataType* declareStructType(ASTNode *node, ScopeFrame *scope)
         resolved_member->column_number = member->column_number;
         strcpy(resolved_member->identifier, member->identifier);
         resolved_member->value = member->value;
-        if(member->value != NULL && member->value->kind == AST_EXPR_FUNCTION)
-            resolved_member->data_type = resolveFunctionExprDataType(member->value, scope, struct_type);
-        else
-            resolved_member->data_type = resolveNamedDataType(member->data_type, scope, struct_type);
+        resolved_member->data_type = resolveNamedDataType(member->data_type, scope, struct_type);
         typeSystemEnsureNoBareOpaque(resolved_member->data_type, node, "T1132", "struct field");
+        member->data_type = cloneDataType(resolved_member->data_type);
 
         if(resolved_head == NULL)
             resolved_head = resolved_member;
@@ -1038,7 +1001,7 @@ ASTFunctionParameter* resolveFunctionTypeParameters(ASTFunctionParameter *parame
             resolved_type = newInferDataType();
 
         VariableInfo *variable_info = declareVariableInfo(signature_scope, scan->identifier);
-        variable_info->mutable = false;
+        variable_info->is_compile_time_constant = false;
         variable_info->data_type = cloneDataType(resolved_type);
         if(resolved_type != NULL &&
            resolved_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
@@ -1161,7 +1124,7 @@ ASTDataType* inferFunctionExprReturnType(ASTNode *node, ScopeFrame *outer_scope,
     if(self_data_type != NULL)
     {
         VariableInfo *self_variable = declareVariableInfo(function_scope, "Self");
-        self_variable->mutable = false;
+        self_variable->is_compile_time_constant = true;
         self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
         self_variable->type_value = cloneDataType(self_data_type);
     }
@@ -1182,40 +1145,11 @@ ASTDataType* resolveFunctionExprDataType(ASTNode *node, ScopeFrame *outer_scope,
     ASTFunctionParameter *resolved_parameters = resolveFunctionTypeParameters(node->parameters, outer_scope, self_data_type);
 
     ScopeFrame *signature_scope = newScopeFrame(outer_scope);
-    if(self_data_type != NULL)
-    {
-        VariableInfo *self_variable = declareVariableInfo(signature_scope, "Self");
-        self_variable->mutable = false;
-        self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
-        self_variable->type_value = cloneDataType(self_data_type);
-    }
-    if(outer_scope != NULL)
-    {
-        ScopeFrame *scan_scope = outer_scope;
-        while(scan_scope != NULL)
-        {
-            for(int i = 0; i < scan_scope->variable_count; i++)
-            {
-                VariableInfo *src = &(scan_scope->variable_infos[i]);
-                if(src->type_value == NULL || findVariableInfoInScope(signature_scope, src->identifier) >= 0)
-                    continue;
-                VariableInfo *dst = declareVariableInfo(signature_scope, src->identifier);
-                dst->mutable = false;
-                dst->data_type = cloneDataType(src->data_type);
-                dst->type_value = cloneDataType(src->type_value);
-                dst->function_value = src->function_value;
-                dst->extern_value = src->extern_value;
-            }
-            scan_scope = scan_scope->parent;
-        }
-    }
     ASTFunctionParameter *parameter = resolved_parameters;
     while(parameter)
     {
         VariableInfo *variable_info = declareVariableInfo(signature_scope, parameter->identifier);
-        variable_info->mutable = parameter->data_type != NULL &&
-                                 ((parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && parameter->data_type->mutable) ||
-                                  (parameter->data_type->kind == AST_DATA_TYPE_KIND_POINTER && parameter->data_type->mutable));
+        variable_info->is_compile_time_constant = false;
         variable_info->data_type = resolveNamedDataType(parameter->data_type, signature_scope, self_data_type);
         if(parameter->data_type != NULL &&
            parameter->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
@@ -1253,9 +1187,7 @@ void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFra
         }
 
         VariableInfo *variable_info = declareVariableInfo(scope, parameter->identifier);
-        variable_info->mutable = parameter->data_type != NULL &&
-                                 ((parameter->data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && parameter->data_type->mutable) ||
-                                  (parameter->data_type->kind == AST_DATA_TYPE_KIND_POINTER && parameter->data_type->mutable));
+        variable_info->is_compile_time_constant = false;
         variable_info->data_type = resolveNamedDataType(parameter->data_type, scope, self_data_type);
         if(variable_info->data_type != NULL &&
            variable_info->data_type->kind == AST_DATA_TYPE_KIND_PRIMARY &&
@@ -1269,10 +1201,8 @@ void declareResolvedFunctionParameters(ASTFunctionParameter *parameter, ScopeFra
 
 void checkFunctionExprTypes(ASTNode *node, ScopeFrame *scope, ASTDataType *self_data_type)
 {
-    bool has_type_parameters = semanticFunctionHasTypeParameters(node->parameters);
     node->data_type = resolveFunctionExprDataType(node, scope, self_data_type);
-    if(node->return_data_type == NULL || !has_type_parameters)
-        node->return_data_type = cloneDataType(node->data_type->return_data_type);
+    node->return_data_type = cloneDataType(node->data_type->return_data_type);
 
     ScopeFrame *function_scope = newScopeFrame(scope);
     declareResolvedFunctionParameters(node->data_type->parameters, function_scope, self_data_type);
@@ -1280,23 +1210,9 @@ void checkFunctionExprTypes(ASTNode *node, ScopeFrame *scope, ASTDataType *self_
     if(self_data_type != NULL)
     {
         VariableInfo *self_variable = declareVariableInfo(function_scope, "Self");
-        self_variable->mutable = false;
+        self_variable->is_compile_time_constant = true;
         self_variable->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
         self_variable->type_value = cloneDataType(self_data_type);
-
-        ASTFunctionParameter *source_parameter = node->parameters;
-        ASTFunctionParameter *resolved_parameter = node->data_type != NULL ? node->data_type->parameters : NULL;
-        while(source_parameter != NULL && resolved_parameter != NULL)
-        {
-            bindSpecializedNamedTypesInScopeForMethod(function_scope,
-                                                      source_parameter->data_type,
-                                                      resolved_parameter->data_type);
-            source_parameter = source_parameter->next;
-            resolved_parameter = resolved_parameter->next;
-        }
-        bindSpecializedNamedTypesInScopeForMethod(function_scope,
-                                                  node->return_data_type,
-                                                  node->data_type != NULL ? node->data_type->return_data_type : NULL);
     }
 
     FunctionContext function_context = {0};
@@ -1431,12 +1347,6 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
                                   "deref assignment requires a pointer or reference",
                                   "left-hand side does not dereference a pointer/reference");
         }
-        if(!lhs_type.data_type->mutable)
-        {
-            semanticAbortTypeNode("T1111", node->lhs,
-                                  "cannot assign through immutable pointer or reference",
-                                  "the dereferenced target is immutable");
-        }
         if(!canImplicitConvertDataType(expr_type, node->rhs, lhs_type.data_type->child))
             typeErrorAssign(node, node->rhs, expr_type, lhs_type.data_type->child);
 
@@ -1547,7 +1457,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
     if(isExplicitDeclared(node))
     {
         TypeSystemExprType expr_type = {0};
-        if(local_variable_info != NULL && (!is_top_level_scope || !local_variable_info->predeclared))
+        if(local_variable_info != NULL && !local_variable_info->predeclared)
         {
             semanticAbortTypeFormatted("T1119", node,
                                        "duplicate variable declaration",
@@ -1598,13 +1508,6 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
                                       "this expression cannot be bound by reference");
             }
 
-            if(declared_type->mutable && !isMutableAddressableExpr(node->rhs, scope))
-            {
-                semanticAbortTypeNode("T1122", node->rhs,
-                                      "mutable reference requires a mutable expression",
-                                      "this expression is not mutable");
-            }
-
             TypeSystemExprType rhs_value_type = inferExprType(node->rhs, scope);
             ASTDataType *rhs_target_type = getReferenceTargetType(rhs_value_type.data_type);
             if(!isSameDataType(rhs_target_type, declared_type->child))
@@ -1619,7 +1522,7 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
         VariableInfo *new_variable_info = local_variable_info;
         if(new_variable_info == NULL)
             new_variable_info = declareVariableInfo(scope, binding_name);
-        new_variable_info->mutable = node->modifier.mutable;
+        new_variable_info->is_compile_time_constant = node->modifier.is_compile_time_binding;
         new_variable_info->predeclared = false;
         new_variable_info->data_type = cloneDataType(node->data_type);
         new_variable_info->operator_kind = node->operator_kind;
@@ -1638,36 +1541,10 @@ void checkAssignTypesNode(ASTNode *node, ScopeFrame *scope, FunctionContext *fun
 
         if(resolved_variable_info == NULL || (is_top_level_scope && resolved_variable_info->predeclared))
         {
-            TypeSystemExprType expr_type = inferExprType(node->rhs, scope);
-            ASTDataType *declared_type = inferDeclaredTypeFromExpr(node->rhs, scope);
-            node->data_type = declared_type;
-
-            if(isVoidDataType(declared_type))
-                semanticAbortTypeNode("T1133", node,
-                                      "variables cannot have type void",
-                                      "remove this binding or choose a non-void type");
-
-            VariableInfo *new_variable_info = resolved_variable_info;
-            if(new_variable_info == NULL)
-                new_variable_info = declareVariableInfo(scope, binding_name);
-            new_variable_info->mutable = false;
-            new_variable_info->predeclared = false;
-            new_variable_info->data_type = cloneDataType(declared_type);
-            new_variable_info->operator_kind = node->operator_kind;
-            if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE)
-                new_variable_info->type_value = cloneDataType(expr_type.data_type);
-            else
-                new_variable_info->type_value = NULL;
-            new_variable_info->function_value = resolveFunctionValueExpr(node->rhs, scope);
-            new_variable_info->extern_value = resolveExternValueExpr(node->rhs, scope);
-
-            typeSystemRejectVoidValueExpr(node->rhs, scope,
-                                          "T1134",
-                                          "cannot assign a void expression to a variable",
-                                          "this expression does not produce a runtime value");
-
-            if(!canImplicitConvertExprToType(node->rhs, scope, declared_type))
-                typeErrorAssign(node, node->rhs, expr_type, declared_type);
+            semanticAbortTypeFormatted("T1132", node,
+                                       "assignment target must already exist",
+                                       "use `:=`, `: T =`, `::`, or `: T :` to declare `%s`",
+                                       astUserFacingIdentifier(binding_name));
         }
         else
         {
@@ -2025,17 +1902,14 @@ void predeclareTopLevelFunctionTypes(ASTNode *block, ScopeFrame *scope, ASTDataT
                 continue;
             }
 
-            bool has_type_parameters = semanticFunctionHasTypeParameters(node->rhs->parameters);
             ASTDataType *function_type = resolveFunctionExprDataType(node->rhs, scope, self_data_type);
             node->rhs->data_type = cloneDataType(function_type);
-            if(node->rhs->return_data_type == NULL || !has_type_parameters)
-                node->rhs->return_data_type = cloneDataType(function_type->return_data_type);
+            node->rhs->return_data_type = cloneDataType(function_type->return_data_type);
             node->data_type = cloneDataType(function_type);
 
             if(variable_info == NULL)
                 variable_info = declareVariableInfo(scope, binding_name);
-            variable_info->mutable = node->modifier.mutable;
-            variable_info->predeclared = false;
+            variable_info->is_compile_time_constant = node->modifier.is_compile_time_binding;
             variable_info->data_type = cloneDataType(function_type);
             variable_info->function_value = node->rhs;
             variable_info->extern_value = NULL;

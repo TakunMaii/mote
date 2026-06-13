@@ -1,4 +1,4 @@
-max = fn(a: i32, b: i32) i32 {
+max :: fn(a: i32, b: i32) i32 {
     if(a > b) {
         return a;
     } else {
@@ -6,17 +6,17 @@ max = fn(a: i32, b: i32) i32 {
     }
 };
 
-pick_flag = fn(flag: bool, x: i32, y: i32) i32 {
+pick_flag :: fn(flag: bool, x: i32, y: i32) i32 {
     if(flag)
         return x;
     else
         return y;
 };
 
-mut left: i32 = 3;
-mut right: i32 = 5;
-winner = max(left, right);
-flag = true;
+left: i32 = 3;
+right: i32 = 5;
+winner :: max(left, right);
+flag :: true;
 
 if(flag) {
     left = left + 1;
@@ -24,4 +24,4 @@ if(flag) {
     left = left - 1;
 }
 
-selected = pick_flag(flag, left, right);
+selected := pick_flag(flag, left, right);

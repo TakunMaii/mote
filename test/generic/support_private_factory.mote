@@ -1,4 +1,4 @@
-Hidden = fn(T: Type) Type {
+Hidden :: fn(T: Type) Type {
     return struct {
         value: T,
 
@@ -10,6 +10,6 @@ Hidden = fn(T: Type) Type {
     };
 };
 
-pub make_hidden = fn(T: Type, value: T) Hidden(T) {
+pub make_hidden :: fn(T: Type, value: T) Hidden(T) {
     return Hidden(T).make(value);
 };

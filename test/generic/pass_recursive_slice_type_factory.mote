@@ -1,13 +1,13 @@
-Graph = fn(T: Type) Type {
+Graph :: fn(T: Type) Type {
     return struct {
         edges: []Graph(T),
         value: T,
     };
 };
 
-main = fn() i32 {
+main :: fn() i32 {
     root: Graph(i32) = Graph(i32) {
-        .edges = @slice(Graph(i32), @as(*mut Graph(i32), 0), 0),
+        .edges = @slice(Graph(i32), @as(*Graph(i32), 0), 0),
         .value = 7,
     };
     if(@len(root.edges) == 0 && root.value == 7) {

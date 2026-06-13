@@ -1,12 +1,12 @@
 @package("notgate");
 
 
-pub Vec2i = struct {
+pub Vec2i :: struct {
     x: i32,
     y: i32,
 };
 
-pub FloatingSquare = struct {
+pub FloatingSquare :: struct {
     anchor: rl.Vector2,
     amp_x: f32,
     amp_y: f32,
@@ -16,7 +16,7 @@ pub FloatingSquare = struct {
     phase_y: f32,
 };
 
-pub Particle = struct {
+pub Particle :: struct {
     position: rl.Vector2,
     velocity: rl.Vector2,
     radius: f32,
@@ -24,13 +24,13 @@ pub Particle = struct {
     color: rl.Color,
 };
 
-pub Viewport = struct {
+pub Viewport :: struct {
     origin_x: i32,
     origin_y: i32,
     cell_size: i32,
 };
 
-pub UndoState = struct {
+pub UndoState :: struct {
     hero_x: i32,
     hero_y: i32,
     dynamic_types: Array(i32, 345),
@@ -38,23 +38,23 @@ pub UndoState = struct {
     dynamic_activated: Array(bool, 345),
 };
 
-pub CharBuf32 = struct {
+pub CharBuf32 :: struct {
     data: Array(char, 32),
 };
 
-pub CharBuf64 = struct {
+pub CharBuf64 :: struct {
     data: Array(char, 64),
 };
 
-pub CharBuf128 = struct {
+pub CharBuf128 :: struct {
     data: Array(char, 128),
 };
 
-pub MapFileBuf = struct {
+pub MapFileBuf :: struct {
     data: Array(char, 1024),
 };
 
-pub ActivationScratch = struct {
+pub ActivationScratch :: struct {
     prev_static_activated: Array(bool, 345),
     prev_dynamic_activated: Array(bool, 345),
     const_emitter: Array(bool, 345),
@@ -70,7 +70,7 @@ pub ActivationScratch = struct {
     component_hit_count: Array(i32, 345),
 };
 
-pub GameResources = struct {
+pub GameResources :: struct {
     wall_texture: rl.Texture2D,
     box_texture: rl.Texture2D,
     hero_texture: rl.Texture2D,
@@ -110,7 +110,7 @@ pub GameResources = struct {
     ambient_time: f32,
 };
 
-pub State = struct {
+pub State :: struct {
     map_width: i32,
     map_height: i32,
     current_level: i32,

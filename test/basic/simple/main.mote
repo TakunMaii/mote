@@ -1,10 +1,10 @@
 @package("simple");
 
-main = fn() i32 {
-    mut x = 2;
+main :: fn() i32 {
+    x := 2;
     x = 2 - (3 + 2 * 5);
 
-    mut flag = true;
+    flag := true;
     flag = false || true && !false;
     x = +1 + -2 * ~3;
     x = x % 3;

@@ -681,8 +681,10 @@ static void moduleScanImports(ModuleCompileContext *context, ModuleSourceFile *m
 
         if(moduleIsImportDecl(statement))
         {
-            if(statement->modifier.mutable || statement->modifier.explicit_type)
-                moduleSystemError("import declarations cannot use mut or explicit type syntax",
+            if(statement->modifier.is_runtime_binding ||
+               statement->modifier.explicit_type ||
+               !statement->modifier.is_compile_time_binding)
+                moduleSystemError("import declarations must use compile-time constant syntax like `name :: @import(...)`",
                                   statement->filename, statement->line_number, statement->column_number);
             if(statement->is_pub)
                 moduleSystemError("pub import re-export is not supported yet",
@@ -1293,7 +1295,7 @@ static bool rewriteWouldDeclareNewVariable(RewriteScope *scope, ASTNode *node)
     if(node == NULL || node->kind != AST_ASSIGN || node->lhs == NULL || node->lhs->kind != AST_EXPR_VARIABLE)
         return false;
 
-    if(node->modifier.mutable || node->modifier.explicit_type)
+    if(node->modifier.is_runtime_binding || node->modifier.is_compile_time_binding)
         return findRewriteValueBindingInScope(scope, node->identifier) == NULL;
 
     return findRewriteValueBinding(scope, node->identifier) == NULL;

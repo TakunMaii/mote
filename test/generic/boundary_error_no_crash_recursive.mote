@@ -1,4 +1,4 @@
-Node = fn(T: Type) Type {
+Node :: fn(T: Type) Type {
     return struct {
         next: Node(T),
         value: T,

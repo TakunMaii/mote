@@ -1,8 +1,8 @@
-mut x: i32 = 1;
+x: i32 = 1;
 {
     x = 2;
-    y = x;
+    y := x;
     x: i64 = y;
-    z = x;
+    z := x;
 }
-final_x = x;
+final_x := x;

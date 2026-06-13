@@ -137,12 +137,13 @@ def statement_declares_top_level_name(statement: str, declared: set[str]) -> boo
     if stripped.startswith(("if", "while", "for", "do", "break", "continue", "return", "defer")):
         return False
 
-    match = re.match(r"^(?:mut\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)?=\s*", stripped, re.S)
+    match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*(::|:=|:\s*[^=;\n]+?\s*:|:\s*[^=;\n]+?\s*=)\s*", stripped, re.S)
     if match is None:
         return False
 
     name = match.group(1)
-    if name in declared and ":" not in stripped and not stripped.startswith("mut "):
+    op = match.group(2)
+    if name in declared and op == ":=":
         return False
 
     declared.add(name)
@@ -232,7 +233,7 @@ def materialize_compat_package_tree(case: dict, source_path: pathlib.Path, artif
                     content += "\n\n".join(declarations).rstrip() + "\n\n"
                 if executable:
                     executable_body = "\n\n".join(executable).rstrip()
-                    content += "main = fn() void {\n"
+                    content += "main :: fn() void {\n"
                     content += executable_body + "\n"
                     content += "};\n"
             else:
@@ -302,6 +303,12 @@ def load_output_text(output_path: pathlib.Path) -> str:
         return ""
 
 
+def contains_needle(haystack: str, needle: str) -> bool:
+    if needle in haystack:
+        return True
+    return needle.replace("\\", "/") in haystack.replace("\\", "/")
+
+
 def new_generated_test_input(case: dict, artifacts_root: pathlib.Path) -> pathlib.Path:
     generated = case.get("generated")
     if not generated:
@@ -329,7 +336,7 @@ def new_generated_test_input(case: dict, artifacts_root: pathlib.Path) -> pathli
     elif kind == "scope_type_overflow":
         lines = [f'@package("{package_name}");', ""]
         for i in range(count):
-            lines.append(f"T{i} = struct {{")
+            lines.append(f"T{i} :: struct {{")
             lines.append("    value: i32,")
             lines.append("};")
             lines.append("")
@@ -418,14 +425,14 @@ def main() -> int:
             elif output_path is not None and case.get("output_contains"):
                 output_text = load_output_text(output_path)
                 for needle in case.get("output_contains", []):
-                    if needle not in output_text:
+                    if not contains_needle(output_text, needle):
                         ok = False
                         break
         elif case["expect"] == "failure":
             if exit_code == 0:
                 ok = False
             for needle in case.get("contains", []):
-                if needle not in output:
+                if not contains_needle(output, needle):
                     ok = False
                     break
         else:

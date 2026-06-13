@@ -1,6 +1,6 @@
 @package("util");
 
-pub Pair = struct {
+pub Pair :: struct {
     left: i32,
     right: i32,
 };

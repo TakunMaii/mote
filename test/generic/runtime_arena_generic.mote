@@ -1,16 +1,16 @@
-g = @import("./support_factories");
-list = @import("std:list");
-mem = @import("std:mem");
+g :: @import("./support_factories");
+list :: @import("std:list");
+mem :: @import("std:mem");
 
-main = fn() i32 {
-    mut arena: mem.Arena = mem.arena_init(128);
-    defer mem.arena_destroy(&mut arena);
+main :: fn() i32 {
+    arena: mem.Arena = mem.arena_init(128);
+    defer mem.arena_destroy(&arena);
 
-    mut xs = list.init_in_arena(i32, arena);
-    xs.append(9);
-    xs.append(10);
+    xs := list.init_in_arena(i32, arena);
+    list.append(i32, &xs, 9);
+    list.append(i32, &xs, 10);
 
-    maybe_value: ?i32 = g.first_or_null(i32, xs.as_slice());
+    maybe_value: ?i32 = g.first_or_null(i32, list.as_slice(i32, &xs));
     if(maybe_value != null && @unwrap(maybe_value) == 9) {
         return 0;
     }

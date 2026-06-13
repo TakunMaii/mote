@@ -1,7 +1,7 @@
-rl = @import("vendor:raylib");
+rl :: @import("vendor:raylib");
 
-mut pulse: f64 = 0.0;
-mut frames: i32 = 0;
+pulse: f64 = 0.0;
+frames: i32 = 0;
 
 rl.InitWindow(320, 240, "bisect float");
 rl.SetTargetFPS(60);

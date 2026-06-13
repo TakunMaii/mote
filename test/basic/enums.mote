@@ -1,7 +1,7 @@
 // 枚举比较简单，没有成员函数
-Option = enum {
+Option :: enum {
     ok,
     not_ok,
 };
 
-option = Option.ok;
+option := Option.ok;

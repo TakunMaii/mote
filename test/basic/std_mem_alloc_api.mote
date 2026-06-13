@@ -1,22 +1,22 @@
-mem = @import("std:mem");
+mem :: @import("std:mem");
 
-Pair = struct {
+Pair :: struct {
     left: i32,
     right: i32,
 };
 
-main = fn() i32 {
-    pair: *mut Pair = mem.new_zeroed(Pair);
+main :: fn() i32 {
+    pair: *Pair = mem.new_zeroed(Pair);
     pair.left = 7;
     pair.right = 9;
 
-    values = mem.make_zeroed(i32, 4);
+    values := mem.make_zeroed(i32, 4);
     values[0] = 3;
     values[1] = 4;
     values[2] = 5;
     values[3] = 6;
 
-    ok = pair.left == 7 &&
+    ok := pair.left == 7 &&
          pair.right == 9 &&
          @len(values) == 4 &&
          values[2] == 5;

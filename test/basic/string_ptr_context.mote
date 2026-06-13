@@ -1,8 +1,8 @@
-take_ptr = fn(text: *char) char {
+take_ptr :: fn(text: *char) char {
     return *text;
 };
 
-make_ptr = fn() *char {
+make_ptr :: fn() *char {
     return "world";
 };
 

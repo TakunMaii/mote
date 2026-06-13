@@ -1,147 +1,147 @@
 @package("mem");
 
-c = @import("std:internal/c");
+c :: @import("std:internal/c");
 
-pub Arena = struct {
-    state: *mut void,
+pub Arena :: struct {
+    state: *void,
 };
 
-pub alloc = c.malloc;
-pub alloc_zeroed = c.calloc;
-pub realloc = c.realloc;
-pub free = c.free;
-pub copy = c.memcpy;
-pub move = c.memmove;
-pub set = c.memset;
-pub compare = c.memcmp;
+pub alloc :: c.malloc;
+pub alloc_zeroed :: c.calloc;
+pub realloc :: c.realloc;
+pub free :: c.free;
+pub copy :: c.memcpy;
+pub move :: c.memmove;
+pub set :: c.memset;
+pub compare :: c.memcmp;
 
-pub slice = fn(T: Type, ptr: *mut T, len: c.size_t) []T {
+pub slice :: fn(T: Type, ptr: *T, len: c.size_t) []T {
     return @slice(T, ptr, len);
 };
 
-pub new = fn(T: Type) *mut T {
-    return @as(*mut T, c.alloc(@sizeof(T)));
+pub new :: fn(T: Type) *T {
+    return @as(*T, c.alloc(@sizeof(T)));
 };
 
-pub new_zeroed = fn(T: Type) *mut T {
-    return @as(*mut T, c.alloc_zeroed(@sizeof(T)));
+pub new_zeroed :: fn(T: Type) *T {
+    return @as(*T, c.alloc_zeroed(@sizeof(T)));
 };
 
-pub try_new = fn(T: Type) ?*mut T {
-    ptr: *mut T = @as(*mut T, c.try_alloc(@sizeof(T)));
+pub try_new :: fn(T: Type) ?*T {
+    ptr: *T = @as(*T, c.try_alloc(@sizeof(T)));
     if(ptr == 0) {
         return null;
     }
     return ptr;
 };
 
-pub try_new_zeroed = fn(T: Type) ?*mut T {
-    ptr: *mut T = @as(*mut T, c.try_alloc_zeroed(@sizeof(T)));
+pub try_new_zeroed :: fn(T: Type) ?*T {
+    ptr: *T = @as(*T, c.try_alloc_zeroed(@sizeof(T)));
     if(ptr == 0) {
         return null;
     }
     return ptr;
 };
 
-pub make = fn(T: Type, len: c.size_t) []T {
-    return @slice(T, @as(*mut T, c.alloc_array(@sizeof(T), len)), len);
+pub make :: fn(T: Type, len: c.size_t) []T {
+    return @slice(T, @as(*T, c.alloc_array(@sizeof(T), len)), len);
 };
 
-pub make_zeroed = fn(T: Type, len: c.size_t) []T {
-    return @slice(T, @as(*mut T, c.alloc_array_zeroed(@sizeof(T), len)), len);
+pub make_zeroed :: fn(T: Type, len: c.size_t) []T {
+    return @slice(T, @as(*T, c.alloc_array_zeroed(@sizeof(T), len)), len);
 };
 
-pub try_make = fn(T: Type, len: c.size_t) ?[]T {
-    ptr: *mut T = @as(*mut T, c.try_alloc_array(@sizeof(T), len));
+pub try_make :: fn(T: Type, len: c.size_t) ?[]T {
+    ptr: *T = @as(*T, c.try_alloc_array(@sizeof(T), len));
     if(ptr == 0) {
         return null;
     }
     return @slice(T, ptr, len);
 };
 
-pub try_make_zeroed = fn(T: Type, len: c.size_t) ?[]T {
-    ptr: *mut T = @as(*mut T, c.try_alloc_array_zeroed(@sizeof(T), len));
+pub try_make_zeroed :: fn(T: Type, len: c.size_t) ?[]T {
+    ptr: *T = @as(*T, c.try_alloc_array_zeroed(@sizeof(T), len));
     if(ptr == 0) {
         return null;
     }
     return @slice(T, ptr, len);
 };
 
-pub free_ptr = fn(T: Type, ptr: *mut T) void {
+pub free_ptr :: fn(T: Type, ptr: *T) void {
     c.dealloc(ptr);
 };
 
-pub free_slice = fn(T: Type, data: []T) void {
+pub free_slice :: fn(T: Type, data: []T) void {
     c.dealloc(@as(*void, @as(*T, data)));
 };
 
-pub dup = fn(T: Type, src: *T) *mut T {
-    return @as(*mut T, c.memdup(src, @sizeof(T)));
+pub dup :: fn(T: Type, src: *T) *T {
+    return @as(*T, c.memdup(src, @sizeof(T)));
 };
 
-pub dup_slice = fn(T: Type, src: []T) []T {
+pub dup_slice :: fn(T: Type, src: []T) []T {
     return @slice(T,
-                  @as(*mut T, c.memdup(@as(*void, @as(*T, src)), @sizeof(T) * @len(src))),
+                  @as(*T, c.memdup(@as(*void, @as(*T, src)), @sizeof(T) * @len(src))),
                   @len(src));
 };
 
-pub try_dup = fn(T: Type, src: *T) ?*mut T {
-    ptr: *mut T = @as(*mut T, c.try_memdup(src, @sizeof(T)));
+pub try_dup :: fn(T: Type, src: *T) ?*T {
+    ptr: *T = @as(*T, c.try_memdup(src, @sizeof(T)));
     if(ptr == 0) {
         return null;
     }
     return ptr;
 };
 
-pub try_dup_slice = fn(T: Type, src: []T) ?[]T {
-    ptr: *mut T = @as(*mut T, c.try_memdup(@as(*void, @as(*T, src)), @sizeof(T) * @len(src)));
+pub try_dup_slice :: fn(T: Type, src: []T) ?[]T {
+    ptr: *T = @as(*T, c.try_memdup(@as(*void, @as(*T, src)), @sizeof(T) * @len(src)));
     if(ptr == 0) {
         return null;
     }
     return @slice(T, ptr, @len(src));
 };
 
-pub arena_init = fn(default_chunk_size: c.size_t) Arena {
+pub arena_init :: fn(default_chunk_size: c.size_t) Arena {
     return Arena {
         .state = c.arena_create(default_chunk_size),
     };
 };
 
-pub arena_destroy = fn(arena: &mut Arena) void {
+pub arena_destroy :: fn(arena: &Arena) void {
     c.arena_destroy(arena.state);
     arena.state = 0;
 };
 
-pub arena_reset = fn(arena: Arena) void {
+pub arena_reset :: fn(arena: Arena) void {
     c.arena_reset(arena.state);
 };
 
-pub arena_new = fn(T: Type, arena: Arena) *mut T {
-    return @as(*mut T, c.arena_alloc(arena.state, @sizeof(T), @alignof(T)));
+pub arena_new :: fn(T: Type, arena: Arena) *T {
+    return @as(*T, c.arena_alloc(arena.state, @sizeof(T), @alignof(T)));
 };
 
-pub arena_new_zeroed = fn(T: Type, arena: Arena) *mut T {
-    return @as(*mut T, c.arena_alloc_zeroed(arena.state, @sizeof(T), @alignof(T)));
+pub arena_new_zeroed :: fn(T: Type, arena: Arena) *T {
+    return @as(*T, c.arena_alloc_zeroed(arena.state, @sizeof(T), @alignof(T)));
 };
 
-pub arena_make = fn(T: Type, arena: Arena, len: c.size_t) []T {
-    return @slice(T, @as(*mut T, c.arena_alloc(arena.state, @sizeof(T) * len, @alignof(T))), len);
+pub arena_make :: fn(T: Type, arena: Arena, len: c.size_t) []T {
+    return @slice(T, @as(*T, c.arena_alloc(arena.state, @sizeof(T) * len, @alignof(T))), len);
 };
 
-pub arena_make_zeroed = fn(T: Type, arena: Arena, len: c.size_t) []T {
-    return @slice(T, @as(*mut T, c.arena_alloc_zeroed(arena.state, @sizeof(T) * len, @alignof(T))), len);
+pub arena_make_zeroed :: fn(T: Type, arena: Arena, len: c.size_t) []T {
+    return @slice(T, @as(*T, c.arena_alloc_zeroed(arena.state, @sizeof(T) * len, @alignof(T))), len);
 };
 
-pub arena_dup = fn(T: Type, arena: Arena, src: *T) *mut T {
-    dst: *mut T = arena_new(T, arena);
+pub arena_dup :: fn(T: Type, arena: Arena, src: *T) *T {
+    dst: *T = arena_new(T, arena);
     copy(dst, src, @sizeof(T));
     return dst;
 };
 
-pub arena_dup_slice = fn(T: Type, arena: Arena, src: []T) []T {
+pub arena_dup_slice :: fn(T: Type, arena: Arena, src: []T) []T {
     dst: []T = arena_make(T, arena, @len(src));
-    dst_ptr: *mut T = @as(*mut T, dst);
+    dst_ptr: *T = @as(*T, dst);
     src_ptr: *T = @as(*T, src);
-    copy(@as(*mut void, dst_ptr), @as(*void, src_ptr), @sizeof(T) * @len(src));
+    copy(@as(*void, dst_ptr), @as(*void, src_ptr), @sizeof(T) * @len(src));
     return dst;
 };

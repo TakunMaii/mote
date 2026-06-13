@@ -1,19 +1,19 @@
 @package("cgltf");
 
-pub SUCCESS = 0;
+pub SUCCESS :: 0;
 
-pub Options = opaque;
-pub Data = opaque;
-pub Buffer = opaque;
-pub BufferView = opaque;
-pub Accessor = opaque;
-pub Mesh = opaque;
-pub Primitive = opaque;
-pub Node = opaque;
-pub Scene = opaque;
+pub Options :: opaque;
+pub Data :: opaque;
+pub Buffer :: opaque;
+pub BufferView :: opaque;
+pub Accessor :: opaque;
+pub Mesh :: opaque;
+pub Primitive :: opaque;
+pub Node :: opaque;
+pub Scene :: opaque;
 
-pub Parse = @extern("cgltf_parse", Function([*Options, *void, i64, *mut *Data], i32));
-pub ParseFile = @extern("cgltf_parse_file", Function([*Options, *char, *mut *Data], i32));
-pub LoadBuffers = @extern("cgltf_load_buffers", Function([*Options, *Data, *char], i32));
-pub Validate = @extern("cgltf_validate", Function([*Data], i32));
-pub Free = @extern("cgltf_free", Function([*Data], void));
+pub Parse :: @extern("cgltf_parse", Function([*Options, *void, i64, **Data], i32));
+pub ParseFile :: @extern("cgltf_parse_file", Function([*Options, *char, **Data], i32));
+pub LoadBuffers :: @extern("cgltf_load_buffers", Function([*Options, *Data, *char], i32));
+pub Validate :: @extern("cgltf_validate", Function([*Data], i32));
+pub Free :: @extern("cgltf_free", Function([*Data], void));

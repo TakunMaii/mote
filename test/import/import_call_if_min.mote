@@ -1,6 +1,6 @@
-m = @import("mock");
+m :: @import("mock");
 
-mut y: i32 = 0;
+y: i32 = 0;
 
 if(m.IsReady()) {
     y = 1;

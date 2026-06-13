@@ -1,11 +1,11 @@
-Loop = fn(T: Type) Type {
+Loop :: fn(T: Type) Type {
     return struct {
-        next: *mut Loop(T),
+        next: *Loop(T),
         value: T,
     };
 };
 
-main = fn() i32 {
+main :: fn() i32 {
     value: Loop(i32) = Loop(i32) {
         .next = 0,
         .value = 1,

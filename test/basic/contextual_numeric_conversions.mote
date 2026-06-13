@@ -1,17 +1,17 @@
-Vec2 = struct {
+Vec2 :: struct {
     x: f32,
     y: f32,
 };
 
-take_f32 = fn(x: f32) f32 {
+take_f32 :: fn(x: f32) f32 {
     return x;
 };
 
-sum_f32 = fn(base: i32) f32 {
+sum_f32 :: fn(base: i32) f32 {
     return base + 0.5;
 };
 
-main = fn() i32 {
+main :: fn() i32 {
     base: i32 = 2;
     scalar: f32 = base + 0.5;
     point: Vec2 = Vec2 {

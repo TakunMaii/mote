@@ -1,6 +1,6 @@
 @package("miniaudio");
 
-pub SUCCESS = 0;
+pub SUCCESS :: 0;
 
-pub Version = @extern("ma_version", Function([*mut u32, *mut u32, *mut u32], void));
-pub VersionString = @extern("ma_version_string", Function([], *char));
+pub Version :: @extern("ma_version", Function([*u32, *u32, *u32], void));
+pub VersionString :: @extern("ma_version_string", Function([], *char));

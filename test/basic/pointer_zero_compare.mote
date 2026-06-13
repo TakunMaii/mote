@@ -1,6 +1,6 @@
 ptr: *void = @as(*void, 0);
 
-main = fn() i32 {
+main :: fn() i32 {
     if(ptr == 0) {
         if(ptr != 0) {
             return 1;

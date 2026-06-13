@@ -1,11 +1,10 @@
 @package("map");
 
-mem = @import("std:mem");
-types = @import("std:types");
-hash = @import("std:hash");
-c = @import("std:internal/c");
+mem :: @import("std:mem");
+types :: @import("std:types");
+hash :: @import("std:hash");
 
-pub Map = fn(K: Type, V: Type) Type {
+pub Map :: fn(K: Type, V: Type) Type {
     return struct {
         keys: []K,
         values: []V,
@@ -16,181 +15,14 @@ pub Map = fn(K: Type, V: Type) Type {
         uses_arena: bool,
         hash_fn: hash.HashFn(K),
         eq_fn: hash.EqFn(K),
-
-        deinit: fn(self: &mut Self) void {
-            if(!self.uses_arena && self.cap > 0) {
-                c.dealloc(@as(*void, &mut self.keys[0]));
-                c.dealloc(@as(*void, &mut self.values[0]));
-                c.dealloc(@as(*void, &mut self.states[0]));
-            }
-            self.keys = @slice(K, @as(*mut K, 0), 0);
-            self.values = @slice(V, @as(*mut V, 0), 0);
-            self.states = @slice(u8, @as(*mut u8, 0), 0);
-            self.len = 0;
-            self.cap = 0;
-            self.arena = mem.Arena { .state = 0 };
-            self.uses_arena = false;
-        },
-
-        clear: fn(self: &mut Self) void {
-            if(self.cap > 0) {
-                mem.set(@as(*mut void, @as(*mut u8, self.states)), 0, self.cap);
-            }
-            self.len = 0;
-        },
-
-        contains: fn(self: &Self, key: K) bool {
-            if(self.cap == 0) {
-                return false;
-            }
-            mask: u64 = @as(u64, self.cap - 1);
-            mut index: types.size_t = @as(types.size_t, self.hash_fn(key) & mask);
-            while(self.states[index] != 0) {
-                if(self.states[index] == 1 && self.eq_fn(self.keys[index], key)) {
-                    return true;
-                }
-                index = (index + 1) & @as(types.size_t, mask);
-            }
-            return false;
-        },
-
-        get: fn(self: &Self, key: K) ?V {
-            if(self.cap == 0) {
-                return null;
-            }
-            mask: u64 = @as(u64, self.cap - 1);
-            mut index: types.size_t = @as(types.size_t, self.hash_fn(key) & mask);
-            while(self.states[index] != 0) {
-                if(self.states[index] == 1 && self.eq_fn(self.keys[index], key)) {
-                    return self.values[index];
-                }
-                index = (index + 1) & @as(types.size_t, mask);
-            }
-            return null;
-        },
-
-        get_ptr: fn(self: &mut Self, key: K) ?*mut V {
-            if(self.cap == 0) {
-                return null;
-            }
-            mask: u64 = @as(u64, self.cap - 1);
-            mut index: types.size_t = @as(types.size_t, self.hash_fn(key) & mask);
-            while(self.states[index] != 0) {
-                if(self.states[index] == 1 && self.eq_fn(self.keys[index], key)) {
-                    return &mut self.values[index];
-                }
-                index = (index + 1) & @as(types.size_t, mask);
-            }
-            return null;
-        },
-
-        put: fn(self: &mut Self, key: K, value: V) void {
-            if(self.cap == 0) {
-                new_cap: types.size_t = next_cap(8);
-                mut new_keys: []K = @slice(K, @as(*mut K, 0), 0);
-                mut new_values: []V = @slice(V, @as(*mut V, 0), 0);
-                mut new_states: []u8 = @slice(u8, @as(*mut u8, 0), 0);
-                if(self.uses_arena) {
-                    new_keys = mem.arena_make(K, self.arena, new_cap);
-                    new_values = mem.arena_make(V, self.arena, new_cap);
-                    new_states = mem.arena_make_zeroed(u8, self.arena, new_cap);
-                } else {
-                    new_keys = mem.make(K, new_cap);
-                    new_values = mem.make(V, new_cap);
-                    new_states = mem.make_zeroed(u8, new_cap);
-                }
-                self.keys = new_keys;
-                self.values = new_values;
-                self.states = new_states;
-                self.cap = new_cap;
-            } else if((self.len + 1) * 10 >= self.cap * 7) {
-                new_cap: types.size_t = next_cap(self.cap * 2);
-                mut new_keys: []K = @slice(K, @as(*mut K, 0), 0);
-                mut new_values: []V = @slice(V, @as(*mut V, 0), 0);
-                mut new_states: []u8 = @slice(u8, @as(*mut u8, 0), 0);
-                if(self.uses_arena) {
-                    new_keys = mem.arena_make(K, self.arena, new_cap);
-                    new_values = mem.arena_make(V, self.arena, new_cap);
-                    new_states = mem.arena_make_zeroed(u8, self.arena, new_cap);
-                } else {
-                    new_keys = mem.make(K, new_cap);
-                    new_values = mem.make(V, new_cap);
-                    new_states = mem.make_zeroed(u8, new_cap);
-                }
-
-                mut old_index: types.size_t = 0;
-                while(old_index < self.cap) {
-                    if(self.states[old_index] == 1) {
-                        rehash_mask: u64 = @as(u64, new_cap - 1);
-                        mut rehash_index: types.size_t = @as(types.size_t, self.hash_fn(self.keys[old_index]) & rehash_mask);
-                        while(new_states[rehash_index] == 1) {
-                            rehash_index = (rehash_index + 1) & @as(types.size_t, rehash_mask);
-                        }
-                        new_keys[rehash_index] = self.keys[old_index];
-                        new_values[rehash_index] = self.values[old_index];
-                        new_states[rehash_index] = 1;
-                    }
-                    old_index = old_index + 1;
-                }
-
-                if(!self.uses_arena && self.cap > 0) {
-                    c.dealloc(@as(*void, &mut self.keys[0]));
-                    c.dealloc(@as(*void, &mut self.values[0]));
-                    c.dealloc(@as(*void, &mut self.states[0]));
-                }
-
-                self.keys = new_keys;
-                self.values = new_values;
-                self.states = new_states;
-                self.cap = new_cap;
-            }
-            mask: u64 = @as(u64, self.cap - 1);
-            mut index: types.size_t = @as(types.size_t, self.hash_fn(key) & mask);
-            mut first_tombstone: types.size_t = self.cap;
-            while(self.states[index] != 0) {
-                if(self.states[index] == 1 && self.eq_fn(self.keys[index], key)) {
-                    self.values[index] = value;
-                    return;
-                }
-                if(self.states[index] == 2 && first_tombstone == self.cap) {
-                    first_tombstone = index;
-                }
-                index = (index + 1) & @as(types.size_t, mask);
-            }
-
-            if(first_tombstone != self.cap) {
-                index = first_tombstone;
-            }
-            self.keys[index] = key;
-            self.values[index] = value;
-            self.states[index] = 1;
-            self.len = self.len + 1;
-        },
-
-        remove: fn(self: &mut Self, key: K) bool {
-            if(self.cap == 0) {
-                return false;
-            }
-            mask: u64 = @as(u64, self.cap - 1);
-            mut index: types.size_t = @as(types.size_t, self.hash_fn(key) & mask);
-            while(self.states[index] != 0) {
-                if(self.states[index] == 1 && self.eq_fn(self.keys[index], key)) {
-                    self.states[index] = 2;
-                    self.len = self.len - 1;
-                    return true;
-                }
-                index = (index + 1) & @as(types.size_t, mask);
-            }
-            return false;
-        },
     };
 };
 
-pub init = fn(K: Type, V: Type, hash_fn: hash.HashFn(K), eq_fn: hash.EqFn(K)) Map(K, V) {
+pub init :: fn(K: Type, V: Type, hash_fn: hash.HashFn(K), eq_fn: hash.EqFn(K)) Map(K, V) {
     return Map(K, V) {
-        .keys = @slice(K, @as(*mut K, 0), 0),
-        .values = @slice(V, @as(*mut V, 0), 0),
-        .states = @slice(u8, @as(*mut u8, 0), 0),
+        .keys = @slice(K, @as(*K, 0), 0),
+        .values = @slice(V, @as(*V, 0), 0),
+        .states = @slice(u8, @as(*u8, 0), 0),
         .len = 0,
         .cap = 0,
         .arena = mem.Arena { .state = 0 },
@@ -200,15 +32,15 @@ pub init = fn(K: Type, V: Type, hash_fn: hash.HashFn(K), eq_fn: hash.EqFn(K)) Ma
     };
 };
 
-pub next_cap = fn(min_cap: types.size_t) types.size_t {
-    mut cap: types.size_t = 8;
+pub next_cap :: fn(min_cap: types.size_t) types.size_t {
+    cap: types.size_t = 8;
     while(cap < min_cap) {
         cap = cap * 2;
     }
     return cap;
 };
 
-pub init_cap = fn(K: Type, V: Type, cap: types.size_t, hash_fn: hash.HashFn(K), eq_fn: hash.EqFn(K)) Map(K, V) {
+pub init_cap :: fn(K: Type, V: Type, cap: types.size_t, hash_fn: hash.HashFn(K), eq_fn: hash.EqFn(K)) Map(K, V) {
     alloc_cap: types.size_t = next_cap(cap);
     return Map(K, V) {
         .keys = mem.make(K, alloc_cap),
@@ -223,14 +55,14 @@ pub init_cap = fn(K: Type, V: Type, cap: types.size_t, hash_fn: hash.HashFn(K), 
     };
 };
 
-pub init_in_arena = fn(K: Type, V: Type, arena: mem.Arena, hash_fn: hash.HashFn(K), eq_fn: hash.EqFn(K)) Map(K, V) {
-    mut value: Map(K, V) = init(K, V, hash_fn, eq_fn);
+pub init_in_arena :: fn(K: Type, V: Type, arena: mem.Arena, hash_fn: hash.HashFn(K), eq_fn: hash.EqFn(K)) Map(K, V) {
+    value: Map(K, V) = init(K, V, hash_fn, eq_fn);
     value.arena = arena;
     value.uses_arena = true;
     return value;
 };
 
-pub init_cap_in_arena = fn(K: Type, V: Type, arena: mem.Arena, cap: types.size_t, hash_fn: hash.HashFn(K), eq_fn: hash.EqFn(K)) Map(K, V) {
+pub init_cap_in_arena :: fn(K: Type, V: Type, arena: mem.Arena, cap: types.size_t, hash_fn: hash.HashFn(K), eq_fn: hash.EqFn(K)) Map(K, V) {
     alloc_cap: types.size_t = next_cap(cap);
     return Map(K, V) {
         .keys = mem.arena_make(K, arena, alloc_cap),
@@ -244,13 +76,36 @@ pub init_cap_in_arena = fn(K: Type, V: Type, arena: mem.Arena, cap: types.size_t
         .eq_fn = eq_fn,
     };
 };
-pub raw_insert = fn(K: Type, V: Type,
+
+pub deinit :: fn(K: Type, V: Type, self: *Map(K, V)) void {
+    if(!self.uses_arena && self.cap > 0) {
+        mem.free_slice(K, self.keys);
+        mem.free_slice(V, self.values);
+        mem.free_slice(u8, self.states);
+    }
+    self.keys = @slice(K, @as(*K, 0), 0);
+    self.values = @slice(V, @as(*V, 0), 0);
+    self.states = @slice(u8, @as(*u8, 0), 0);
+    self.len = 0;
+    self.cap = 0;
+    self.arena = mem.Arena { .state = 0 };
+    self.uses_arena = false;
+};
+
+pub clear :: fn(K: Type, V: Type, self: *Map(K, V)) void {
+    if(self.cap > 0) {
+        mem.set(@as(*void, @as(*u8, self.states)), 0, self.cap);
+    }
+    self.len = 0;
+};
+
+pub raw_insert :: fn(K: Type, V: Type,
                     keys: []K, values: []V, states: []u8,
                     cap: types.size_t,
                     hash_fn: hash.HashFn(K), eq_fn: hash.EqFn(K),
                     key: K, value: V) void {
     mask: u64 = @as(u64, cap - 1);
-    mut index: types.size_t = @as(types.size_t, hash_fn(key) & mask);
+    index: types.size_t = @as(types.size_t, hash_fn(key) & mask);
     while(states[index] == 1) {
         if(eq_fn(keys[index], key)) {
             values[index] = value;
@@ -264,11 +119,11 @@ pub raw_insert = fn(K: Type, V: Type,
     states[index] = 1;
 };
 
-pub grow = fn(K: Type, V: Type, self: &mut Map(K, V), min_cap: types.size_t) void {
+pub grow :: fn(K: Type, V: Type, self: *Map(K, V), min_cap: types.size_t) void {
     new_cap: types.size_t = next_cap(min_cap);
-    mut new_keys: []K = @slice(K, @as(*mut K, 0), 0);
-    mut new_values: []V = @slice(V, @as(*mut V, 0), 0);
-    mut new_states: []u8 = @slice(u8, @as(*mut u8, 0), 0);
+    new_keys: []K = @slice(K, @as(*K, 0), 0);
+    new_values: []V = @slice(V, @as(*V, 0), 0);
+    new_states: []u8 = @slice(u8, @as(*u8, 0), 0);
 
     if(self.uses_arena) {
         new_keys = mem.arena_make(K, self.arena, new_cap);
@@ -281,7 +136,7 @@ pub grow = fn(K: Type, V: Type, self: &mut Map(K, V), min_cap: types.size_t) voi
     }
 
     if(self.cap > 0) {
-        mut index: types.size_t = 0;
+        index: types.size_t = 0;
         while(index < self.cap) {
             if(self.states[index] == 1) {
                 raw_insert(K, V, new_keys, new_values, new_states, new_cap,
@@ -302,4 +157,109 @@ pub grow = fn(K: Type, V: Type, self: &mut Map(K, V), min_cap: types.size_t) voi
     self.values = new_values;
     self.states = new_states;
     self.cap = new_cap;
+};
+
+pub find_slot :: fn(K: Type, V: Type, self: *Map(K, V), key: K) types.size_t {
+    if(self.cap == 0) {
+        return 0;
+    }
+    mask: u64 = @as(u64, self.cap - 1);
+    index: types.size_t = @as(types.size_t, self.hash_fn(key) & mask);
+    while(self.states[index] != 0) {
+        if(self.states[index] == 1 && self.eq_fn(self.keys[index], key)) {
+            return index;
+        }
+        index = (index + 1) & @as(types.size_t, mask);
+    }
+    return self.cap;
+};
+
+pub find_insert_slot :: fn(K: Type, V: Type, self: *Map(K, V), key: K) types.size_t {
+    mask: u64 = @as(u64, self.cap - 1);
+    index: types.size_t = @as(types.size_t, self.hash_fn(key) & mask);
+    first_tombstone: types.size_t = self.cap;
+    while(self.states[index] != 0) {
+        if(self.states[index] == 1 && self.eq_fn(self.keys[index], key)) {
+            return index;
+        }
+        if(self.states[index] == 2 && first_tombstone == self.cap) {
+            first_tombstone = index;
+        }
+        index = (index + 1) & @as(types.size_t, mask);
+    }
+    if(first_tombstone != self.cap) {
+        return first_tombstone;
+    }
+    return index;
+};
+
+pub contains :: fn(K: Type, V: Type, self: *Map(K, V), key: K) bool {
+    if(self.cap == 0) {
+        return false;
+    }
+    return find_slot(K, V, self, key) != self.cap;
+};
+
+pub get :: fn(K: Type, V: Type, self: *Map(K, V), key: K) ?V {
+    if(self.cap == 0) {
+        return null;
+    }
+    slot: types.size_t = find_slot(K, V, self, key);
+    if(slot == self.cap) {
+        return null;
+    }
+    return self.values[slot];
+};
+
+pub get_ptr :: fn(K: Type, V: Type, self: *Map(K, V), key: K) ?*V {
+    if(self.cap == 0) {
+        return null;
+    }
+    slot: types.size_t = find_slot(K, V, self, key);
+    if(slot == self.cap) {
+        return null;
+    }
+    return &self.values[slot];
+};
+
+pub put :: fn(K: Type, V: Type, self: *Map(K, V), key: K, value: V) void {
+    if(self.cap == 0) {
+        grow(K, V, self, 8);
+    } else if((self.len + 1) * 10 >= self.cap * 7) {
+        grow(K, V, self, self.cap * 2);
+    }
+    mask: u64 = @as(u64, self.cap - 1);
+    index: types.size_t = @as(types.size_t, self.hash_fn(key) & mask);
+    first_tombstone: types.size_t = self.cap;
+    while(self.states[index] != 0) {
+        if(self.states[index] == 1 && self.eq_fn(self.keys[index], key)) {
+            self.values[index] = value;
+            return;
+        }
+        if(self.states[index] == 2 && first_tombstone == self.cap) {
+            first_tombstone = index;
+        }
+        index = (index + 1) & @as(types.size_t, mask);
+    }
+
+    if(first_tombstone != self.cap) {
+        index = first_tombstone;
+    }
+    self.keys[index] = key;
+    self.values[index] = value;
+    self.states[index] = 1;
+    self.len = self.len + 1;
+};
+
+pub remove :: fn(K: Type, V: Type, self: *Map(K, V), key: K) bool {
+    if(self.cap == 0) {
+        return false;
+    }
+    slot: types.size_t = find_slot(K, V, self, key);
+    if(slot == self.cap) {
+        return false;
+    }
+    self.states[slot] = 2;
+    self.len = self.len - 1;
+    return true;
 };

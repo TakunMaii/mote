@@ -1,36 +1,36 @@
 @package("filesystem");
 
-c = @import("std:internal/c");
-mem = @import("std:mem");
-types = @import("std:types");
+c :: @import("std:internal/c");
+mem :: @import("std:mem");
+types :: @import("std:types");
 
 // Thin filesystem helpers layered on C stdio.
 // Keep higher-level path manipulation in `std:path`.
 
-pub File = *void;
+pub File :: *void;
 
-pub open = c.fopen;
-pub close = c.fclose;
-pub read = c.fread;
-pub write = c.fwrite;
-pub seek = c.fseek;
-pub tell = c.ftell;
-pub flush = c.fflush;
-pub rewind = c.rewind;
-pub get_char = c.fgetc;
-pub put_char = c.fputc;
-pub get_line = c.fgets;
-pub put_string = c.fputs;
-pub eof = c.feof;
-pub error = c.ferror;
-pub remove = c.remove;
-pub rename = c.rename;
+pub open :: c.fopen;
+pub close :: c.fclose;
+pub read :: c.fread;
+pub write :: c.fwrite;
+pub seek :: c.fseek;
+pub tell :: c.ftell;
+pub flush :: c.fflush;
+pub rewind :: c.rewind;
+pub get_char :: c.fgetc;
+pub put_char :: c.fputc;
+pub get_line :: c.fgets;
+pub put_string :: c.fputs;
+pub eof :: c.feof;
+pub error :: c.ferror;
+pub remove :: c.remove;
+pub rename :: c.rename;
 
-pub seek_set = c.SEEK_SET;
-pub seek_cur = c.SEEK_CUR;
-pub seek_end = c.SEEK_END;
+pub seek_set :: c.SEEK_SET;
+pub seek_cur :: c.SEEK_CUR;
+pub seek_end :: c.SEEK_END;
 
-pub exists = fn(path: *char) bool {
+pub exists :: fn(path: *char) bool {
     file: File = open(path, "rb");
     if(file == 0) {
         return false;
@@ -39,7 +39,7 @@ pub exists = fn(path: *char) bool {
     return true;
 };
 
-pub file_size = fn(path: *char) ?types.size_t {
+pub file_size :: fn(path: *char) ?types.size_t {
     file: File = open(path, "rb");
     if(file == 0) {
         return null;
@@ -57,7 +57,7 @@ pub file_size = fn(path: *char) ?types.size_t {
     return @as(types.size_t, end_pos);
 };
 
-pub read_all = fn(path: *char) ?[]u8 {
+pub read_all :: fn(path: *char) ?[]u8 {
     size: ?types.size_t = file_size(path);
     if(size == null) {
         return null;
@@ -80,7 +80,7 @@ pub read_all = fn(path: *char) ?[]u8 {
         return null;
     }
 
-    read_count: types.size_t = read(@as(*mut void, @as(*mut u8, data)), 1, len_value, file);
+    read_count: types.size_t = read(@as(*void, @as(*u8, data)), 1, len_value, file);
     close(file);
     if(read_count != len_value) {
         mem.free_slice(u8, data);
@@ -89,7 +89,7 @@ pub read_all = fn(path: *char) ?[]u8 {
     return data;
 };
 
-pub write_all = fn(path: *char, data: []u8) bool {
+pub write_all :: fn(path: *char, data: []u8) bool {
     file: File = open(path, "wb");
     if(file == 0) {
         return false;
@@ -100,27 +100,27 @@ pub write_all = fn(path: *char, data: []u8) bool {
     return write_count == @len(data);
 };
 
-pub remove_file = fn(path: *char) bool {
+pub remove_file :: fn(path: *char) bool {
     return remove(path) == 0;
 };
 
-pub rename_file = fn(from_path: *char, to_path: *char) bool {
+pub rename_file :: fn(from_path: *char, to_path: *char) bool {
     return rename(from_path, to_path) == 0;
 };
 
-pub directory_exists = fn(path: *char) bool {
+pub directory_exists :: fn(path: *char) bool {
     return c.directory_exists(path) != 0;
 };
 
-pub create_directory = fn(path: *char) bool {
+pub create_directory :: fn(path: *char) bool {
     return c.directory_create(path) != 0;
 };
 
-pub remove_directory = fn(path: *char) bool {
+pub remove_directory :: fn(path: *char) bool {
     return c.directory_remove(path) != 0;
 };
 
-pub directory_entry_count = fn(path: *char) ?types.size_t {
+pub directory_entry_count :: fn(path: *char) ?types.size_t {
     count: i64 = c.directory_entry_count(path);
     if(count < 0) {
         return null;
@@ -130,7 +130,7 @@ pub directory_entry_count = fn(path: *char) ?types.size_t {
 
 // Returns a NUL-delimited blob of entry names.
 // Each entry occupies `name_bytes + '\0'`.
-pub list_directory_names = fn(path: *char) ?[]char {
+pub list_directory_names :: fn(path: *char) ?[]char {
     size: i64 = c.directory_list_names(path, 0, 0);
     if(size < 0) {
         return null;
@@ -141,7 +141,7 @@ pub list_directory_names = fn(path: *char) ?[]char {
         return data;
     }
 
-    written: i64 = c.directory_list_names(path, @as(*mut char, data), size);
+    written: i64 = c.directory_list_names(path, @as(*char, data), size);
     if(written != size) {
         mem.free_slice(char, data);
         return null;

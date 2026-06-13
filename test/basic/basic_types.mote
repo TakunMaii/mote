@@ -6,12 +6,12 @@
 // char bool
 
 x : i8 = 3;//可以用这样的语法声明类型
-y = 16;//也可以不声明类型，自动推导
+y := 16;//也可以不声明类型，自动推导
 z : char = 'a';
 newline : char = '\n';
 flag : bool = true;
-mut counter : i32 = 0;
+counter: i32 = 0;
 counter = counter + 1;
 wide_signed : i64 = x;
 wide_float : f64 = y;
-sum = x + y;
+sum :: x + y;

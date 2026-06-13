@@ -1,17 +1,17 @@
-mem = @import("std:mem");
+mem :: @import("std:mem");
 
-main = fn() void {
+main :: fn() void {
     src: Array(char, 4) = ['a', 'b', 'c', 'd'];
-    mut dst: Array(char, 4) = ['x', 'x', 'x', 'x'];
+    dst: Array(char, 4) = ['x', 'x', 'x', 'x'];
 
     src_ptr: *char = &src[0];
-    dst_ptr: *mut char = &mut dst[0];
+    dst_ptr: *char = &dst[0];
 
     mem.set(dst_ptr, 'x', 4);
     mem.copy(dst_ptr, src_ptr, 4);
 
-    ok = mem.compare(dst_ptr, src_ptr, 4) == 0;
+    ok := mem.compare(dst_ptr, src_ptr, 4) == 0;
     if(ok) {
-        sink = 1;
+        sink := 1;
     }
 };

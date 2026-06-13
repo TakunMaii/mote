@@ -1,77 +1,77 @@
 @package("fmt");
 
-c = @import("std:internal/c");
-slice = @import("std:slice");
-types = @import("std:types");
+c :: @import("std:internal/c");
+slice :: @import("std:slice");
+types :: @import("std:types");
 
 // Low-level formatting helpers for caller-owned buffers.
 // These APIs do not allocate and report failure with `-1`.
 
-pub print = @extern("printf", Function([*char, ...], i32));
-pub eprint = @extern("fprintf", Function([*void, *char, ...], i32));
-pub format_into = @extern("snprintf", Function([*mut char, types.size_t, *char, ...], i32));
+pub print :: @extern("printf", Function([*char, ...], i32));
+pub eprint :: @extern("fprintf", Function([*void, *char, ...], i32));
+pub format_into :: @extern("snprintf", Function([*char, types.size_t, *char, ...], i32));
 
-pub println = fn(message: *char) i32 {
+pub println :: fn(message: *char) i32 {
     return print("%s\n", message);
 };
 
-pub fprintln = fn(handle: *void, message: *char) i32 {
+pub fprintln :: fn(handle: *void, message: *char) i32 {
     return eprint(handle, "%s\n", message);
 };
 
-pub Appender = struct {
+pub Appender :: struct {
     buffer: []char,
     written: types.size_t,
-
-    remaining: fn(self: &Self) []char {
-        return slice.subslice(char, self.buffer, self.written, @len(self.buffer) - self.written);
-    },
-
-    append: fn(self: &mut Self, src: []char) bool {
-        count: i64 = append_slice(self.remaining(), src);
-        if(count < 0) {
-            return false;
-        }
-        self.written = self.written + @as(types.size_t, count);
-        return true;
-    },
-
-    append_char: fn(self: &mut Self, ch: char) bool {
-        count: i64 = append_char_impl(self.remaining(), ch);
-        if(count < 0) {
-            return false;
-        }
-        self.written = self.written + @as(types.size_t, count);
-        return true;
-    },
-
-    append_i64: fn(self: &mut Self, value: i64) bool {
-        count: i64 = append_i64_impl(self.remaining(), value);
-        if(count < 0) {
-            return false;
-        }
-        self.written = self.written + @as(types.size_t, count);
-        return true;
-    },
-
-    append_u64: fn(self: &mut Self, value: u64) bool {
-        count: i64 = append_u64_impl(self.remaining(), value);
-        if(count < 0) {
-            return false;
-        }
-        self.written = self.written + @as(types.size_t, count);
-        return true;
-    },
 };
 
-pub appender = fn(buffer: []char) Appender {
+pub appender :: fn(buffer: []char) Appender {
     return Appender {
         .buffer = buffer,
         .written = 0,
     };
 };
 
-append_char_impl = fn(dst: []char, ch: char) i64 {
+pub remaining :: fn(self: Appender) []char {
+    return slice.subslice(char, self.buffer, self.written, @len(self.buffer) - self.written);
+};
+
+pub append :: fn(self: &Appender, src: []char) bool {
+    count: i64 = append_slice(slice.subslice(char, self.buffer, self.written, @len(self.buffer) - self.written), src);
+    if(count < 0) {
+        return false;
+    }
+    self.written = self.written + @as(types.size_t, count);
+    return true;
+};
+
+pub append_char_to :: fn(self: &Appender, ch: char) bool {
+    count: i64 = append_char(slice.subslice(char, self.buffer, self.written, @len(self.buffer) - self.written), ch);
+    if(count < 0) {
+        return false;
+    }
+    self.written = self.written + @as(types.size_t, count);
+    return true;
+};
+
+pub append_i64_to :: fn(self: &Appender, value: i64) bool {
+    count: i64 = append_i64(slice.subslice(char, self.buffer, self.written, @len(self.buffer) - self.written), value);
+    if(count < 0) {
+        return false;
+    }
+    self.written = self.written + @as(types.size_t, count);
+    return true;
+};
+
+pub append_u64_to :: fn(self: &Appender, value: u64) bool {
+    count: i64 = append_u64(slice.subslice(char, self.buffer, self.written, @len(self.buffer) - self.written), value);
+    if(count < 0) {
+        return false;
+    }
+    self.written = self.written + @as(types.size_t, count);
+    return true;
+};
+
+pub append_char :: fn(dst: []char, ch: char) i64 {
     if(@len(dst) == 0) {
         return -1;
     }
@@ -79,33 +79,7 @@ append_char_impl = fn(dst: []char, ch: char) i64 {
     return 1;
 };
 
-append_i64_impl = fn(dst: []char, value: i64) i64 {
-    if(@len(dst) == 0) {
-        return -1;
-    }
-    written: i32 = format_into(@as(*mut char, dst), @len(dst), "%lld", value);
-    if(written < 0 || @as(types.size_t, written) >= @len(dst)) {
-        return -1;
-    }
-    return @as(i64, written);
-};
-
-append_u64_impl = fn(dst: []char, value: u64) i64 {
-    if(@len(dst) == 0) {
-        return -1;
-    }
-    written: i32 = format_into(@as(*mut char, dst), @len(dst), "%llu", value);
-    if(written < 0 || @as(types.size_t, written) >= @len(dst)) {
-        return -1;
-    }
-    return @as(i64, written);
-};
-
-pub append_char = fn(dst: []char, ch: char) i64 {
-    return append_char_impl(dst, ch);
-};
-
-pub append_slice = fn(dst: []char, src: []char) i64 {
+pub append_slice :: fn(dst: []char, src: []char) i64 {
     written: types.size_t = slice.copy(char, dst, src);
     if(written != @len(src)) {
         return -1;
@@ -113,19 +87,33 @@ pub append_slice = fn(dst: []char, src: []char) i64 {
     return @as(i64, written);
 };
 
-pub append_c_string = fn(dst: []char, src: *char) i64 {
+pub append_c_string :: fn(dst: []char, src: *char) i64 {
     len_src: types.size_t = c.strlen(src);
-    written: types.size_t = slice.copy(char, dst, @slice(char, @as(*mut char, src), len_src));
+    written: types.size_t = slice.copy(char, dst, @slice(char, @as(*char, src), len_src));
     if(written != len_src) {
         return -1;
     }
     return @as(i64, written);
 };
 
-pub append_i64 = fn(dst: []char, value: i64) i64 {
-    return append_i64_impl(dst, value);
+pub append_i64 :: fn(dst: []char, value: i64) i64 {
+    if(@len(dst) == 0) {
+        return -1;
+    }
+    written: i32 = format_into(@as(*char, dst), @len(dst), "%lld", value);
+    if(written < 0 || @as(types.size_t, written) >= @len(dst)) {
+        return -1;
+    }
+    return @as(i64, written);
 };
 
-pub append_u64 = fn(dst: []char, value: u64) i64 {
-    return append_u64_impl(dst, value);
+pub append_u64 :: fn(dst: []char, value: u64) i64 {
+    if(@len(dst) == 0) {
+        return -1;
+    }
+    written: i32 = format_into(@as(*char, dst), @len(dst), "%llu", value);
+    if(written < 0 || @as(types.size_t, written) >= @len(dst)) {
+        return -1;
+    }
+    return @as(i64, written);
 };

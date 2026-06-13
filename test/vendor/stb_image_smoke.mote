@@ -1,9 +1,9 @@
-stbi = @import("vendor:stb/image");
+stbi :: @import("vendor:stb/image");
 
-main = fn() i32 {
-    mut x: i32 = 0;
-    mut y: i32 = 0;
-    mut comp: i32 = 0;
+main :: fn() i32 {
+    x: i32 = 0;
+    y: i32 = 0;
+    comp: i32 = 0;
     ok: i32 = stbi.Info("vendor/stb/src/stb_image.h", &x, &y, &comp);
     if(ok != 0) {
         return 1;

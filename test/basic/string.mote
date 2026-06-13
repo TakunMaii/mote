@@ -3,14 +3,14 @@
 
 empty: Array(char, 0) = "";
 abc: Array(char, 3) = "abc";
-same = ['a', 'b', 'c'];
+same :: ['a', 'b', 'c'];
 
 a0: char = abc[0];
 a1: char = abc[1];
 
 first_ptr: *char = &abc[0];
 
-mut escapes = "a\n\t\\\"";
+escapes := "a\n\t\\\"";
 esc0: char = escapes[0];
 esc1: char = escapes[1];
 

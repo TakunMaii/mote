@@ -1,29 +1,29 @@
 @package("slice");
 
-mem = @import("std:mem");
-types = @import("std:types");
+mem :: @import("std:mem");
+types :: @import("std:types");
 
 // Generic non-allocating slice utilities.
 
-pub is_empty = fn(T: Type, xs: []T) bool {
+pub is_empty :: fn(T: Type, xs: []T) bool {
     return @len(xs) == 0;
 };
 
-pub first = fn(T: Type, xs: []T) ?T {
+pub first :: fn(T: Type, xs: []T) ?T {
     if(@len(xs) == 0) {
         return null;
     }
     return xs[0];
 };
 
-pub first_ptr = fn(T: Type, xs: []T) ?*mut T {
+pub first_ptr :: fn(T: Type, xs: []T) ?*T {
     if(@len(xs) == 0) {
         return null;
     }
-    return &mut xs[0];
+    return &xs[0];
 };
 
-pub last = fn(T: Type, xs: []T) ?T {
+pub last :: fn(T: Type, xs: []T) ?T {
     len: types.size_t = @len(xs);
     if(len == 0) {
         return null;
@@ -31,75 +31,75 @@ pub last = fn(T: Type, xs: []T) ?T {
     return xs[len - 1];
 };
 
-pub last_ptr = fn(T: Type, xs: []T) ?*mut T {
+pub last_ptr :: fn(T: Type, xs: []T) ?*T {
     len: types.size_t = @len(xs);
     if(len == 0) {
         return null;
     }
-    return &mut xs[len - 1];
+    return &xs[len - 1];
 };
 
-pub get = fn(T: Type, xs: []T, index: types.size_t) ?T {
+pub get :: fn(T: Type, xs: []T, index: types.size_t) ?T {
     if(index >= @len(xs)) {
         return null;
     }
     return xs[index];
 };
 
-pub get_ptr = fn(T: Type, xs: []T, index: types.size_t) ?*mut T {
+pub get_ptr :: fn(T: Type, xs: []T, index: types.size_t) ?*T {
     if(index >= @len(xs)) {
         return null;
     }
-    return &mut xs[index];
+    return &xs[index];
 };
 
-pub head = fn(T: Type, xs: []T, count: types.size_t) []T {
-    mut take: types.size_t = count;
+pub head :: fn(T: Type, xs: []T, count: types.size_t) []T {
+    take: types.size_t = count;
     if(take > @len(xs)) {
         take = @len(xs);
     }
-    return @slice(T, @as(*mut T, xs), take);
+    return @slice(T, @as(*T, xs), take);
 };
 
-pub tail = fn(T: Type, xs: []T, count: types.size_t) []T {
+pub tail :: fn(T: Type, xs: []T, count: types.size_t) []T {
     len: types.size_t = @len(xs);
-    mut take: types.size_t = count;
+    take: types.size_t = count;
     if(take > len) {
         take = len;
     }
     start: types.size_t = len - take;
-    return @slice(T, @ptr_add(T, @as(*mut T, xs), start), take);
+    return @slice(T, @ptr_add(T, @as(*T, xs), start), take);
 };
 
-pub subslice = fn(T: Type, xs: []T, start: types.size_t, count: types.size_t) []T {
+pub subslice :: fn(T: Type, xs: []T, start: types.size_t, count: types.size_t) []T {
     len: types.size_t = @len(xs);
     if(start >= len) {
-        return @slice(T, @ptr_add(T, @as(*mut T, xs), len), 0);
+        return @slice(T, @ptr_add(T, @as(*T, xs), len), 0);
     }
 
-    mut take: types.size_t = count;
+    take: types.size_t = count;
     if(start + take > len) {
         take = len - start;
     }
-    return @slice(T, @ptr_add(T, @as(*mut T, xs), start), take);
+    return @slice(T, @ptr_add(T, @as(*T, xs), start), take);
 };
 
-pub fill = fn(T: Type, xs: []T, value: T) void {
-    mut index: types.size_t = 0;
+pub fill :: fn(T: Type, xs: []T, value: T) void {
+    index: types.size_t = 0;
     while(index < @len(xs)) {
         xs[index] = value;
         index = index + 1;
     }
 };
 
-pub reverse = fn(T: Type, xs: []T) void {
+pub reverse :: fn(T: Type, xs: []T) void {
     len: types.size_t = @len(xs);
     if(len <= 1) {
         return;
     }
 
-    mut left: types.size_t = 0;
-    mut right: types.size_t = len - 1;
+    left: types.size_t = 0;
+    right: types.size_t = len - 1;
     while(left < right) {
         tmp: T = xs[left];
         xs[left] = xs[right];
@@ -109,25 +109,25 @@ pub reverse = fn(T: Type, xs: []T) void {
     }
 };
 
-pub copy = fn(T: Type, dst: []T, src: []T) types.size_t {
-    mut count: types.size_t = @len(src);
+pub copy :: fn(T: Type, dst: []T, src: []T) types.size_t {
+    count: types.size_t = @len(src);
     if(count > @len(dst)) {
         count = @len(dst);
     }
     if(count == 0) {
         return 0;
     }
-    mem.move(@as(*mut void, @as(*mut T, dst)),
+    mem.move(@as(*void, @as(*T, dst)),
              @as(*void, @as(*T, src)),
              @sizeof(T) * count);
     return count;
 };
 
-pub equal = fn(T: Type, xs: []T, ys: []T) bool {
+pub equal :: fn(T: Type, xs: []T, ys: []T) bool {
     if(@len(xs) != @len(ys)) {
         return false;
     }
-    mut index: types.size_t = 0;
+    index: types.size_t = 0;
     while(index < @len(xs)) {
         if(xs[index] != ys[index]) {
             return false;
@@ -137,22 +137,22 @@ pub equal = fn(T: Type, xs: []T, ys: []T) bool {
     return true;
 };
 
-pub starts_with = fn(T: Type, xs: []T, prefix: []T) bool {
+pub starts_with :: fn(T: Type, xs: []T, prefix: []T) bool {
     if(@len(prefix) > @len(xs)) {
         return false;
     }
     return equal(T, head(T, xs, @len(prefix)), prefix);
 };
 
-pub ends_with = fn(T: Type, xs: []T, suffix: []T) bool {
+pub ends_with :: fn(T: Type, xs: []T, suffix: []T) bool {
     if(@len(suffix) > @len(xs)) {
         return false;
     }
     return equal(T, tail(T, xs, @len(suffix)), suffix);
 };
 
-pub index_of = fn(T: Type, xs: []T, needle: T) ?types.size_t {
-    mut index: types.size_t = 0;
+pub index_of :: fn(T: Type, xs: []T, needle: T) ?types.size_t {
+    index: types.size_t = 0;
     while(index < @len(xs)) {
         if(xs[index] == needle) {
             return index;

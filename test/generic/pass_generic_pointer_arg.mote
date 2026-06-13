@@ -1,10 +1,10 @@
-g = @import("./support_factories");
+g :: @import("./support_factories");
 
-main = fn() i32 {
-    mut values: Array(i32, 4) = [10, 20, 30, 40];
-    base: *mut i32 = &mut values[0];
-    again: *mut i32 = g.ptr_pass(i32, base);
-    second: *mut i32 = @ptr_add(i32, again, 1);
+main :: fn() i32 {
+    values: Array(i32, 4) = [10, 20, 30, 40];
+    base: *i32 = &values[0];
+    again: *i32 = g.ptr_pass(i32, base);
+    second: *i32 = @ptr_add(i32, again, 1);
     delta: i64 = @ptr_diff(i32, second, base);
 
     if(*second == 20 && delta == 1) {

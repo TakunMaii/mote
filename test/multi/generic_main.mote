@@ -1,4 +1,4 @@
-g = @import("./generic_types");
+g :: @import("./generic_types");
 
 pair: g.Pair(i32) = g.make_pair(i32, 1, 2);
 other: g.Pair(i32) = g.Pair(i32).make(3, 4);

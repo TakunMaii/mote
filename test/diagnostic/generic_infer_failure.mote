@@ -1,8 +1,8 @@
-build = fn(T: Type) T {
+build :: fn(T: Type) T {
     return @zero(T);
 };
 
-main = fn() i32 {
-    value = build();
+main :: fn() i32 {
+    value := build();
     return value;
 };

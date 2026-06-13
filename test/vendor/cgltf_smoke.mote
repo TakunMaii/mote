@@ -1,7 +1,7 @@
-cgltf = @import("vendor:cgltf");
+cgltf :: @import("vendor:cgltf");
 
-main = fn() i32 {
-    mut data: *cgltf.Data = 0;
+main :: fn() i32 {
+    data: *cgltf.Data = 0;
     result: i32 = cgltf.ParseFile(0, "test/vendor/triangle.gltf", &data);
     if(result != cgltf.SUCCESS || data == 0) {
         return 1;

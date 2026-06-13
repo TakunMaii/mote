@@ -1,15 +1,15 @@
-fmt = @import("std:fmt");
-mem = @import("std:mem");
+fmt :: @import("std:fmt");
+mem :: @import("std:mem");
 
-main = fn() i32 {
+main :: fn() i32 {
     buf: []char = mem.make_zeroed(char, 32);
     maybe_written: ?i64 = 7;
-    mut written: i64 = 0;
+    written: i64 = 0;
     if(maybe_written != null) {
         written = @unwrap(maybe_written);
     }
 
-    tail: []char = @slice(char, @ptr_add(char, @as(*mut char, buf), written), 32 - written);
+    tail: []char = @slice(char, @ptr_add(char, @as(*char, buf), written), 32 - written);
     extra: i64 = fmt.append_char(tail, '!');
     mem.free_slice(char, buf);
     if(extra < 0) {

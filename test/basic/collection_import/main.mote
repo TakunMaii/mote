@@ -1,9 +1,9 @@
 @package("collection_import");
 
-mem = @import("std:mem");
+mem :: @import("std:mem");
 
-main = fn() void {
+main :: fn() void {
     src: Array(char, 1) = ['a'];
-    mut dst: Array(char, 1) = ['x'];
-    mem.copy(&mut dst[0], &src[0], 1);
+    dst: Array(char, 1) = ['x'];
+    mem.copy(&dst[0], &src[0], 1);
 };

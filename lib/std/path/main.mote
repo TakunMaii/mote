@@ -1,20 +1,20 @@
 @package("path");
 
-slice = @import("std:slice");
-types = @import("std:types");
+slice :: @import("std:slice");
+types :: @import("std:types");
 
 // Pure path-string utilities only.
 // This module does not touch the filesystem and does not allocate implicitly.
 
-pub is_separator = fn(ch: char) bool {
+pub is_separator :: fn(ch: char) bool {
     return ch == '/' || ch == '\\';
 };
 
-pub is_alpha = fn(ch: char) bool {
+pub is_alpha :: fn(ch: char) bool {
     return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
 };
 
-pub is_abs = fn(value: []char) bool {
+pub is_abs :: fn(value: []char) bool {
     len: types.size_t = @len(value);
     if(len == 0) {
         return false;
@@ -28,7 +28,7 @@ pub is_abs = fn(value: []char) bool {
     return false;
 };
 
-pub root_len = fn(value: []char) types.size_t {
+pub root_len :: fn(value: []char) types.size_t {
     len: types.size_t = @len(value);
     if(len == 0) {
         return 0;
@@ -45,8 +45,8 @@ pub root_len = fn(value: []char) types.size_t {
     return 0;
 };
 
-pub trim_trailing_separators = fn(value: []char) []char {
-    mut len: types.size_t = @len(value);
+pub trim_trailing_separators :: fn(value: []char) []char {
+    len: types.size_t = @len(value);
     root: types.size_t = root_len(value);
     while(len > root && is_separator(value[len - 1])) {
         len = len - 1;
@@ -54,7 +54,7 @@ pub trim_trailing_separators = fn(value: []char) []char {
     return slice.head(char, value, len);
 };
 
-pub basename = fn(value: []char) []char {
+pub basename :: fn(value: []char) []char {
     trimmed: []char = trim_trailing_separators(value);
     len: types.size_t = @len(trimmed);
     root: types.size_t = root_len(trimmed);
@@ -65,7 +65,7 @@ pub basename = fn(value: []char) []char {
         return trimmed;
     }
 
-    mut index: types.size_t = len;
+    index: types.size_t = len;
     while(index > root) {
         if(is_separator(trimmed[index - 1])) {
             return slice.subslice(char, trimmed, index, len - index);
@@ -75,7 +75,7 @@ pub basename = fn(value: []char) []char {
     return trimmed;
 };
 
-pub dirname = fn(value: []char) []char {
+pub dirname :: fn(value: []char) []char {
     trimmed: []char = trim_trailing_separators(value);
     len: types.size_t = @len(trimmed);
     root: types.size_t = root_len(trimmed);
@@ -86,10 +86,10 @@ pub dirname = fn(value: []char) []char {
         return trimmed;
     }
 
-    mut index: types.size_t = len;
+    index: types.size_t = len;
     while(index > root) {
         if(is_separator(trimmed[index - 1])) {
-            mut end: types.size_t = index - 1;
+            end: types.size_t = index - 1;
             while(end > root && is_separator(trimmed[end - 1])) {
                 end = end - 1;
             }
@@ -101,14 +101,14 @@ pub dirname = fn(value: []char) []char {
     return slice.head(char, trimmed, 0);
 };
 
-pub extension = fn(value: []char) []char {
+pub extension :: fn(value: []char) []char {
     base: []char = basename(value);
     len: types.size_t = @len(base);
     if(len <= 1) {
         return slice.head(char, base, 0);
     }
 
-    mut index: types.size_t = len;
+    index: types.size_t = len;
     while(index > 0) {
         ch: char = base[index - 1];
         if(ch == '.') {
@@ -123,11 +123,11 @@ pub extension = fn(value: []char) []char {
     return slice.head(char, base, 0);
 };
 
-pub has_extension = fn(value: []char) bool {
+pub has_extension :: fn(value: []char) bool {
     return @len(extension(value)) > 0;
 };
 
-pub stem = fn(value: []char) []char {
+pub stem :: fn(value: []char) []char {
     base: []char = basename(value);
     ext: []char = extension(value);
     if(@len(ext) == 0) {
@@ -136,7 +136,7 @@ pub stem = fn(value: []char) []char {
     return slice.head(char, base, @len(base) - @len(ext) - 1);
 };
 
-pub join = fn(dst: []char, left: []char, right: []char) ?types.size_t {
+pub join :: fn(dst: []char, left: []char, right: []char) ?types.size_t {
     if(@len(dst) == 0) {
         return null;
     }
@@ -163,7 +163,7 @@ pub join = fn(dst: []char, left: []char, right: []char) ?types.size_t {
         return null;
     }
 
-    mut copied: types.size_t = slice.copy(char, dst, left_trimmed);
+    copied: types.size_t = slice.copy(char, dst, left_trimmed);
     dst[copied] = '/';
     copied = copied + 1;
 
@@ -174,7 +174,7 @@ pub join = fn(dst: []char, left: []char, right: []char) ?types.size_t {
     return copied + right_written;
 };
 
-pub normalize = fn(dst: []char, value: []char) ?types.size_t {
+pub normalize :: fn(dst: []char, value: []char) ?types.size_t {
     if(@len(dst) == 0 && @len(value) != 0) {
         return null;
     }
@@ -184,10 +184,10 @@ pub normalize = fn(dst: []char, value: []char) ?types.size_t {
         return null;
     }
 
-    mut out: types.size_t = 0;
-    mut i: types.size_t = 0;
+    out: types.size_t = 0;
+    i: types.size_t = 0;
     while(i < root) {
-        mut ch: char = value[i];
+        ch: char = value[i];
         if(is_separator(ch)) {
             ch = '/';
         }
@@ -196,7 +196,7 @@ pub normalize = fn(dst: []char, value: []char) ?types.size_t {
         i = i + 1;
     }
 
-    mut wrote_component: bool = false;
+    wrote_component: bool = false;
     while(i < @len(value)) {
         while(i < @len(value) && is_separator(value[i])) {
             i = i + 1;

@@ -1,5 +1,5 @@
-a = @import("./support_reexport_chain_a");
+a :: @import("./support_reexport_chain_a");
 
-pub Pair = a.Pair;
-pub make_pair = a.make_pair;
-pub make_identity = a.make_identity;
+pub Pair :: a.Pair;
+pub make_pair :: a.make_pair;
+pub make_identity :: a.make_identity;

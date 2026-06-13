@@ -1,13 +1,13 @@
 @package("easy_font");
 
-pub Vertex = struct {
+pub Vertex :: struct {
     x: f32,
     y: f32,
     z: f32,
     color: Array(u8, 4),
 };
 
-pub Width = @extern("mote_stb_easy_font_width", Function([*char], i32));
-pub Height = @extern("mote_stb_easy_font_height", Function([*char], i32));
-pub Print = @extern("mote_stb_easy_font_print", Function([f32, f32, *char, *u8, *mut u8, i32], i32));
-pub Spacing = @extern("mote_stb_easy_font_spacing", Function([f32], void));
+pub Width :: @extern("mote_stb_easy_font_width", Function([*char], i32));
+pub Height :: @extern("mote_stb_easy_font_height", Function([*char], i32));
+pub Print :: @extern("mote_stb_easy_font_print", Function([f32, f32, *char, *u8, *u8, i32], i32));
+pub Spacing :: @extern("mote_stb_easy_font_spacing", Function([f32], void));
