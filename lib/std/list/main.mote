@@ -32,7 +32,10 @@ pub List :: fn(T: Type) Type {
         },
 
         as_slice: fn(self: &Self) []T {
-            return @slice(T, @as(*T, self.data), self.len);
+            if(self.len == 0) {
+                return @slice(T, @as(*T, 0), 0);
+            }
+            return @slice(T, &self.data[0], self.len);
         },
 
         get: fn(self: &Self, index: types.size_t) T {
