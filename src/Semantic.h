@@ -397,7 +397,6 @@ void checkExprDeclaredVariable(ASTNode *node, ScopeFrame *scope)
 
     if(node->kind == AST_EXPR_STRUCT)
     {
-        checkStructExprSemantics(node, scope, NULL);
         return;
     }
 
@@ -637,6 +636,18 @@ void checkStatementSemantics(ASTNode *node, ScopeFrame *scope, FunctionContext *
             semanticAbortNode("S1016", node,
                               "return statement is not allowed inside defer",
                               "`defer` bodies cannot exit the surrounding function");
+        }
+
+        if(node->lhs != NULL && node->lhs->kind == AST_EXPR_STRUCT)
+        {
+            ASTDataType *struct_type = instantiateTypeExprValue(node->lhs, scope);
+            ASTStructMember *member = node->lhs->members;
+            while(member != NULL)
+            {
+                if(member->value != NULL)
+                    checkFunctionExprSemantics(member->value, scope, struct_type);
+                member = member->next;
+            }
         }
 
         checkExprDeclaredVariable(node->lhs, scope);
@@ -1077,7 +1088,10 @@ void inferFunctionReturnTypesInStatement(ASTNode *node, ScopeFrame *scope,
                                       "conflicting inferred return types",
                                       "this return expression conflicts with earlier `return;`");
 
-            ASTDataType *current_type = inferDeclaredTypeFromExpr(node->lhs, scope);
+            TypeSystemExprType return_expr_type = inferExprType(node->lhs, scope);
+            ASTDataType *current_type = return_expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE
+                ? newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE)
+                : inferDeclaredTypeFromExpr(node->lhs, scope);
             if(*inferred_type == NULL)
             {
                 *inferred_type = cloneDataType(current_type);
@@ -1630,6 +1644,18 @@ void checkStatementTypes(ASTNode *node, ScopeFrame *scope, FunctionContext *func
 
         if(node->lhs)
         {
+            if(node->lhs->kind == AST_EXPR_STRUCT)
+            {
+                ASTDataType *struct_type = instantiateTypeExprValue(node->lhs, scope);
+                ASTStructMember *member = node->lhs->members;
+                while(member != NULL)
+                {
+                    if(member->value != NULL)
+                        checkFunctionExprTypes(member->value, scope, struct_type);
+                    member = member->next;
+                }
+            }
+
             if(node->lhs->kind == AST_EXPR_CALL)
             {
                 checkSpecializedCallArguments(node->lhs, scope);

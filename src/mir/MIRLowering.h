@@ -2634,7 +2634,9 @@ static int lowerFunctionExprDefinition(MirLowering *lowering, MirLowerScope *sco
     else
         snprintf(function->name, sizeof(function->name), "lambda_%d", lowering->unique_function_counter++);
     function->source_function = function_expr;
-    function->return_data_type = resolveNamedDataType(function_expr->return_data_type, &(scope->type_scope), self_data_type);
+        function->return_data_type = function_expr->return_data_type != NULL
+            ? resolveNamedDataType(function_expr->return_data_type, &(scope->type_scope), self_data_type)
+            : newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
     function->closure_env_input = -1;
     function->entry_block = mirCreateBlock(lowering, function, "entry");
 
