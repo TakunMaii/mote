@@ -7,10 +7,10 @@ main = fn() i32 {
     defer mem.arena_destroy(&mut arena);
 
     mut xs = list.init_in_arena(i32, arena);
-    list.append(i32, &mut xs, 9);
-    list.append(i32, &mut xs, 10);
+    xs.append(9);
+    xs.append(10);
 
-    maybe_value: ?i32 = g.first_or_null(i32, list.as_slice(i32, &xs));
+    maybe_value: ?i32 = g.first_or_null(i32, xs.as_slice());
     if(maybe_value != null && @unwrap(maybe_value) == 9) {
         return 0;
     }

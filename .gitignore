@@ -13,3 +13,8 @@ test/artifacts/
 test/game/notgate/*.ll
 test/game/notgate/*.exe
 test/game/notgate/*.obj
+*.out
+*.dSYM/
+mote_test
+TODO.local.std.md
+tmp_repro_*/

@@ -8,6 +8,26 @@ hash = @import("std:hash");
 pub Set = fn(T: Type) Type {
     return struct {
         inner: map.Map(T, bool),
+
+        deinit: fn(self: &mut Self) void {
+            map.deinit(T, bool, &mut self.inner);
+        },
+
+        clear: fn(self: &mut Self) void {
+            map.clear(T, bool, &mut self.inner);
+        },
+
+        contains: fn(self: &Self, value: T) bool {
+            return map.contains(T, bool, &self.inner, value);
+        },
+
+        insert: fn(self: &mut Self, value: T) void {
+            map.put(T, bool, &mut self.inner, value, true);
+        },
+
+        remove: fn(self: &mut Self, value: T) bool {
+            return map.remove(T, bool, &mut self.inner, value);
+        },
     };
 };
 
@@ -35,22 +55,22 @@ pub init_cap_in_arena = fn(T: Type, arena: mem.Arena, cap: types.size_t, hash_fn
     };
 };
 
-pub deinit = fn(T: Type, self: *mut Set(T)) void {
+pub deinit = fn(T: Type, self: &mut Set(T)) void {
     map.deinit(T, bool, &mut self.inner);
 };
 
-pub clear = fn(T: Type, self: *mut Set(T)) void {
+pub clear = fn(T: Type, self: &mut Set(T)) void {
     map.clear(T, bool, &mut self.inner);
 };
 
-pub contains = fn(T: Type, self: *Set(T), value: T) bool {
+pub contains = fn(T: Type, self: &Set(T), value: T) bool {
     return map.contains(T, bool, &self.inner, value);
 };
 
-pub insert = fn(T: Type, self: *mut Set(T), value: T) void {
+pub insert = fn(T: Type, self: &mut Set(T), value: T) void {
     map.put(T, bool, &mut self.inner, value, true);
 };
 
-pub remove = fn(T: Type, self: *mut Set(T), value: T) bool {
+pub remove = fn(T: Type, self: &mut Set(T), value: T) bool {
     return map.remove(T, bool, &mut self.inner, value);
 };

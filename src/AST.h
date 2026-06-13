@@ -112,6 +112,7 @@ typedef struct ASTStructLiteralField ASTStructLiteralField;
 typedef struct ASTEnumVariant ASTEnumVariant;
 typedef struct ASTTypeArgument ASTTypeArgument;
 typedef struct ASTFunctionCapture ASTFunctionCapture;
+typedef struct ScopeFrame ScopeFrame;
 
 typedef enum ASTOperatorKind {
     AST_OPERATOR_NONE = 0,
@@ -192,6 +193,7 @@ struct ASTStructMember {
     ASTOperatorKind operator_kind;
     ASTDataType *data_type;
     ASTNode *value;
+    ScopeFrame *lexical_type_scope;
 };
 
 struct ASTStructLiteralField {

@@ -837,6 +837,12 @@
       "input": "test\\generic\\pass_generic_std_wrapper.mote"
     },
     {
+      "name": "generic-method-helper-ref-binding-llvm",
+      "expect": "success",
+      "mode": "llvm",
+      "input": "test\\diagnostic\\generic_method_helper_ref_binding\\main.mote"
+    },
+    {
       "name": "generic-pass-type-factory-basic-llvm",
       "expect": "success",
       "mode": "llvm",

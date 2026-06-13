@@ -1,0 +1,19 @@
+box = fn(T: Type) Type {
+    return struct {
+        value: T,
+
+        bump: fn(self: &mut Self, delta: T) void {
+            helper(T, self, delta);
+        },
+    };
+};
+
+helper = fn(T: Type, value: &mut box(T), delta: T) void {
+    value.value = value.value + delta;
+};
+
+main = fn() i32 {
+    mut value = box(i32) { .value = 1 };
+    value.bump(2);
+    return value.value - 3;
+};

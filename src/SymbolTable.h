@@ -64,6 +64,42 @@ ScopeFrame* newScopeFrame(ScopeFrame *parent)
     return scope;
 }
 
+ScopeFrame* cloneScopeFrame(ScopeFrame *scope)
+{
+    if(scope == NULL)
+        return NULL;
+
+    ScopeFrame *copy = (ScopeFrame*) malloc(sizeof(ScopeFrame));
+    if(copy == NULL)
+        diagnosticAbortInternal("scope clone allocation failed", NULL);
+    memset(copy, 0, sizeof(ScopeFrame));
+    copy->parent = cloneScopeFrame(scope->parent);
+    copy->instantiating_function = scope->instantiating_function;
+    copy->instantiation_site = scope->instantiation_site;
+    copy->instantiating_type_result = cloneDataType(scope->instantiating_type_result);
+
+    copy->variable_count = scope->variable_count;
+    for(int i = 0; i < scope->variable_count; i++)
+    {
+        VariableInfo *src = &(scope->variable_infos[i]);
+        VariableInfo *dst = &(copy->variable_infos[i]);
+        *dst = *src;
+        dst->data_type = cloneDataType(src->data_type);
+        dst->type_value = cloneDataType(src->type_value);
+    }
+
+    copy->type_count = scope->type_count;
+    for(int i = 0; i < scope->type_count; i++)
+    {
+        TypeInfo *src = &(scope->type_infos[i]);
+        TypeInfo *dst = &(copy->type_infos[i]);
+        *dst = *src;
+        dst->data_type = cloneDataType(src->data_type);
+    }
+
+    return copy;
+}
+
 void deleteScopeFrame(ScopeFrame *scope)
 {
     if(scope != NULL)

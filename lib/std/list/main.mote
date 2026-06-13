@@ -2,6 +2,7 @@
 
 mem = @import("std:mem");
 types = @import("std:types");
+c = @import("std:internal/c");
 
 pub List = fn(T: Type) Type {
     return struct {
@@ -10,6 +11,163 @@ pub List = fn(T: Type) Type {
         cap: types.size_t,
         arena: mem.Arena,
         uses_arena: bool,
+
+        deinit: fn(self: &mut Self) void {
+            if(!self.uses_arena && self.cap > 0) {
+                c.dealloc(@as(*void, &mut self.data[0]));
+            }
+            self.data = @slice(T, @as(*mut T, 0), 0);
+            self.len = 0;
+            self.cap = 0;
+            self.arena = mem.Arena { .state = 0 };
+            self.uses_arena = false;
+        },
+
+        clear: fn(self: &mut Self) void {
+            self.len = 0;
+        },
+
+        is_empty: fn(self: &Self) bool {
+            return self.len == 0;
+        },
+
+        as_slice: fn(self: &Self) []T {
+            return @slice(T, @as(*mut T, self.data), self.len);
+        },
+
+        get: fn(self: &Self, index: types.size_t) T {
+            return self.data[index];
+        },
+
+        get_ptr: fn(self: &mut Self, index: types.size_t) *mut T {
+            return &mut self.data[index];
+        },
+
+        set: fn(self: &mut Self, index: types.size_t, value: T) void {
+            self.data[index] = value;
+        },
+
+        try_reserve: fn(self: &mut Self, needed_cap: types.size_t) bool {
+            if(needed_cap <= self.cap) {
+                return true;
+            }
+
+            mut new_cap: types.size_t = self.cap;
+            if(new_cap < 4) {
+                new_cap = 4;
+            }
+            while(new_cap < needed_cap) {
+                new_cap = new_cap * 2;
+            }
+
+            if(self.uses_arena) {
+                new_data: []T = mem.arena_make(T, self.arena, new_cap);
+                if(self.len > 0) {
+                    mem.copy(@as(*mut void, &mut new_data[0]),
+                             @as(*void, &self.data[0]),
+                             @sizeof(T) * self.len);
+                }
+                self.data = new_data;
+                self.cap = new_cap;
+                return true;
+            }
+
+            if(self.cap == 0) {
+                maybe_data: ?[]T = mem.try_make(T, new_cap);
+                if(maybe_data == null) {
+                    return false;
+                }
+                self.data = @unwrap(maybe_data);
+                self.cap = new_cap;
+                return true;
+            }
+
+            new_ptr: *mut T = @as(*mut T,
+                                  mem.realloc(@as(*void, &mut self.data[0]),
+                                              @sizeof(T) * new_cap));
+            if(new_ptr == 0) {
+                return false;
+            }
+            self.data = @slice(T, new_ptr, new_cap);
+            self.cap = new_cap;
+            return true;
+        },
+
+        reserve: fn(self: &mut Self, needed_cap: types.size_t) void {
+            self.try_reserve(needed_cap);
+        },
+
+        try_append: fn(self: &mut Self, value: T) bool {
+            if(!self.try_reserve(self.len + 1)) {
+                return false;
+            }
+            self.data[self.len] = value;
+            self.len = self.len + 1;
+            return true;
+        },
+
+        append: fn(self: &mut Self, value: T) void {
+            self.try_append(value);
+        },
+
+        try_append_slice: fn(self: &mut Self, values: []T) bool {
+            new_len: types.size_t = self.len + @len(values);
+            if(!self.try_reserve(new_len)) {
+                return false;
+            }
+            if(@len(values) > 0) {
+                mem.copy(@as(*mut void, &mut self.data[self.len]),
+                         @as(*void, @as(*T, values)),
+                         @sizeof(T) * @len(values));
+            }
+            self.len = new_len;
+            return true;
+        },
+
+        append_slice: fn(self: &mut Self, values: []T) void {
+            self.try_append_slice(values);
+        },
+
+        pop: fn(self: &mut Self) ?T {
+            if(self.len == 0) {
+                return null;
+            }
+            self.len = self.len - 1;
+            return self.data[self.len];
+        },
+
+        insert: fn(self: &mut Self, index: types.size_t, value: T) void {
+            if(!self.try_reserve(self.len + 1)) {
+                return;
+            }
+            if(index < self.len) {
+                mem.move(@as(*mut void, &mut self.data[index + 1]),
+                         @as(*void, &self.data[index]),
+                         @sizeof(T) * (self.len - index));
+            }
+            self.data[index] = value;
+            self.len = self.len + 1;
+        },
+
+        remove_at: fn(self: &mut Self, index: types.size_t) T {
+            value: T = self.data[index];
+            if(index + 1 < self.len) {
+                mem.move(@as(*mut void, &mut self.data[index]),
+                         @as(*void, &self.data[index + 1]),
+                         @sizeof(T) * (self.len - index - 1));
+            }
+            self.len = self.len - 1;
+            return value;
+        },
+
+        swap_remove: fn(self: &mut Self, index: types.size_t) T {
+            value: T = self.data[index];
+            self.len = self.len - 1;
+            if(index < self.len) {
+                self.data[index] = self.data[self.len];
+            }
+            return value;
+        },
     };
 };
 
@@ -62,7 +220,7 @@ pub init_cap_in_arena = fn(T: Type, arena: mem.Arena, cap: types.size_t) List(T)
     return list;
 };
 
-pub deinit = fn(T: Type, self: *mut List(T)) void {
+pub deinit = fn(T: Type, self: &mut List(T)) void {
     if(!self.uses_arena && self.cap > 0) {
         mem.free_slice(T, self.data);
     }
@@ -73,31 +231,31 @@ pub deinit = fn(T: Type, self: *mut List(T)) void {
     self.uses_arena = false;
 };
 
-pub clear = fn(T: Type, self: *mut List(T)) void {
+pub clear = fn(T: Type, self: &mut List(T)) void {
     self.len = 0;
 };
 
-pub is_empty = fn(T: Type, self: *List(T)) bool {
+pub is_empty = fn(T: Type, self: &List(T)) bool {
     return self.len == 0;
 };
 
-pub as_slice = fn(T: Type, self: *List(T)) []T {
+pub as_slice = fn(T: Type, self: &List(T)) []T {
     return @slice(T, @as(*mut T, self.data), self.len);
 };
 
-pub get = fn(T: Type, self: *List(T), index: types.size_t) T {
+pub get = fn(T: Type, self: &List(T), index: types.size_t) T {
     return self.data[index];
 };
 
-pub get_ptr = fn(T: Type, self: *mut List(T), index: types.size_t) *mut T {
+pub get_ptr = fn(T: Type, self: &mut List(T), index: types.size_t) *mut T {
     return &mut self.data[index];
 };
 
-pub set = fn(T: Type, self: *mut List(T), index: types.size_t, value: T) void {
+pub set = fn(T: Type, self: &mut List(T), index: types.size_t, value: T) void {
     self.data[index] = value;
 };
 
-pub try_reserve = fn(T: Type, self: *mut List(T), needed_cap: types.size_t) bool {
+pub try_reserve = fn(T: Type, self: &mut List(T), needed_cap: types.size_t) bool {
     if(needed_cap <= self.cap) {
         return true;
     }
@@ -143,14 +301,14 @@ pub try_reserve = fn(T: Type, self: *mut List(T), needed_cap: types.size_t) bool
     return true;
 };
 
-pub reserve = fn(T: Type, self: *mut List(T), needed_cap: types.size_t) void {
+pub reserve = fn(T: Type, self: &mut List(T), needed_cap: types.size_t) void {
     ok: bool = try_reserve(T, self, needed_cap);
     if(!ok) {
         return;
     }
 };
 
-pub try_append = fn(T: Type, self: *mut List(T), value: T) bool {
+pub try_append = fn(T: Type, self: &mut List(T), value: T) bool {
     if(!try_reserve(T, self, self.len + 1)) {
         return false;
     }
@@ -159,11 +317,11 @@ pub try_append = fn(T: Type, self: *mut List(T), value: T) bool {
     return true;
 };
 
-pub append = fn(T: Type, self: *mut List(T), value: T) void {
+pub append = fn(T: Type, self: &mut List(T), value: T) void {
     try_append(T, self, value);
 };
 
-pub try_append_slice = fn(T: Type, self: *mut List(T), values: []T) bool {
+pub try_append_slice = fn(T: Type, self: &mut List(T), values: []T) bool {
     new_len: types.size_t = self.len + @len(values);
     if(!try_reserve(T, self, new_len)) {
         return false;
@@ -177,11 +335,11 @@ pub try_append_slice = fn(T: Type, self: *mut List(T), values: []T) bool {
     return true;
 };
 
-pub append_slice = fn(T: Type, self: *mut List(T), values: []T) void {
+pub append_slice = fn(T: Type, self: &mut List(T), values: []T) void {
     try_append_slice(T, self, values);
 };
 
-pub pop = fn(T: Type, self: *mut List(T)) ?T {
+pub pop = fn(T: Type, self: &mut List(T)) ?T {
     if(self.len == 0) {
         return null;
     }
@@ -189,7 +347,7 @@ pub pop = fn(T: Type, self: *mut List(T)) ?T {
     return self.data[self.len];
 };
 
-pub insert = fn(T: Type, self: *mut List(T), index: types.size_t, value: T) void {
+pub insert = fn(T: Type, self: &mut List(T), index: types.size_t, value: T) void {
     if(!try_reserve(T, self, self.len + 1)) {
         return;
     }
@@ -202,7 +360,7 @@ pub insert = fn(T: Type, self: *mut List(T), index: types.size_t, value: T) void
     self.len = self.len + 1;
 };
 
-pub remove_at = fn(T: Type, self: *mut List(T), index: types.size_t) T {
+pub remove_at = fn(T: Type, self: &mut List(T), index: types.size_t) T {
     value: T = self.data[index];
     if(index + 1 < self.len) {
         mem.move(@as(*mut void, &mut self.data[index]),
@@ -213,7 +371,7 @@ pub remove_at = fn(T: Type, self: *mut List(T), index: types.size_t) T {
     return value;
 };
 
-pub swap_remove = fn(T: Type, self: *mut List(T), index: types.size_t) T {
+pub swap_remove = fn(T: Type, self: &mut List(T), index: types.size_t) T {
     value: T = self.data[index];
     self.len = self.len - 1;
     if(index < self.len) {
