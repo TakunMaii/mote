@@ -342,6 +342,22 @@ static void add_extra_c_source_resolved(const char *argv0, const char **extra_c_
     add_extra_c_source(extra_c_sources, extra_c_source_count, resolved);
 }
 
+#if defined(_WIN32)
+static void add_vendor_library_file_resolved(const char *argv0,
+                                             const char **driver_args, int *driver_arg_count,
+                                             const char *relative_path)
+{
+    char *resolved = (char*) malloc(MODULE_MAX_PATH_LENGTH);
+    if(resolved == NULL)
+        cliError("failed to allocate vendor library path");
+
+    if(!resolve_vendor_path(resolved, MODULE_MAX_PATH_LENGTH, argv0, relative_path))
+        cliError("failed to resolve vendor library path");
+
+    add_driver_arg(driver_args, driver_arg_count, resolved);
+}
+#endif
+
 static void add_default_official_search_roots(ModulePackage *packages, int *package_count, const char *argv0)
 {
     char executable_dir[CLI_PATH_BUFFER_SIZE] = {0};
@@ -576,7 +592,11 @@ static void add_default_official_link_args(const char *argv0, ModulePackage *pac
 
     if(uses_glfw)
     {
+#if defined(_WIN32)
+        add_vendor_library_file_resolved(argv0, driver_args, driver_arg_count, "vendor/glfw/lib/windows/glfw3_mt.lib");
+#else
         add_driver_arg(driver_args, driver_arg_count, "-lglfw3");
+#endif
 #if defined(__APPLE__)
         add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,OpenGL");
         add_driver_arg(driver_args, driver_arg_count, "-Wl,-framework,Cocoa");
