@@ -1,6 +1,7 @@
 @package("path");
 
 slice :: @import("std:slice");
+str :: @import("std:str");
 types :: @import("std:types");
 
 // Pure path-string utilities only.
@@ -14,7 +15,7 @@ pub is_alpha :: fn(ch: char) bool {
     return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
 };
 
-pub is_abs :: fn(value: []char) bool {
+pub is_abs :: fn(value: string) bool {
     len: types.size_t = @len(value);
     if(len == 0) {
         return false;
@@ -28,7 +29,7 @@ pub is_abs :: fn(value: []char) bool {
     return false;
 };
 
-pub root_len :: fn(value: []char) types.size_t {
+pub root_len :: fn(value: string) types.size_t {
     len: types.size_t = @len(value);
     if(len == 0) {
         return 0;
@@ -45,17 +46,17 @@ pub root_len :: fn(value: []char) types.size_t {
     return 0;
 };
 
-pub trim_trailing_separators :: fn(value: []char) []char {
+pub trim_trailing_separators :: fn(value: string) string {
     len: types.size_t = @len(value);
     root: types.size_t = root_len(value);
     while(len > root && is_separator(value[len - 1])) {
         len = len - 1;
     }
-    return slice.head(char, value, len);
+    return @as(string, slice.head(char, @as([]char, value), len));
 };
 
-pub basename :: fn(value: []char) []char {
-    trimmed: []char = trim_trailing_separators(value);
+pub basename :: fn(value: string) string {
+    trimmed: string = trim_trailing_separators(value);
     len: types.size_t = @len(trimmed);
     root: types.size_t = root_len(trimmed);
     if(len == 0) {
@@ -68,15 +69,15 @@ pub basename :: fn(value: []char) []char {
     index: types.size_t = len;
     while(index > root) {
         if(is_separator(trimmed[index - 1])) {
-            return slice.subslice(char, trimmed, index, len - index);
+            return @as(string, slice.subslice(char, @as([]char, trimmed), index, len - index));
         }
         index = index - 1;
     }
     return trimmed;
 };
 
-pub dirname :: fn(value: []char) []char {
-    trimmed: []char = trim_trailing_separators(value);
+pub dirname :: fn(value: string) string {
+    trimmed: string = trim_trailing_separators(value);
     len: types.size_t = @len(trimmed);
     root: types.size_t = root_len(trimmed);
     if(len == 0) {
@@ -93,19 +94,19 @@ pub dirname :: fn(value: []char) []char {
             while(end > root && is_separator(trimmed[end - 1])) {
                 end = end - 1;
             }
-            return slice.head(char, trimmed, end);
+            return @as(string, slice.head(char, @as([]char, trimmed), end));
         }
         index = index - 1;
     }
 
-    return slice.head(char, trimmed, 0);
+    return @as(string, slice.head(char, @as([]char, trimmed), 0));
 };
 
-pub extension :: fn(value: []char) []char {
-    base: []char = basename(value);
+pub extension :: fn(value: string) string {
+    base: string = basename(value);
     len: types.size_t = @len(base);
     if(len <= 1) {
-        return slice.head(char, base, 0);
+        return @as(string, slice.head(char, @as([]char, base), 0));
     }
 
     index: types.size_t = len;
@@ -113,36 +114,36 @@ pub extension :: fn(value: []char) []char {
         ch: char = base[index - 1];
         if(ch == '.') {
             if(index == 1 || index == len) {
-                return slice.head(char, base, 0);
+                return @as(string, slice.head(char, @as([]char, base), 0));
             }
-            return slice.subslice(char, base, index, len - index);
+            return @as(string, slice.subslice(char, @as([]char, base), index, len - index));
         }
         index = index - 1;
     }
 
-    return slice.head(char, base, 0);
+    return @as(string, slice.head(char, @as([]char, base), 0));
 };
 
-pub has_extension :: fn(value: []char) bool {
+pub has_extension :: fn(value: string) bool {
     return @len(extension(value)) > 0;
 };
 
-pub stem :: fn(value: []char) []char {
-    base: []char = basename(value);
-    ext: []char = extension(value);
+pub stem :: fn(value: string) string {
+    base: string = basename(value);
+    ext: string = extension(value);
     if(@len(ext) == 0) {
         return base;
     }
-    return slice.head(char, base, @len(base) - @len(ext) - 1);
+    return @as(string, slice.head(char, @as([]char, base), @len(base) - @len(ext) - 1));
 };
 
-pub join :: fn(dst: []char, left: []char, right: []char) ?types.size_t {
+pub join :: fn(dst: []char, left: string, right: string) ?types.size_t {
     if(@len(dst) == 0) {
         return null;
     }
 
     if(@len(right) == 0) {
-        written: types.size_t = slice.copy(char, dst, left);
+        written: types.size_t = slice.copy(char, dst, @as([]char, left));
         if(written != @len(left)) {
             return null;
         }
@@ -150,31 +151,33 @@ pub join :: fn(dst: []char, left: []char, right: []char) ?types.size_t {
     }
 
     if(is_abs(right) || @len(left) == 0) {
-        written: types.size_t = slice.copy(char, dst, right);
+        written: types.size_t = slice.copy(char, dst, @as([]char, right));
         if(written != @len(right)) {
             return null;
         }
         return written;
     }
 
-    left_trimmed: []char = trim_trailing_separators(left);
+    left_trimmed: string = trim_trailing_separators(left);
     total: types.size_t = @len(left_trimmed) + 1 + @len(right);
     if(total > @len(dst)) {
         return null;
     }
 
-    copied: types.size_t = slice.copy(char, dst, left_trimmed);
+    copied: types.size_t = slice.copy(char, dst, @as([]char, left_trimmed));
     dst[copied] = '/';
     copied = copied + 1;
 
-    right_written: types.size_t = slice.copy(char, slice.subslice(char, dst, copied, @len(dst) - copied), right);
+    right_written: types.size_t = slice.copy(char,
+                                             slice.subslice(char, dst, copied, @len(dst) - copied),
+                                             @as([]char, right));
     if(right_written != @len(right)) {
         return null;
     }
     return copied + right_written;
 };
 
-pub normalize :: fn(dst: []char, value: []char) ?types.size_t {
+pub normalize :: fn(dst: []char, value: string) ?types.size_t {
     if(@len(dst) == 0 && @len(value) != 0) {
         return null;
     }
@@ -209,7 +212,7 @@ pub normalize :: fn(dst: []char, value: []char) ?types.size_t {
         while(i < @len(value) && !is_separator(value[i])) {
             i = i + 1;
         }
-        component: []char = slice.subslice(char, value, start, i - start);
+        component: string = @as(string, slice.subslice(char, @as([]char, value), start, i - start));
 
         if(@len(component) == 1 && component[0] == '.') {
             continue;
@@ -223,7 +226,9 @@ pub normalize :: fn(dst: []char, value: []char) ?types.size_t {
             out = out + 1;
         }
 
-        copied: types.size_t = slice.copy(char, slice.subslice(char, dst, out, @len(dst) - out), component);
+        copied: types.size_t = slice.copy(char,
+                                          slice.subslice(char, dst, out, @len(dst) - out),
+                                          @as([]char, component));
         if(copied != @len(component)) {
             return null;
         }

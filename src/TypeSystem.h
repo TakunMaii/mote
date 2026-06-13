@@ -318,6 +318,7 @@ ASTDataType* builtinIdentifierToDataType(const char *identifier)
     if(strcmp(identifier, "f64") == 0) return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_F64);
     if(strcmp(identifier, "char") == 0) return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR);
     if(strcmp(identifier, "bool") == 0) return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL);
+    if(strcmp(identifier, "string") == 0) return newStringDataType();
     if(strcmp(identifier, "void") == 0) return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
     if(strcmp(identifier, "Type") == 0) return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_TYPE);
     if(strcmp(identifier, "opaque") == 0) return newOpaqueDataType("");
@@ -389,6 +390,7 @@ static void typeSystemEnsureNoBareOpaqueInternal(ASTDataType *data_type, ASTNode
         case AST_DATA_TYPE_KIND_OPTIONAL:
         case AST_DATA_TYPE_KIND_ARRAY:
         case AST_DATA_TYPE_KIND_SLICE:
+        case AST_DATA_TYPE_KIND_STRING:
             typeSystemEnsureNoBareOpaqueInternal(data_type->child, node, code, context, memo);
             return;
         case AST_DATA_TYPE_KIND_FUNCTION: {
@@ -435,6 +437,11 @@ bool isArrayDataType(ASTDataType *data_type)
 bool isSliceDataType(ASTDataType *data_type)
 {
     return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_SLICE;
+}
+
+bool isStringDataType(ASTDataType *data_type)
+{
+    return data_type != NULL && data_type->kind == AST_DATA_TYPE_KIND_STRING;
 }
 
 bool isOptionalDataType(ASTDataType *data_type)
@@ -503,6 +510,15 @@ static size_t moteTypeLayoutSize(ASTDataType *data_type)
         case AST_DATA_TYPE_KIND_ARRAY:
             return moteTypeLayoutSize(data_type->child) * (size_t) data_type->array_length;
         case AST_DATA_TYPE_KIND_SLICE: {
+            ASTDataType *len_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+            size_t ptr_size = sizeof(void*);
+            size_t len_align = moteTypeLayoutAlignment(len_type);
+            size_t len_size = moteTypeLayoutSize(len_type);
+            size_t offset = moteAlignTo(ptr_size, len_align);
+            size_t max_align = sizeof(void*) > len_align ? sizeof(void*) : len_align;
+            return moteAlignTo(offset + len_size, max_align);
+        }
+        case AST_DATA_TYPE_KIND_STRING: {
             ASTDataType *len_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
             size_t ptr_size = sizeof(void*);
             size_t len_align = moteTypeLayoutAlignment(len_type);
@@ -586,6 +602,11 @@ static size_t moteTypeLayoutAlignment(ASTDataType *data_type)
         case AST_DATA_TYPE_KIND_ARRAY:
             return moteTypeLayoutAlignment(data_type->child);
         case AST_DATA_TYPE_KIND_SLICE: {
+            ASTDataType *len_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+            size_t len_align = moteTypeLayoutAlignment(len_type);
+            return sizeof(void*) > len_align ? sizeof(void*) : len_align;
+        }
+        case AST_DATA_TYPE_KIND_STRING: {
             ASTDataType *len_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
             size_t len_align = moteTypeLayoutAlignment(len_type);
             return sizeof(void*) > len_align ? sizeof(void*) : len_align;
@@ -877,6 +898,7 @@ bool isSameDataTypeInternal(ASTDataType *lhs, ASTDataType *rhs, ASTDataTypeCompa
             rememberComparedDataTypePair(memo, lhs, rhs);
             return isSameArrayTypeInternal(lhs, rhs, memo);
         case AST_DATA_TYPE_KIND_SLICE:
+        case AST_DATA_TYPE_KIND_STRING:
             if(hasComparedDataTypePair(*memo, lhs, rhs))
                 return true;
             rememberComparedDataTypePair(memo, lhs, rhs);
@@ -1003,6 +1025,8 @@ static ASTDataType* resolveNamedDataTypeInternal(ASTDataType *data_type, ScopeFr
                                     data_type->array_length);
         case AST_DATA_TYPE_KIND_SLICE:
             return newSliceDataType(resolveNamedDataTypeInternal(data_type->child, scope, self_data_type, memo, true));
+        case AST_DATA_TYPE_KIND_STRING:
+            return newStringDataType();
         case AST_DATA_TYPE_KIND_FUNCTION: {
             ScopeFrame *signature_scope = newScopeFrame(scope);
             for(ASTFunctionParameter *scan = data_type->parameters; scan != NULL; scan = scan->next)
@@ -1257,6 +1281,7 @@ static void bindSpecializedNamedTypesInScope(ScopeFrame *scope, ASTDataType *sou
         case AST_DATA_TYPE_KIND_REFERENCE:
         case AST_DATA_TYPE_KIND_ARRAY:
         case AST_DATA_TYPE_KIND_SLICE:
+        case AST_DATA_TYPE_KIND_STRING:
         case AST_DATA_TYPE_KIND_OPTIONAL:
             bindSpecializedNamedTypesInScope(scope, source_type->child, resolved_type->child);
             return;
@@ -1828,7 +1853,8 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     if(source_data_type->kind == AST_DATA_TYPE_KIND_POINTER && target_type->kind == AST_DATA_TYPE_KIND_POINTER)
         return true;
 
-    if(source_data_type->kind == AST_DATA_TYPE_KIND_SLICE &&
+    if((source_data_type->kind == AST_DATA_TYPE_KIND_SLICE ||
+        source_data_type->kind == AST_DATA_TYPE_KIND_STRING) &&
        target_type->kind == AST_DATA_TYPE_KIND_POINTER &&
        isSameDataType(source_data_type->child, target_type->child))
         return true;
@@ -1842,7 +1868,8 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
        target_type->kind == AST_DATA_TYPE_KIND_POINTER)
         return true;
 
-    if(source_data_type->kind == AST_DATA_TYPE_KIND_SLICE &&
+    if((source_data_type->kind == AST_DATA_TYPE_KIND_SLICE ||
+        source_data_type->kind == AST_DATA_TYPE_KIND_STRING) &&
        target_type->kind == AST_DATA_TYPE_KIND_POINTER)
     {
         if(!isSameDataType(source_data_type->child, target_type->child))
@@ -1850,17 +1877,37 @@ bool canExplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
         return true;
     }
 
-    if(source_node != NULL &&
-       source_node->kind == AST_EXPR_LITERAL_STRING &&
-       source_data_type->kind == AST_DATA_TYPE_KIND_ARRAY &&
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_STRING &&
+       target_type->kind == AST_DATA_TYPE_KIND_SLICE &&
+       target_type->child != NULL &&
+       target_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       target_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR)
+        return true;
+
+    if(source_data_type->kind == AST_DATA_TYPE_KIND_SLICE &&
        source_data_type->child != NULL &&
        source_data_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
        source_data_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR &&
+       target_type->kind == AST_DATA_TYPE_KIND_STRING)
+        return true;
+
+    if(source_node != NULL &&
+       source_node->kind == AST_EXPR_LITERAL_STRING &&
+       source_data_type->kind == AST_DATA_TYPE_KIND_STRING &&
        target_type->kind == AST_DATA_TYPE_KIND_POINTER &&
        target_type->child != NULL &&
        target_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
        target_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR)
         return true;
+
+    if(source_node != NULL &&
+       source_node->kind == AST_EXPR_LITERAL_STRING &&
+       source_data_type->kind == AST_DATA_TYPE_KIND_STRING &&
+       target_type->kind == AST_DATA_TYPE_KIND_ARRAY &&
+       target_type->child != NULL &&
+       target_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       target_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR)
+        return target_type->array_length == (long long int) strlen(source_node->literal_string);
 
     if(source_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && target_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
         return canExplicitConvertDataType(newValueExprType(source_data_type->child), source_node, target_type->child);
@@ -1988,10 +2035,11 @@ ASTDataType* inferLenBuiltinValueType(ASTNode *node, ScopeFrame *scope)
                             "expected `@len(slice_value)`");
 
     TypeSystemExprType operand_type = inferExprType(node->lhs, scope);
-    if(operand_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || !isSliceDataType(operand_type.data_type))
+    if(operand_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
+       (!isSliceDataType(operand_type.data_type) && !isStringDataType(operand_type.data_type)))
         typeSystemAbortNode("T1255", node->lhs,
-                            "@len expects a slice value",
-                            "argument must have type `[]T`");
+                            "@len expects a slice or string value",
+                            "argument must have type `[]T` or `string`");
 
     return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
 }
@@ -2261,15 +2309,21 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
 
     if(source_node != NULL &&
        source_node->kind == AST_EXPR_LITERAL_STRING &&
-       source_data_type->kind == AST_DATA_TYPE_KIND_ARRAY &&
-       source_data_type->child != NULL &&
-       source_data_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
-       source_data_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR &&
+       source_data_type->kind == AST_DATA_TYPE_KIND_STRING &&
        target_type->kind == AST_DATA_TYPE_KIND_POINTER &&
        target_type->child != NULL &&
        target_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
        target_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR)
         return true;
+
+    if(source_node != NULL &&
+       source_node->kind == AST_EXPR_LITERAL_STRING &&
+       source_data_type->kind == AST_DATA_TYPE_KIND_STRING &&
+       target_type->kind == AST_DATA_TYPE_KIND_ARRAY &&
+       target_type->child != NULL &&
+       target_type->child->kind == AST_DATA_TYPE_KIND_PRIMARY &&
+       target_type->child->primary == AST_PRIMARY_DATA_TYPE_CHAR)
+        return target_type->array_length == (long long int) strlen(source_node->literal_string);
 
     if(source_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE && target_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
         return isSameDataType(source_data_type->child, target_type->child);
@@ -2587,6 +2641,8 @@ bool isMutableAddressableExpr(ASTNode *node, ScopeFrame *scope)
     if(node->kind == AST_EXPR_INDEX)
     {
         TypeSystemExprType owner_type = inferExprType(node->lhs, scope);
+        if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && isStringDataType(owner_type.data_type))
+            return false;
         if(owner_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && isSliceDataType(owner_type.data_type))
             return true;
         return isMutableAddressableExpr(node->lhs, scope);
@@ -2872,10 +2928,7 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
         case AST_EXPR_LITERAL_CHAR:
             return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR));
         case AST_EXPR_LITERAL_STRING:
-            return newValueExprType(newArrayDataType(
-                newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR),
-                strlen(node->literal_string)
-            ));
+            return newValueExprType(newStringDataType());
         case AST_EXPR_LITERAL_INTEGER:
             return newLiteralIntegerExprType();
         case AST_EXPR_LITERAL_FLOAT:
@@ -3039,10 +3092,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 return newValueExprType(owner_data_type);
             }
 
-            if(isSliceDataType(owner_data_type))
+            if(isSliceDataType(owner_data_type) || isStringDataType(owner_data_type))
                 typeSystemAbortFormatted("T1238", node,
-                                         "slice members are not exposed",
-                                         "use `@len(slice)` or `@as(*T, slice)` instead of `.%s`",
+                                         "slice and string members are not exposed",
+                                         "use `@len(value)` or explicit conversion helpers instead of `.%s`",
                                          astUserFacingIdentifier(node->identifier));
 
             ASTDataType *struct_type = owner_data_type;
@@ -3088,10 +3141,12 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             if(owner_data_type->kind == AST_DATA_TYPE_KIND_POINTER || owner_data_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
                 owner_data_type = owner_data_type->child;
 
-            if(!isArrayDataType(owner_data_type) && !isSliceDataType(owner_data_type))
+            if(!isArrayDataType(owner_data_type) &&
+               !isSliceDataType(owner_data_type) &&
+               !isStringDataType(owner_data_type))
                 typeSystemAbortNode("T1241", node,
-                                    "indexing requires an array or slice type",
-                                    "the indexed expression is not an array or slice");
+                                    "indexing requires an array, slice, or string type",
+                                    "the indexed expression is not an array, slice, or string");
 
             TypeSystemExprType index_type = inferExprType(node->rhs, scope);
             if(index_type.kind == TYPE_SYSTEM_EXPR_TYPE_TYPE ||

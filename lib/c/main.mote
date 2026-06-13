@@ -94,6 +94,7 @@ pub fmaxf :: @extern("mote_fmaxf", Function([f32, f32], f32));
 pub fmax :: @extern("mote_fmax", Function([f64, f64], f64));
 
 pub stderr_handle :: @extern("mote_stderr_handle", Function([], *void));
+pub stdout_handle :: @extern("mote_stdout_handle", Function([], *void));
 pub alloc :: @extern("mote_alloc", Function([size_t], *void));
 pub alloc_zeroed :: @extern("mote_alloc_zeroed", Function([size_t], *void));
 pub alloc_array :: @extern("mote_alloc_array", Function([size_t, size_t], *void));

@@ -740,7 +740,9 @@ static int countStructDataFields(ASTDataType *struct_type)
 
 static int findStructDataFieldIndex(ASTDataType *struct_type, const char *identifier)
 {
-    if(struct_type != NULL && struct_type->kind == AST_DATA_TYPE_KIND_SLICE)
+    if(struct_type != NULL &&
+       (struct_type->kind == AST_DATA_TYPE_KIND_SLICE ||
+        struct_type->kind == AST_DATA_TYPE_KIND_STRING))
     {
         if(strcmp(identifier, "ptr") == 0)
             return 0;
@@ -1438,6 +1440,21 @@ static MirValueId lowerStringLiteralAsPointer(MirFunctionState *state, ASTNode *
                           node->filename, node->line_number, node->column_number);
 }
 
+static MirValueId lowerStringLiteralAsString(MirFunctionState *state, ASTNode *node)
+{
+    ASTDataType *char_ptr_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
+                                                    newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR));
+    MirFieldValueList fields = newMirFieldValueList(2);
+    strcpy(fields.items[0].identifier, "ptr");
+    fields.items[0].value = lowerStringLiteralAsPointer(state, node, char_ptr_type);
+    strcpy(fields.items[1].identifier, "len");
+    fields.items[1].value = mirEmitConstInt(state, (long long int) strlen(node->literal_string),
+                                            newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64),
+                                            node->filename, node->line_number, node->column_number);
+    return mirEmitStructLiteral(state, fields, newStringDataType(),
+                                node->filename, node->line_number, node->column_number);
+}
+
 static MirValueId mirMaybeConvertValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
                                        MirValueId value, ASTDataType *target_type)
 {
@@ -1778,7 +1795,8 @@ static void mirEmitDebugValueBody(MirFunctionState *state, MirLowerScope *scope,
             mirEmitDebugWriteCharLiteral(state, node, ']');
             return;
         }
-        case AST_DATA_TYPE_KIND_SLICE: {
+        case AST_DATA_TYPE_KIND_SLICE:
+        case AST_DATA_TYPE_KIND_STRING: {
             MirValueId slice_address = mirDebugValueAddress(state, scope, node);
             ASTDataType *ptr_field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
                                                              cloneDataType(resolved_type->child));
@@ -3051,9 +3069,10 @@ static MirValueId lowerDebugBuiltinExpr(MirFunctionState *state, MirLowerScope *
 static MirValueId lowerSlicePtrValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *slice_expr)
 {
     TypeSystemExprType slice_type = inferExprType(slice_expr, &(scope->type_scope));
-    if(slice_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || !isSliceDataType(slice_type.data_type))
+    if(slice_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
+       (!isSliceDataType(slice_type.data_type) && !isStringDataType(slice_type.data_type)))
         mirLoweringAbortNode("M2015", slice_expr,
-                             "slice pointer extraction requires a slice value",
+                             "slice pointer extraction requires a slice-like value",
                              "type checking should reject non-slice operands here");
 
     MirValueId slice_address = isAddressableExpr(slice_expr)
@@ -3070,9 +3089,10 @@ static MirValueId lowerSlicePtrValue(MirFunctionState *state, MirLowerScope *sco
 static MirValueId lowerSliceLenValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *slice_expr)
 {
     TypeSystemExprType slice_type = inferExprType(slice_expr, &(scope->type_scope));
-    if(slice_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE || !isSliceDataType(slice_type.data_type))
+    if(slice_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
+       (!isSliceDataType(slice_type.data_type) && !isStringDataType(slice_type.data_type)))
         mirLoweringAbortNode("M2016", slice_expr,
-                             "slice length extraction requires a slice value",
+                             "slice length extraction requires a slice-like value",
                              "type checking should reject non-slice operands here");
 
     MirValueId slice_address = isAddressableExpr(slice_expr)
@@ -3150,11 +3170,21 @@ static MirValueId lowerAsBuiltinExpr(MirFunctionState *state, MirLowerScope *sco
     if(value_expr != NULL &&
        source_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
        source_type.data_type != NULL &&
-       source_type.data_type->kind == AST_DATA_TYPE_KIND_SLICE &&
+       (source_type.data_type->kind == AST_DATA_TYPE_KIND_SLICE ||
+        source_type.data_type->kind == AST_DATA_TYPE_KIND_STRING) &&
        target_type->kind == AST_DATA_TYPE_KIND_POINTER)
         return mirMaybeConvertValue(state, scope, node,
                                     lowerSlicePtrValue(state, scope, value_expr),
                                     expected_type);
+
+    if(value_expr != NULL &&
+       value_expr->kind == AST_EXPR_LITERAL_STRING &&
+       source_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+       source_type.data_type != NULL &&
+       source_type.data_type->kind == AST_DATA_TYPE_KIND_STRING &&
+       target_type->kind == AST_DATA_TYPE_KIND_ARRAY)
+        return mirEmitConstString(state, value_expr->literal_string, cloneDataType(target_type),
+                                  node->filename, node->line_number, node->column_number);
 
     if(value_expr != NULL && target_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
     {
@@ -3679,11 +3709,16 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                 return mirMaybeConvertValue(state, scope, node,
                                             lowerStringLiteralAsPointer(state, node, expected_type),
                                             expected_type);
-            ASTDataType *string_type = expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE
-                ? cloneDataType(expr_type.data_type)
-                : newArrayDataType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR), strlen(node->literal_string));
-            return mirEmitConstString(state, node->literal_string, string_type,
-                                      node->filename, node->line_number, node->column_number);
+            if(expr_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
+               expr_type.data_type != NULL &&
+               expr_type.data_type->kind == AST_DATA_TYPE_KIND_ARRAY)
+            {
+                return mirEmitConstString(state, node->literal_string, cloneDataType(expr_type.data_type),
+                                          node->filename, node->line_number, node->column_number);
+            }
+            return mirMaybeConvertValue(state, scope, node,
+                                        lowerStringLiteralAsString(state, node),
+                                        expected_type);
         }
         case AST_EXPR_BUILTIN:
             if(strcmp(node->identifier, "extern") == 0)
@@ -3999,7 +4034,7 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
 
             struct_type = resolveNamedDataType(struct_type, &(scope->type_scope), scope->self_data_type);
 
-            if(isSliceDataType(struct_type))
+            if(isSliceDataType(struct_type) || isStringDataType(struct_type))
             {
                 ASTDataType *field_type = NULL;
                 if(strcmp(node->identifier, "ptr") == 0)
@@ -4037,7 +4072,7 @@ static MirValueId lowerExprAsAddress(MirFunctionState *state, MirLowerScope *sco
                 base_address = lowerExprAsValue(state, scope, node->lhs, NULL);
                 array_type = array_type->child;
             }
-            else if(isSliceDataType(array_type))
+            else if(isSliceDataType(array_type) || isStringDataType(array_type))
             {
                 MirValueId slice_address = isAddressableExpr(node->lhs)
                                            ? lowerExprAsAddress(state, scope, node->lhs)

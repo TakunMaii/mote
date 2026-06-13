@@ -99,6 +99,7 @@ typedef enum ASTDataTypeKind {
     AST_DATA_TYPE_KIND_NAMED,
     AST_DATA_TYPE_KIND_ARRAY,
     AST_DATA_TYPE_KIND_SLICE,
+    AST_DATA_TYPE_KIND_STRING,
     AST_DATA_TYPE_KIND_APPLY,
     AST_DATA_TYPE_KIND_ENUM,
     AST_DATA_TYPE_KIND_STRUCT,
@@ -362,6 +363,15 @@ ASTDataType* newSliceDataType(ASTDataType *element_type)
     memset(data_type, 0, sizeof(ASTDataType));
     data_type->kind = AST_DATA_TYPE_KIND_SLICE;
     data_type->child = element_type;
+    return data_type;
+}
+
+ASTDataType* newStringDataType(void)
+{
+    ASTDataType *data_type = (ASTDataType*) malloc(sizeof(ASTDataType));
+    memset(data_type, 0, sizeof(ASTDataType));
+    data_type->kind = AST_DATA_TYPE_KIND_STRING;
+    data_type->child = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR);
     return data_type;
 }
 
@@ -908,6 +918,9 @@ void printASTDataType(ASTDataType *data_type)
             printf("[]");
             printASTDataType(data_type->child);
         } break;
+        case AST_DATA_TYPE_KIND_STRING: {
+            printf("string");
+        } break;
         case AST_DATA_TYPE_KIND_APPLY: {
             printASTDataType(data_type->callee);
             printf("(");
@@ -1077,6 +1090,7 @@ static void appendASTDataTypeStringInternal(ASTDataType *data_type, char *buffer
         data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL ||
         data_type->kind == AST_DATA_TYPE_KIND_ARRAY ||
         data_type->kind == AST_DATA_TYPE_KIND_SLICE ||
+        data_type->kind == AST_DATA_TYPE_KIND_STRING ||
         data_type->kind == AST_DATA_TYPE_KIND_APPLY))
     {
         stack->items[stack->count++] = data_type;
@@ -1130,6 +1144,9 @@ static void appendASTDataTypeStringInternal(ASTDataType *data_type, char *buffer
         case AST_DATA_TYPE_KIND_SLICE:
             appendStringFragment(buffer, buffer_size, "[]");
             appendASTDataTypeStringInternal(data_type->child, buffer, buffer_size, stack);
+            break;
+        case AST_DATA_TYPE_KIND_STRING:
+            appendStringFragment(buffer, buffer_size, "string");
             break;
         case AST_DATA_TYPE_KIND_APPLY:
             appendASTDataTypeStringInternal(data_type->callee, buffer, buffer_size, stack);

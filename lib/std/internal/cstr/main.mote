@@ -1,0 +1,44 @@
+@package("cstr");
+
+c :: @import("std:internal/c");
+mem :: @import("std:mem");
+slice :: @import("std:slice");
+types :: @import("std:types");
+
+pub dup_z :: fn(value: string) *char {
+    data: []char = mem.make_zeroed(char, @len(value) + 1);
+    copied: types.size_t = slice.copy(char, data, @as([]char, value));
+    if(copied != @len(value)) {
+        mem.free_slice(char, data);
+        return 0;
+    }
+    return @as(*char, data);
+};
+
+pub try_dup_z :: fn(value: string) ?*char {
+    maybe_data: ?[]char = mem.try_make_zeroed(char, @len(value) + 1);
+    if(maybe_data == null) {
+        return null;
+    }
+
+    data: []char = @unwrap(maybe_data);
+    copied: types.size_t = slice.copy(char, data, @as([]char, value));
+    if(copied != @len(value)) {
+        mem.free_slice(char, data);
+        return null;
+    }
+    return @as(*char, data);
+};
+
+pub arena_dup_z :: fn(arena: mem.Arena, value: string) *char {
+    data: []char = mem.arena_make_zeroed(char, arena, @len(value) + 1);
+    copied: types.size_t = slice.copy(char, data, @as([]char, value));
+    if(copied != @len(value)) {
+        return 0;
+    }
+    return @as(*char, data);
+};
+
+pub free :: fn(value: *char) void {
+    c.dealloc(value);
+};

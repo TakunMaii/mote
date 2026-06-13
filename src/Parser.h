@@ -254,6 +254,8 @@ ASTDataType* parsePrimaryDataType(Token **token)
         primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR);
     else if(strcmp(identifier, "bool") == 0)
         primary = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL);
+    else if(strcmp(identifier, "string") == 0)
+        return newStringDataType();
     else
         primary = newNamedDataType(identifier);
     return primary;

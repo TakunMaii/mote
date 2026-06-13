@@ -26,7 +26,15 @@ This document defines the backend-facing runtime ABI that `MIR` assumes.
 - Runtime representation: inline fixed-size aggregate
 - Layout: contiguous element storage, no header, no length field, no implicit terminator
 - `Array(T, 0)` occupies zero element slots
-- A string literal expression has type `Array(char, N)` where `N` is the source byte length, not including any trailing `\0`
+
+## String
+
+- Runtime representation: `{ ptr, len }`
+- `ptr` points at the first byte of the string contents
+- `len` stores the source byte length
+- `string` is the official readonly string view type
+- A string literal expression has type `string`
+- `string` does not imply a trailing `\0`
 
 ## Struct
 
@@ -65,7 +73,7 @@ This document defines the backend-facing runtime ABI that `MIR` assumes.
 - String literals can coerce to `*char` in pointer target contexts for C interop
 - `@as(*char, "...")` remains a supported explicit form
 - The backend materializes a global NUL-terminated byte buffer and returns a pointer to its first element
-- This does not change the default type of a string literal expression, which remains `Array(char, N)`
+- This does not change the default type of a string literal expression, which remains `string`
 
 ## Native Extern ABI
 

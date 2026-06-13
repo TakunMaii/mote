@@ -15,6 +15,7 @@ pub rewind :: filesystem.rewind;
 pub get_char :: filesystem.get_char;
 pub put_char :: filesystem.put_char;
 pub get_line :: filesystem.get_line;
+pub put_c_string :: filesystem.put_c_string;
 pub put_string :: filesystem.put_string;
 pub eof :: filesystem.eof;
 pub error :: filesystem.error;

@@ -1,7 +1,9 @@
 @package("filesystem");
 
 c :: @import("std:internal/c");
+cstr :: @import("std:internal/cstr");
 mem :: @import("std:mem");
+str :: @import("std:str");
 types :: @import("std:types");
 
 // Thin filesystem helpers layered on C stdio.
@@ -20,7 +22,7 @@ pub rewind :: c.rewind;
 pub get_char :: c.fgetc;
 pub put_char :: c.fputc;
 pub get_line :: c.fgets;
-pub put_string :: c.fputs;
+pub put_c_string :: c.fputs;
 pub eof :: c.feof;
 pub error :: c.ferror;
 pub remove :: c.remove;
@@ -30,7 +32,58 @@ pub seek_set :: c.SEEK_SET;
 pub seek_cur :: c.SEEK_CUR;
 pub seek_end :: c.SEEK_END;
 
-pub exists :: fn(path: *char) bool {
+pub put_string :: fn(handle: File, value: string) bool {
+    written: types.size_t = write(@as(*void, str.ptr(value)), 1, @len(value), handle);
+    return written == @len(value);
+};
+
+with_path :: fn(path: string, action: Function([*char], bool)) bool {
+    c_path: *char = cstr.dup_z(path);
+    if(c_path == 0) {
+        return false;
+    }
+    ok: bool = action(c_path);
+    cstr.free(c_path);
+    return ok;
+};
+
+with_path_size :: fn(path: string, action: Function([*char], ?types.size_t)) ?types.size_t {
+    c_path: *char = cstr.dup_z(path);
+    if(c_path == 0) {
+        return null;
+    }
+    result: ?types.size_t = action(c_path);
+    cstr.free(c_path);
+    return result;
+};
+
+with_path_bytes :: fn(path: string, action: Function([*char], ?[]u8)) ?[]u8 {
+    c_path: *char = cstr.dup_z(path);
+    if(c_path == 0) {
+        return null;
+    }
+    result: ?[]u8 = action(c_path);
+    cstr.free(c_path);
+    return result;
+};
+
+with_two_paths :: fn(lhs: string, rhs: string, action: Function([*char, *char], bool)) bool {
+    lhs_c: *char = cstr.dup_z(lhs);
+    if(lhs_c == 0) {
+        return false;
+    }
+    rhs_c: *char = cstr.dup_z(rhs);
+    if(rhs_c == 0) {
+        cstr.free(lhs_c);
+        return false;
+    }
+    ok: bool = action(lhs_c, rhs_c);
+    cstr.free(rhs_c);
+    cstr.free(lhs_c);
+    return ok;
+};
+
+exists_c :: fn(path: *char) bool {
     file: File = open(path, "rb");
     if(file == 0) {
         return false;
@@ -39,7 +92,11 @@ pub exists :: fn(path: *char) bool {
     return true;
 };
 
-pub file_size :: fn(path: *char) ?types.size_t {
+pub exists :: fn(path: string) bool {
+    return with_path(path, exists_c);
+};
+
+file_size_c :: fn(path: *char) ?types.size_t {
     file: File = open(path, "rb");
     if(file == 0) {
         return null;
@@ -57,8 +114,12 @@ pub file_size :: fn(path: *char) ?types.size_t {
     return @as(types.size_t, end_pos);
 };
 
-pub read_all :: fn(path: *char) ?[]u8 {
-    size: ?types.size_t = file_size(path);
+pub file_size :: fn(path: string) ?types.size_t {
+    return with_path_size(path, file_size_c);
+};
+
+read_all_c :: fn(path: *char) ?[]u8 {
+    size: ?types.size_t = file_size_c(path);
     if(size == null) {
         return null;
     }
@@ -89,7 +150,11 @@ pub read_all :: fn(path: *char) ?[]u8 {
     return data;
 };
 
-pub write_all :: fn(path: *char, data: []u8) bool {
+pub read_all :: fn(path: string) ?[]u8 {
+    return with_path_bytes(path, read_all_c);
+};
+
+write_all_c :: fn(path: *char, data: []u8) bool {
     file: File = open(path, "wb");
     if(file == 0) {
         return false;
@@ -100,27 +165,57 @@ pub write_all :: fn(path: *char, data: []u8) bool {
     return write_count == @len(data);
 };
 
-pub remove_file :: fn(path: *char) bool {
+pub write_all :: fn(path: string, data: []u8) bool {
+    c_path: *char = cstr.dup_z(path);
+    if(c_path == 0) {
+        return false;
+    }
+    ok: bool = write_all_c(c_path, data);
+    cstr.free(c_path);
+    return ok;
+};
+
+remove_file_c :: fn(path: *char) bool {
     return remove(path) == 0;
 };
 
-pub rename_file :: fn(from_path: *char, to_path: *char) bool {
+pub remove_file :: fn(path: string) bool {
+    return with_path(path, remove_file_c);
+};
+
+rename_file_c :: fn(from_path: *char, to_path: *char) bool {
     return rename(from_path, to_path) == 0;
 };
 
-pub directory_exists :: fn(path: *char) bool {
+pub rename_file :: fn(from_path: string, to_path: string) bool {
+    return with_two_paths(from_path, to_path, rename_file_c);
+};
+
+directory_exists_c :: fn(path: *char) bool {
     return c.directory_exists(path) != 0;
 };
 
-pub create_directory :: fn(path: *char) bool {
+pub directory_exists :: fn(path: string) bool {
+    return with_path(path, directory_exists_c);
+};
+
+create_directory_c :: fn(path: *char) bool {
     return c.directory_create(path) != 0;
 };
 
-pub remove_directory :: fn(path: *char) bool {
+pub create_directory :: fn(path: string) bool {
+    return with_path(path, create_directory_c);
+};
+
+remove_directory_c :: fn(path: *char) bool {
     return c.directory_remove(path) != 0;
 };
 
-pub directory_entry_count :: fn(path: *char) ?types.size_t {
+pub remove_directory :: fn(path: string) bool {
+    return with_path(path, remove_directory_c);
+};
+
+directory_entry_count_c :: fn(path: *char) ?types.size_t {
     count: i64 = c.directory_entry_count(path);
     if(count < 0) {
         return null;
@@ -128,9 +223,13 @@ pub directory_entry_count :: fn(path: *char) ?types.size_t {
     return @as(types.size_t, count);
 };
 
+pub directory_entry_count :: fn(path: string) ?types.size_t {
+    return with_path_size(path, directory_entry_count_c);
+};
+
 // Returns a NUL-delimited blob of entry names.
 // Each entry occupies `name_bytes + '\0'`.
-pub list_directory_names :: fn(path: *char) ?[]char {
+list_directory_names_c :: fn(path: *char) ?[]char {
     size: i64 = c.directory_list_names(path, 0, 0);
     if(size < 0) {
         return null;
@@ -147,4 +246,14 @@ pub list_directory_names :: fn(path: *char) ?[]char {
         return null;
     }
     return data;
+};
+
+pub list_directory_names :: fn(path: string) ?[]char {
+    c_path: *char = cstr.dup_z(path);
+    if(c_path == 0) {
+        return null;
+    }
+    result: ?[]char = list_directory_names_c(c_path);
+    cstr.free(c_path);
+    return result;
 };

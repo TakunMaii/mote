@@ -3,5 +3,13 @@
 c :: @import("std:internal/c");
 
 pub put_char :: c.putchar;
-pub put_str :: c.puts;
 pub stderr_handle :: c.stderr_handle;
+pub stdout_handle :: c.stdout_handle;
+
+pub put_str :: fn(value: string) i32 {
+    written: i64 = @as(i64, c.fwrite(@as(*void, @as(*char, value)), 1, @len(value), stdout_handle()));
+    if(written != @as(i64, @len(value))) {
+        return -1;
+    }
+    return @as(i32, written);
+};

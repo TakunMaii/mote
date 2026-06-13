@@ -24,6 +24,11 @@ void *mote_stderr_handle(void)
     return stderr;
 }
 
+void *mote_stdout_handle(void)
+{
+    return stdout;
+}
+
 float mote_sinf(float x)
 {
     return sinf(x);

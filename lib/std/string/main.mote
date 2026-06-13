@@ -1,136 +1,20 @@
 @package("string");
 
-c :: @import("std:internal/c");
-slice :: @import("std:slice");
-types :: @import("std:types");
+str :: @import("std:str");
 
-// `len` / `compare` / `compare_n` / `to_int` are C-string helpers.
-// The remaining APIs operate on Mote slices and preserve embedded `\0` bytes.
-
-pub len :: c.strlen;
-pub compare :: c.strcmp;
-pub compare_n :: c.strncmp;
-pub to_int :: c.atoi;
-
-is_digit :: fn(ch: char) bool {
-    return ch >= '0' && ch <= '9';
-};
-
-digit_value :: fn(ch: char) u64 {
-    return @as(u64, ch - '0');
-};
-
-pub is_empty :: fn(value: []char) bool {
-    return @len(value) == 0;
-};
-
-pub equal :: fn(lhs: []char, rhs: []char) bool {
-    return slice.equal(char, lhs, rhs);
-};
-
-pub starts_with :: fn(value: []char, prefix: []char) bool {
-    return slice.starts_with(char, value, prefix);
-};
-
-pub ends_with :: fn(value: []char, suffix: []char) bool {
-    return slice.ends_with(char, value, suffix);
-};
-
-pub index_of :: fn(value: []char, needle: char) ?types.size_t {
-    return slice.index_of(char, value, needle);
-};
-
-pub parse_u64 :: fn(value: []char) ?u64 {
-    if(@len(value) == 0) {
-        return null;
-    }
-
-    parsed: u64 = 0;
-    index: types.size_t = 0;
-    while(index < @len(value)) {
-        ch: char = value[index];
-        if(!is_digit(ch)) {
-            return null;
-        }
-
-        digit: u64 = digit_value(ch);
-        if(parsed > @as(u64, 1844674407370955161)) {
-            return null;
-        }
-        if(parsed == @as(u64, 1844674407370955161) && digit > @as(u64, 5)) {
-            return null;
-        }
-
-        parsed = parsed * @as(u64, 10) + digit;
-        index = index + 1;
-    }
-    return parsed;
-};
-
-pub parse_i64 :: fn(value: []char) ?i64 {
-    if(@len(value) == 0) {
-        return null;
-    }
-
-    index: types.size_t = 0;
-    negative: bool = false;
-    if(value[0] == '+' || value[0] == '-') {
-        negative = value[0] == '-';
-        index = 1;
-    }
-    if(index >= @len(value)) {
-        return null;
-    }
-
-    parsed: u64 = 0;
-    limit: u64 = @as(u64, 9223372036854775807);
-    if(negative) {
-        limit = @as(u64, 9223372036854775808);
-    }
-
-    while(index < @len(value)) {
-        ch: char = value[index];
-        if(!is_digit(ch)) {
-            return null;
-        }
-
-        digit: u64 = digit_value(ch);
-        if(parsed > limit / @as(u64, 10)) {
-            return null;
-        }
-        if(parsed == limit / @as(u64, 10) && digit > limit % @as(u64, 10)) {
-            return null;
-        }
-
-        parsed = parsed * @as(u64, 10) + digit;
-        index = index + 1;
-    }
-
-    if(negative) {
-        if(parsed == @as(u64, 9223372036854775808)) {
-            return (0 - @as(i64, 9223372036854775807)) - 1;
-        }
-        return 0 - @as(i64, parsed);
-    }
-    return @as(i64, parsed);
-};
-
-pub trim_start :: fn(value: []char, ch: char) []char {
-    index: types.size_t = 0;
-    while(index < @len(value) && value[index] == ch) {
-        index = index + 1;
-    }
-    return slice.subslice(char, value, index, @len(value) - index);
-};
-
-pub trim_end :: fn(value: []char, ch: char) []char {
-    len_value: types.size_t = @len(value);
-    while(len_value > 0 && value[len_value - 1] == ch) {
-        len_value = len_value - 1;
-    }
-    return slice.head(char, value, len_value);
-};
-
-pub trim :: fn(value: []char, ch: char) []char {
-    return trim_end(trim_start(value, ch), ch);
-};
+pub len :: str.len;
+pub is_empty :: str.is_empty;
+pub equal :: str.equal;
+pub starts_with :: str.starts_with;
+pub ends_with :: str.ends_with;
+pub index_of :: str.index_of;
+pub ptr :: str.ptr;
+pub from_chars :: str.from_chars;
+pub from_ptr_len :: str.from_ptr_len;
+pub from_c_string :: str.from_c_string;
+pub to_chars :: str.to_chars;
+pub parse_u64 :: str.parse_u64;
+pub parse_i64 :: str.parse_i64;
+pub trim_start :: str.trim_start;
+pub trim_end :: str.trim_end;
+pub trim :: str.trim;

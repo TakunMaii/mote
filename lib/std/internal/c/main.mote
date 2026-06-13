@@ -52,6 +52,7 @@ pub rename :: c.rename;
 pub putchar :: c.putchar;
 pub puts :: c.puts;
 pub stderr_handle :: c.stderr_handle;
+pub stdout_handle :: c.stdout_handle;
 
 pub strlen :: c.strlen;
 pub strcmp :: c.strcmp;

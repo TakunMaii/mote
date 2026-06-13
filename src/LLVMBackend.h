@@ -630,6 +630,7 @@ static bool llvmIsExternAggregateType(ASTDataType *data_type)
     return data_type != NULL &&
            (data_type->kind == AST_DATA_TYPE_KIND_ARRAY ||
             data_type->kind == AST_DATA_TYPE_KIND_SLICE ||
+            data_type->kind == AST_DATA_TYPE_KIND_STRING ||
             data_type->kind == AST_DATA_TYPE_KIND_STRUCT ||
             data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL);
 }
@@ -663,6 +664,14 @@ static size_t llvmExternABITypeSize(ASTDataType *data_type)
             return child_size * (size_t) data_type->array_length;
         }
         case AST_DATA_TYPE_KIND_SLICE: {
+            size_t ptr_size = sizeof(void*);
+            size_t len_align = llvmExternABITypeAlignment(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64));
+            size_t len_size = llvmExternABITypeSize(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64));
+            size_t offset = llvmAlignTo(ptr_size, len_align);
+            size_t max_align = sizeof(void*) > len_align ? sizeof(void*) : len_align;
+            return llvmAlignTo(offset + len_size, max_align);
+        }
+        case AST_DATA_TYPE_KIND_STRING: {
             size_t ptr_size = sizeof(void*);
             size_t len_align = llvmExternABITypeAlignment(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64));
             size_t len_size = llvmExternABITypeSize(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64));
@@ -717,6 +726,10 @@ static size_t llvmExternABITypeAlignment(ASTDataType *data_type)
         case AST_DATA_TYPE_KIND_ARRAY:
             return llvmExternABITypeAlignment(data_type->child);
         case AST_DATA_TYPE_KIND_SLICE: {
+            size_t len_align = llvmExternABITypeAlignment(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64));
+            return sizeof(void*) > len_align ? sizeof(void*) : len_align;
+        }
+        case AST_DATA_TYPE_KIND_STRING: {
             size_t len_align = llvmExternABITypeAlignment(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64));
             return sizeof(void*) > len_align ? sizeof(void*) : len_align;
         }
@@ -861,6 +874,7 @@ static void llvmEmitType(FILE *stream, ASTDataType *data_type)
             fprintf(stream, "]");
             return;
         case AST_DATA_TYPE_KIND_SLICE:
+        case AST_DATA_TYPE_KIND_STRING:
             llvmEmitSliceRuntimeType(stream);
             return;
         case AST_DATA_TYPE_KIND_OPTIONAL:
@@ -924,6 +938,7 @@ static void llvmEmitStorageType(FILE *stream, ASTDataType *data_type)
             fprintf(stream, "]");
             return;
         case AST_DATA_TYPE_KIND_SLICE:
+        case AST_DATA_TYPE_KIND_STRING:
             llvmEmitSliceRuntimeType(stream);
             return;
         case AST_DATA_TYPE_KIND_OPTIONAL:
@@ -1574,7 +1589,9 @@ static void llvmEmitStructLiteral(FILE *stream, LLVMFunctionEmitContext *context
                 field_index = 1;
             }
         }
-        else if(inst->result_type != NULL && inst->result_type->kind == AST_DATA_TYPE_KIND_SLICE)
+        else if(inst->result_type != NULL &&
+                (inst->result_type->kind == AST_DATA_TYPE_KIND_SLICE ||
+                 inst->result_type->kind == AST_DATA_TYPE_KIND_STRING))
         {
             if(strcmp(field->identifier, "ptr") == 0)
             {
@@ -1999,6 +2016,13 @@ static void llvmEmitConvertInst(FILE *stream, LLVMFunctionEmitContext *context, 
     }
 
     if(source_type->kind == AST_DATA_TYPE_KIND_POINTER || source_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
+    {
+        context->aliases[inst->result] = llvmResolveAlias(context, inst->data.convert.operand);
+        return;
+    }
+
+    if((source_type->kind == AST_DATA_TYPE_KIND_SLICE || source_type->kind == AST_DATA_TYPE_KIND_STRING) &&
+       (target_type->kind == AST_DATA_TYPE_KIND_SLICE || target_type->kind == AST_DATA_TYPE_KIND_STRING))
     {
         context->aliases[inst->result] = llvmResolveAlias(context, inst->data.convert.operand);
         return;

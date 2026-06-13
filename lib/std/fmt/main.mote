@@ -5,18 +5,30 @@ slice :: @import("std:slice");
 types :: @import("std:types");
 
 // Low-level formatting helpers for caller-owned buffers.
+// `print` / `eprint` / `format_into` are low-level C-format interfaces.
+// Prefer `println` / `fprintln` and `std:str` for the default string model.
 // These APIs do not allocate and report failure with `-1`.
 
 pub print :: @extern("printf", Function([*char, ...], i32));
 pub eprint :: @extern("fprintf", Function([*void, *char, ...], i32));
 pub format_into :: @extern("snprintf", Function([*char, types.size_t, *char, ...], i32));
 
-pub println :: fn(message: *char) i32 {
-    return print("%s\n", message);
+pub println :: fn(message: string) i32 {
+    printed: types.size_t = c.fwrite(@as(*void, ptr(message)), 1, @len(message), c.stdout_handle());
+    c.putchar('\n');
+    if(printed != @len(message)) {
+        return -1;
+    }
+    return @as(i32, printed + 1);
 };
 
-pub fprintln :: fn(handle: *void, message: *char) i32 {
-    return eprint(handle, "%s\n", message);
+pub fprintln :: fn(handle: *void, message: string) i32 {
+    printed: types.size_t = c.fwrite(@as(*void, ptr(message)), 1, @len(message), handle);
+    c.fputc('\n', handle);
+    if(printed != @len(message)) {
+        return -1;
+    }
+    return @as(i32, printed + 1);
 };
 
 pub Appender :: struct {
@@ -128,4 +140,8 @@ pub append_i64 :: fn(dst: []char, value: i64) i64 {
 
 pub append_u64 :: fn(dst: []char, value: u64) i64 {
     return append_u64_impl(dst, value);
+};
+
+ptr :: fn(value: string) *char {
+    return @as(*char, value);
 };

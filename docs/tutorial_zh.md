@@ -104,6 +104,7 @@ main :: fn() i32 {
 - 指针：`*T`
 - 引用：`&T`
 - 可选：`?T`
+- `string`
 - 定长数组：`Array(T, N)`
 - 切片：`[]T`
 - 函数类型：`Function([A, B, ...], Ret)`
@@ -115,6 +116,7 @@ main :: fn() i32 {
 ```mote
 flag: bool = true;
 count: i32 = 3;
+title: string = "hello";
 name: Array(char, 5) = ['h', 'e', 'l', 'l', 'o'];
 ptr: *i32 = 0;
 maybe: ?i32 = null;
@@ -160,6 +162,38 @@ value: i32 = @unwrap(other_num);
 - 不能直接比较两个可选值
 - `@unwrap(null)` 会在运行时 panic
 
+### 字符串、数组和切片
+
+Mote 里现在有一个官方字符串类型：`string`。
+
+- `string`：只读字符串视图，运行时布局是 `{ ptr, len }`
+- `[]char`：可写字符切片/缓冲区
+- `*char`：原始字符指针，常用于 FFI 或 C 接口边界
+
+最常见的例子：
+
+```mote
+str :: @import("std:str");
+
+main :: fn() i32 {
+    name: string = "mote";
+    chars: []char = str.to_chars(name);
+    again: string = str.from_chars(chars);
+
+    if(str.equal(name, again)) {
+        return 0;
+    }
+    return 1;
+};
+```
+
+当前约定：
+
+- 字符串字面量默认类型是 `string`
+- `string` 不保证 `\0` 结尾
+- `string -> *char` 只表示“取底层内容指针”，不是 C-string 转换
+- 真正的 C-string 桥接在 `std:internal/cstr`
+
 ### 数组和切片
 
 数组是内联定长值，切片是单独的切片类型：
@@ -180,7 +214,7 @@ main :: fn() i32 {
 
 - `Array(T, N)` 是内联连续存储
 - 不带隐式长度字段
-- 字符串字面量的默认类型是 `Array(char, N)`，不是 `*char`
+- 字符串字面量的默认类型是 `string`，不是 `*char`
 
 ## 函数、闭包和函数类型
 
@@ -371,7 +405,7 @@ main :: fn() i32 {
 - `@extern("symbol", Function([...], Ret))`
 - `@as(T, expr)`
 - `@zero(T)`
-- `@len(slice)`
+- `@len(slice_or_string)`
 - `@slice(T, ptr, len)`
 - `@unwrap(optional)`
 - `@sizeof(T)` 或 `@sizeof(value_type)`
@@ -417,6 +451,7 @@ c.printf("val=%d %s\n", 42, @as(*char, "ok"));
 - variadic extern 已支持
 - 小聚合参数/返回值在 native ABI 边界有专门处理
 - 字符串字面量可以在指针目标上下文里转成 `*char`
+- 面向 C API 的安全桥接建议使用 `std:internal/cstr`
 
 ### `@slice`、`@ptr_add`、`@ptr_diff`
 
@@ -530,7 +565,8 @@ mem.copy(...);
 - `std:rand`
 - `std:set`
 - `std:slice`
-- `std:string`
+- `std:str`
+- `std:string`（兼容 shim）
 - `std:time`
 - `std:types`
 
