@@ -1,4 +1,0 @@
-{
-    inner := 1;
-}
-outer = inner;

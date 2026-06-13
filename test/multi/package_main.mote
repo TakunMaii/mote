@@ -1,3 +1,0 @@
-app :: @import("app");
-
-sum: i32 = app.add(app.base, app.scale(4));

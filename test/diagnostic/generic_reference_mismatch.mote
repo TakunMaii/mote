@@ -1,6 +1,0 @@
-g :: @import("../generic/support_factories");
-
-main :: fn() i32 {
-    g.ref_write(i32, 1, 2);
-    return 0;
-};

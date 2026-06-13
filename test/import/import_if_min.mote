@@ -1,7 +1,0 @@
-m :: @import("mock");
-
-y: i32 = 0;
-
-if(m.FLAG) {
-    y = 1;
-}

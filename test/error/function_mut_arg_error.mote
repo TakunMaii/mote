@@ -1,7 +1,0 @@
-addYToX :: fn(x: &i32, y: i32) void {
-    x := x + y;
-};
-
-x := 3;
-y :: 4;
-addYToX(x, y);

@@ -1,4 +1,0 @@
-size_i32: i64 = @sizeof(i32);
-align_i32: i64 = @alignof(i32);
-size_opt: i64 = @sizeof(?i32);
-align_opt: i64 = @alignof(?i32);

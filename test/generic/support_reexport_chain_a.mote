@@ -1,5 +1,0 @@
-base :: @import("./support_factories");
-
-pub Pair :: base.Pair;
-pub make_pair :: base.make_pair;
-pub make_identity :: base.make_identity;

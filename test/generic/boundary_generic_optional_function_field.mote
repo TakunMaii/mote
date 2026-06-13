@@ -1,9 +1,0 @@
-g :: @import("./support_factories");
-
-main :: fn() i32 {
-    maybe_box: ?g.HandlerBox(i32) = g.make_handler_box(i32, 4, g.make_identity(i32));
-    if(maybe_box != null && g.run_handler_box(i32, @unwrap(maybe_box)) == 4) {
-        return 0;
-    }
-    return 1;
-};

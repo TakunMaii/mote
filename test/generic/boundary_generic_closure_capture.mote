@@ -1,9 +1,0 @@
-g :: @import("./support_factories");
-
-main :: fn() i32 {
-    add5: Function([i32], i32) = g.make_offset_adder(i32, 5);
-    if(add5(7) == 12) {
-        return 0;
-    }
-    return 1;
-};

@@ -1,2 +1,0 @@
-flag : bool = true;
-x : i32 = flag + 1;

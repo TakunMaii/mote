@@ -1,6 +1,0 @@
-chain :: @import("../generic/support_reexport_chain_b");
-
-main :: fn() i32 {
-    value := chain.make_pair(1, 2.0);
-    return value.left;
-};

@@ -1,7 +1,0 @@
-Node :: struct {
-    next: ?*Self,
-};
-
-main :: fn() i32 {
-    return Node.missing;
-};

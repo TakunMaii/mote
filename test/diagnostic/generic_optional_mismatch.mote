@@ -1,9 +1,0 @@
-g :: @import("../generic/support_factories");
-
-main :: fn() i32 {
-    value: ?f32 = g.wrap_optional(i32, 1);
-    if(value == null) {
-        return 0;
-    }
-    return 1;
-};

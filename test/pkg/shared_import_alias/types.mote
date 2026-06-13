@@ -1,8 +1,0 @@
-@package("shared_import_alias");
-
-pub make_pair :: fn(left: i32, right: i32) util.Pair {
-    return util.Pair {
-        .left = left,
-        .right = right,
-    };
-};

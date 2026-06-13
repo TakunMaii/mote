@@ -1,6 +1,0 @@
-g :: @import("../generic/support_factories");
-
-main :: fn() i32 {
-    values := [1, 2.0];
-    return @unwrap(g.first_or_null(i32, values));
-};

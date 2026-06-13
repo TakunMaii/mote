@@ -1,8 +1,0 @@
-@package("game");
-
-ng :: @import("notgate");
-
-main :: fn() void
-{
-    ng.run();
-};

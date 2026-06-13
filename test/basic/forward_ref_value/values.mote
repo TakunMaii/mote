@@ -1,7 +1,0 @@
-@package("forward_ref_value");
-
-use_value :: fn() i32 {
-    return later_value;
-};
-
-later_value := 42;

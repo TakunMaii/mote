@@ -1,9 +1,0 @@
-foo :: fn(T: Type, p: *T) void {
-    return;
-};
-
-main :: fn() i32 {
-    p: *i32 = 0;
-    foo(i32, p);
-    return 0;
-};

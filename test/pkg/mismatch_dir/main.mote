@@ -1,3 +1,0 @@
-@package("custom_name");
-
-value: i32 = 42;

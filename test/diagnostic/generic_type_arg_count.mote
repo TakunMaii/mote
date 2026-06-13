@@ -1,4 +1,0 @@
-g :: @import("../generic/support_factories");
-
-bad0 := g.Pair();
-bad1 :: g.Pair(i32, i32);

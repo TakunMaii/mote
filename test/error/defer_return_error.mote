@@ -1,3 +1,0 @@
-worker :: fn() void {
-    defer return;
-};

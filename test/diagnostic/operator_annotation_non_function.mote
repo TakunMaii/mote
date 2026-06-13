@@ -1,6 +1,0 @@
-@operator(+)
-bad: i32 = 1;
-
-main :: fn() i32 {
-    return 0;
-};

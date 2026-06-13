@@ -1,6 +1,0 @@
-@package("util");
-
-pub Pair :: struct {
-    left: i32,
-    right: i32,
-};

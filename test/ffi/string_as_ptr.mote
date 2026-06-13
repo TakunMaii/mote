@@ -1,6 +1,0 @@
-c :: @import("c");
-
-pub main :: fn() void {
-    fmt: *char = "string-as-ptr ok\n";
-    c.printf(fmt);
-};

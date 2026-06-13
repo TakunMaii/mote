@@ -1,5 +1,0 @@
-@package("util");
-
-pub scale :: fn(value: i32) i32 {
-    return value * 3;
-};

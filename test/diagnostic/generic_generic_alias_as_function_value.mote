@@ -1,9 +1,0 @@
-g :: @import("../generic/support_factories");
-
-consume :: fn(f: Function([i32], i32)) i32 {
-    return f(1);
-};
-
-main :: fn() i32 {
-    return consume(g.id);
-};

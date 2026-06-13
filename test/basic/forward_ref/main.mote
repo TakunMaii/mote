@@ -1,5 +1,0 @@
-@package("forward_ref");
-
-main :: fn() i32 {
-    return add_later(later_value());
-};

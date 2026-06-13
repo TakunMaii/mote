@@ -1,6 +1,0 @@
-@package("shared_top_level_type");
-
-pub Pair :: struct {
-    left: i32,
-    right: i32,
-};

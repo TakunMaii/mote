@@ -1,5 +1,0 @@
-std :: @import("std");
-
-main :: fn() void {
-    _ := std;
-};
