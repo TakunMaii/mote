@@ -29,6 +29,7 @@ ASTDataType* parseDataType(Token **token);
 ASTTypeArgument* parseTypeArgumentList(Token **token);
 ASTFunctionCapture* parseFunctionCaptures(Token **token);
 bool parseFunctionParameterList(Token **token, bool for_type_syntax, ASTFunctionParameter **out_head, bool *out_is_variadic);
+ASTNode* parseBuiltinExpr(Token **token);
 
 static void parsePackageDirective(Token **token, ASTNode *root)
 {
@@ -74,6 +75,107 @@ static void parsePackageDirective(Token **token, ASTNode *root)
     // to allow for more flexible formatting of the package directive
     if((*token)->kind == TK_SEMICOLON)
         *token = (*token)->next;
+}
+
+static void parseAnonymousImportIdentifier(ASTNode *import_expr, char *buffer, size_t buffer_size)
+{
+    if(import_expr == NULL ||
+       import_expr->lhs == NULL ||
+       import_expr->lhs->next != NULL ||
+       import_expr->lhs->kind != AST_EXPR_LITERAL_STRING)
+    {
+        diagnosticAbortSimple("P1024",
+                              "anonymous import requires exactly one string literal path",
+                              astNodeSourceSpan(import_expr),
+                              "use `@import(\"path\")` or bind the import to a name explicitly");
+    }
+
+    const char *import_path = import_expr->lhs->literal_string;
+    if(import_path[0] == '\0')
+    {
+        diagnosticAbortSimple("P1025",
+                              "import path cannot be empty",
+                              astNodeSourceSpan(import_expr),
+                              "use a non-empty package path");
+    }
+
+    const char *alias_start = import_path;
+    const char *collection_separator = strchr(import_path, ':');
+    if(collection_separator != NULL)
+        alias_start = collection_separator + 1;
+
+    const char *path_separator = strrchr(alias_start, '/');
+    if(path_separator != NULL)
+        alias_start = path_separator + 1;
+
+    if(alias_start[0] == '\0')
+    {
+        diagnosticAbortSimple("P1026",
+                              "anonymous import path does not contain a usable module name",
+                              astNodeSourceSpan(import_expr),
+                              "use an explicit alias such as `name :: @import(\"path\")` instead");
+    }
+
+    if(!isIdentifierHead(alias_start[0]))
+    {
+        diagnosticAbortSimple("P1027",
+                              "anonymous import name must be a valid identifier",
+                              astNodeSourceSpan(import_expr),
+                              "use a valid identifier segment or bind the import explicitly");
+    }
+
+    for(const char *cursor = alias_start + 1; *cursor != '\0'; cursor++)
+    {
+        if(!isIdentifier(*cursor))
+        {
+            diagnosticAbortSimple("P1027",
+                                  "anonymous import name must be a valid identifier",
+                                  astNodeSourceSpan(import_expr),
+                                  "use a valid identifier segment or bind the import explicitly");
+        }
+    }
+
+    size_t alias_length = strlen(alias_start);
+    if(alias_length >= buffer_size)
+    {
+        diagnosticAbortSimple("P1028",
+                              "anonymous import name is too long",
+                              astNodeSourceSpan(import_expr),
+                              "use a shorter import path segment or an explicit alias");
+    }
+
+    memcpy(buffer, alias_start, alias_length + 1);
+}
+
+static ASTNode* parseAnonymousImport(Token **token)
+{
+    Token *at_token = expectToken(*token, TK_AT);
+    ASTNode *import_expr = parseBuiltinExpr(token);
+
+    if(strcmp(import_expr->identifier, "import") != 0)
+    {
+        diagnosticAbortSimple("P1029",
+                              "expected @import builtin",
+                              tokenSourceSpan(at_token),
+                              "only `@import(...)` can be used as an anonymous import");
+    }
+
+    char alias[MAX_IDENTIFIER_LENGTH] = {0};
+    parseAnonymousImportIdentifier(import_expr, alias, sizeof(alias));
+
+    ASTNode *node = newASTNodeFromToken(AST_ASSIGN, at_token);
+
+    node->modifier.is_compile_time_binding = true;
+    node->modifier.is_runtime_binding = false;
+    node->modifier.explicit_type = false;
+
+    ASTNode *lhs = newASTNodeFromToken(AST_EXPR_VARIABLE, at_token);
+    strcpy(lhs->identifier, alias);
+    strcpy(node->identifier, alias);
+    node->lhs = lhs;
+    node->rhs = import_expr;
+    node->data_type = newInferDataType();
+    return node;
 }
 
 void parseQualifiedIdentifier(Token **token, char *buffer)
@@ -1749,6 +1851,15 @@ ASTNode* parse(Token *token)
             stmt = parseAssign(&token);
         else if(isStatementAssign(token))
             stmt = parseAssign(&token);
+        else if(token->kind == TK_AT &&
+            token->next != NULL &&
+            token->next->kind == TK_IDENTIFIER &&
+            strcmp(token->next->identifier, "import") == 0)
+        {
+            // Allow anonymous import statement `@import(...)`.
+            // Use the final path segment as the implicit import alias.
+            stmt = parseAnonymousImport(&token);
+        }
         else
         {
             diagnosticAbortSimple("P1023",
