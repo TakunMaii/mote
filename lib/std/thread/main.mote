@@ -1,0 +1,48 @@
+@package("thread");
+
+c :: @import("std:internal/c");
+
+pub Entry :: Function([], i32);
+
+pub Thread :: struct {
+    handle: *void,
+
+    is_valid: fn(self: Self) bool {
+        return self.handle != 0;
+    },
+};
+
+pub JoinResult :: struct {
+    ok: bool,
+    value: i32,
+};
+
+pub spawn :: fn(entry: Entry) Thread {
+    return Thread {
+        .handle = c.thread_spawn(entry),
+    };
+};
+
+pub join :: fn(thread: &Thread) JoinResult {
+    result: i32 = 0;
+    ok: i64 = c.thread_join(thread.handle, &result);
+    thread.handle = 0;
+    return JoinResult {
+        .ok = ok != 0,
+        .value = result,
+    };
+};
+
+pub detach :: fn(thread: &Thread) bool {
+    ok: i64 = c.thread_detach(thread.handle);
+    thread.handle = 0;
+    return ok != 0;
+};
+
+pub current_id :: fn() i64 {
+    return c.thread_current_id();
+};
+
+pub yield_now :: fn() void {
+    c.thread_yield();
+};

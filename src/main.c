@@ -569,6 +569,7 @@ static void add_default_official_link_args(const char *argv0, ModulePackage *pac
     bool uses_enet = module_tree_uses_import(packages, package_count, input_path, "@import(\"vendor:enet\")");
     bool uses_std_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:math\")");
     bool uses_std_linalg = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:linalg\")");
+    bool uses_std_thread = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:thread\")");
     bool uses_c_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"c:math\")");
     char vendor_include_dir[CLI_PATH_BUFFER_SIZE] = {0};
 
@@ -640,6 +641,12 @@ static void add_default_official_link_args(const char *argv0, ModulePackage *pac
 
     if(uses_std_math || uses_std_linalg || uses_c_math)
         add_driver_arg(driver_args, driver_arg_count, "-lm");
+    if(uses_std_thread)
+    {
+#if !defined(_WIN32)
+        add_driver_arg(driver_args, driver_arg_count, "-lpthread");
+#endif
+    }
 
     if(uses_miniaudio)
         add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/miniaudio/src/miniaudio.c");

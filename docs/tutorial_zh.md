@@ -567,6 +567,7 @@ mem.copy(...);
 - `std:slice`
 - `std:str`
 - `std:string`（兼容 shim）
+- `std:thread`
 - `std:time`
 - `std:types`
 

@@ -632,7 +632,8 @@ static bool llvmIsExternAggregateType(ASTDataType *data_type)
             data_type->kind == AST_DATA_TYPE_KIND_SLICE ||
             data_type->kind == AST_DATA_TYPE_KIND_STRING ||
             data_type->kind == AST_DATA_TYPE_KIND_STRUCT ||
-            data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL);
+            data_type->kind == AST_DATA_TYPE_KIND_OPTIONAL ||
+            data_type->kind == AST_DATA_TYPE_KIND_FUNCTION);
 }
 
 static size_t llvmExternABITypeSize(ASTDataType *data_type)
@@ -646,8 +647,9 @@ static size_t llvmExternABITypeSize(ASTDataType *data_type)
             return llvmExternABIPrimaryTypeSize(data_type->primary);
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
-        case AST_DATA_TYPE_KIND_FUNCTION:
             return sizeof(void*);
+        case AST_DATA_TYPE_KIND_FUNCTION:
+            return sizeof(void*) * 2;
         case AST_DATA_TYPE_KIND_OPTIONAL: {
             size_t flag_align = llvmExternABIPrimaryTypeAlignment(AST_PRIMARY_DATA_TYPE_BOOL);
             size_t flag_size = llvmExternABIPrimaryTypeSize(AST_PRIMARY_DATA_TYPE_BOOL);

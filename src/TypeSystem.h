@@ -574,8 +574,9 @@ static size_t moteTypeLayoutSize(ASTDataType *data_type)
                                   "use a pointer to the opaque type instead");
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
-        case AST_DATA_TYPE_KIND_FUNCTION:
             return sizeof(void*);
+        case AST_DATA_TYPE_KIND_FUNCTION:
+            return sizeof(void*) * 2;
         case AST_DATA_TYPE_KIND_OPTIONAL: {
             size_t flag_size = 1;
             size_t child_align = moteTypeLayoutAlignment(data_type->child);
@@ -669,6 +670,7 @@ static size_t moteTypeLayoutAlignment(ASTDataType *data_type)
                                   "use a pointer to the opaque type instead");
         case AST_DATA_TYPE_KIND_POINTER:
         case AST_DATA_TYPE_KIND_REFERENCE:
+            return sizeof(void*);
         case AST_DATA_TYPE_KIND_FUNCTION:
             return sizeof(void*);
         case AST_DATA_TYPE_KIND_OPTIONAL: {

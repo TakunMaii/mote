@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <math.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -17,7 +18,63 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <sched.h>
 #endif
+
+typedef int (*MoteThreadEntryFn)(void *env);
+
+typedef struct MoteClosureValue {
+    MoteThreadEntryFn code_ptr;
+    void *env_ptr;
+} MoteClosureValue;
+
+typedef struct MoteThreadHandle {
+#if defined(_WIN32)
+    HANDLE native_handle;
+    DWORD thread_id;
+#else
+    pthread_t native_handle;
+#endif
+    atomic_int finished;
+    atomic_int owner_state; // 0 = joinable, 1 = detached, 2 = joined
+    atomic_int ref_count;
+    int exit_code;
+} MoteThreadHandle;
+
+static void mote_oom_panic(void);
+
+#if defined(_WIN32)
+static DWORD WINAPI mote_thread_trampoline(LPVOID param)
+#else
+static void *mote_thread_trampoline(void *param)
+#endif
+{
+    MoteThreadHandle *handle = (MoteThreadHandle*) param;
+    if(handle == NULL)
+    {
+#if defined(_WIN32)
+        return 0;
+#else
+        return NULL;
+#endif
+    }
+
+    MoteClosureValue *closure = (MoteClosureValue*) (((unsigned char*) handle) + sizeof(MoteThreadHandle));
+    int result = 0;
+    if(closure->code_ptr != NULL)
+        result = closure->code_ptr(closure->env_ptr);
+    handle->exit_code = result;
+    atomic_store(&(handle->finished), 1);
+    if(atomic_fetch_sub(&(handle->ref_count), 1) == 1)
+        free(handle);
+
+#if defined(_WIN32)
+    return (DWORD) result;
+#else
+    return NULL;
+#endif
+}
 
 void *mote_stderr_handle(void)
 {
@@ -323,6 +380,104 @@ void mote_sleep_ms(long long milliseconds)
         req = rem;
     }
 #endif
+}
+
+long long mote_thread_current_id(void)
+{
+#if defined(_WIN32)
+    return (long long) GetCurrentThreadId();
+#else
+    return (long long) (uintptr_t) pthread_self();
+#endif
+}
+
+void mote_thread_yield(void)
+{
+#if defined(_WIN32)
+    SwitchToThread();
+#else
+    sched_yield();
+#endif
+}
+
+void *mote_thread_spawn(void *entry_ptr)
+{
+    if(entry_ptr == NULL)
+        return NULL;
+
+    MoteThreadHandle *handle = (MoteThreadHandle*) malloc(sizeof(MoteThreadHandle) + sizeof(MoteClosureValue));
+    if(handle == NULL)
+        mote_oom_panic();
+    memset(handle, 0, sizeof(MoteThreadHandle) + sizeof(MoteClosureValue));
+    atomic_init(&(handle->finished), 0);
+    atomic_init(&(handle->owner_state), 0);
+    atomic_init(&(handle->ref_count), 2);
+
+    MoteClosureValue *closure = (MoteClosureValue*) (((unsigned char*) handle) + sizeof(MoteThreadHandle));
+    memcpy(closure, entry_ptr, sizeof(MoteClosureValue));
+
+#if defined(_WIN32)
+    handle->native_handle = CreateThread(NULL, 0, mote_thread_trampoline, handle, 0, &(handle->thread_id));
+    if(handle->native_handle == NULL)
+    {
+        free(handle);
+        return NULL;
+    }
+#else
+    if(pthread_create(&(handle->native_handle), NULL, mote_thread_trampoline, handle) != 0)
+    {
+        free(handle);
+        return NULL;
+    }
+#endif
+
+    return handle;
+}
+
+long long mote_thread_join(void *thread_handle, int *out_exit_code)
+{
+    MoteThreadHandle *handle = (MoteThreadHandle*) thread_handle;
+    int expected_state = 0;
+    if(handle == NULL)
+        return 0;
+    if(!atomic_compare_exchange_strong(&(handle->owner_state), &expected_state, 2))
+        return 0;
+
+#if defined(_WIN32)
+    DWORD wait_result = WaitForSingleObject(handle->native_handle, INFINITE);
+    if(wait_result != WAIT_OBJECT_0)
+        return 0;
+    CloseHandle(handle->native_handle);
+#else
+    if(pthread_join(handle->native_handle, NULL) != 0)
+        return 0;
+#endif
+
+    if(out_exit_code != NULL)
+        *out_exit_code = handle->exit_code;
+    if(atomic_fetch_sub(&(handle->ref_count), 1) == 1)
+        free(handle);
+    return 1;
+}
+
+long long mote_thread_detach(void *thread_handle)
+{
+    MoteThreadHandle *handle = (MoteThreadHandle*) thread_handle;
+    int expected_state = 0;
+    if(handle == NULL)
+        return 0;
+    if(!atomic_compare_exchange_strong(&(handle->owner_state), &expected_state, 1))
+        return 0;
+
+#if defined(_WIN32)
+    CloseHandle(handle->native_handle);
+#else
+    if(pthread_detach(handle->native_handle) != 0)
+        return 0;
+#endif
+    if(atomic_fetch_sub(&(handle->ref_count), 1) == 1)
+        free(handle);
+    return 1;
 }
 
 long long mote_directory_create(const char *path)

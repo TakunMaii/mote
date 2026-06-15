@@ -509,6 +509,8 @@ ASTNode* parseArgumentList(Token **token);
 ASTNode* parseSimpleAssignNoSemicolon(Token **token);
 ASTNode* parseExprStatementNoSemicolon(Token **token);
 
+static int parser_condition_without_parens_depth = 0;
+
 static bool tokenStartsDataType(Token *token)
 {
     if(token == NULL)
@@ -1135,6 +1137,9 @@ ASTNode* parsePostfix(Token **token)
 
         if((*token)->kind == TK_LEFT_BRACE)
         {
+            if(parser_condition_without_parens_depth > 0)
+                break;
+
             ASTNode *literal_node = newASTNodeFromToken(AST_EXPR_STRUCT_LITERAL, *token);
             literal_node->lhs = node;
             literal_node->struct_literal_fields = parseStructLiteralFields(token);
@@ -1584,14 +1589,22 @@ ASTNode* parseExprStatementNoSemicolon(Token **token)
 
 ASTNode* parseParenCondition(Token **token)
 {
-    expectToken(*token, TK_LEFT_PARENTHESIS);
-    (*token) = (*token)->next;
+    if((*token)->kind == TK_LEFT_PARENTHESIS)
+    {
+        expectToken(*token, TK_LEFT_PARENTHESIS);
+        (*token) = (*token)->next;
 
+        ASTNode *condition = parseExpr(token);
+
+        expectToken(*token, TK_RIGHT_PARENTHESIS);
+        (*token) = (*token)->next;
+
+        return condition;
+    }
+
+    parser_condition_without_parens_depth++;
     ASTNode *condition = parseExpr(token);
-
-    expectToken(*token, TK_RIGHT_PARENTHESIS);
-    (*token) = (*token)->next;
-
+    parser_condition_without_parens_depth--;
     return condition;
 }
 

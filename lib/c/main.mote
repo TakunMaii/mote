@@ -44,6 +44,11 @@ pub atoi :: @extern("atoi", Function([*char], i32));
 
 pub monotonic_ns :: @extern("mote_time_monotonic_ns", Function([], u64));
 pub sleep_ms :: @extern("mote_sleep_ms", Function([i64], void));
+pub thread_current_id :: @extern("mote_thread_current_id", Function([], i64));
+pub thread_yield :: @extern("mote_thread_yield", Function([], void));
+pub thread_spawn :: @extern("mote_thread_spawn", Function([Function([], i32)], *void));
+pub thread_join :: @extern("mote_thread_join", Function([*void, *i32], i64));
+pub thread_detach :: @extern("mote_thread_detach", Function([*void], i64));
 pub directory_create :: @extern("mote_directory_create", Function([*char], i64));
 pub directory_remove :: @extern("mote_directory_remove", Function([*char], i64));
 pub directory_exists :: @extern("mote_directory_exists", Function([*char], i64));
