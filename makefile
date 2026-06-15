@@ -13,8 +13,5 @@ build: $(COMPILER)
 $(COMPILER): $(SRC) $(HDRS)
 	$(CC) $(CFLAGS) $(SRC) -o $(COMPILER)
 
-test:
-	python3 scripts/test.py --build --compiler-path ./$(COMPILER)
-
 clean:
 	rm -f $(COMPILER)

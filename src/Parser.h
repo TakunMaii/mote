@@ -511,6 +511,98 @@ ASTNode* parseExprStatementNoSemicolon(Token **token);
 
 static int parser_condition_without_parens_depth = 0;
 
+static bool skipBracketedSuffix(Token **token)
+{
+    if(token == NULL || *token == NULL || (*token)->kind != TK_LEFT_BRACKET)
+        return false;
+
+    int parenthesis_depth = 0;
+    int brace_depth = 0;
+    int bracket_depth = 0;
+    Token *cursor = *token;
+
+    while(cursor != NULL && cursor->kind != TK_END_OF_CODE)
+    {
+        if(cursor->kind == TK_LEFT_PARENTHESIS)
+            parenthesis_depth++;
+        else if(cursor->kind == TK_RIGHT_PARENTHESIS)
+            parenthesis_depth--;
+        else if(cursor->kind == TK_LEFT_BRACE)
+            brace_depth++;
+        else if(cursor->kind == TK_RIGHT_BRACE)
+            brace_depth--;
+        else if(cursor->kind == TK_LEFT_BRACKET)
+            bracket_depth++;
+        else if(cursor->kind == TK_RIGHT_BRACKET)
+            bracket_depth--;
+
+        cursor = cursor->next;
+
+        if(cursor == NULL)
+            return false;
+
+        if(parenthesis_depth == 0 &&
+           brace_depth == 0 &&
+           bracket_depth == 0)
+        {
+            *token = cursor;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool skipAssignablePrefix(Token **token, bool *is_plain_variable)
+{
+    if(token == NULL || *token == NULL)
+        return false;
+
+    Token *cursor = *token;
+    bool plain_variable = true;
+
+    while(cursor->kind == TK_STAR)
+    {
+        plain_variable = false;
+        cursor = cursor->next;
+        if(cursor == NULL)
+            return false;
+    }
+
+    if(cursor->kind != TK_IDENTIFIER)
+        return false;
+
+    cursor = cursor->next;
+
+    while(cursor != NULL)
+    {
+        if(cursor->kind == TK_DOT)
+        {
+            plain_variable = false;
+            cursor = cursor->next;
+            if(cursor == NULL || cursor->kind != TK_IDENTIFIER)
+                return false;
+            cursor = cursor->next;
+            continue;
+        }
+
+        if(cursor->kind == TK_LEFT_BRACKET)
+        {
+            plain_variable = false;
+            if(!skipBracketedSuffix(&cursor))
+                return false;
+            continue;
+        }
+
+        break;
+    }
+
+    *token = cursor;
+    if(is_plain_variable != NULL)
+        *is_plain_variable = plain_variable;
+    return true;
+}
+
 static bool tokenStartsDataType(Token *token)
 {
     if(token == NULL)
@@ -715,6 +807,8 @@ ASTNode* parseLiteralValue(Token **token)
 
 bool isStatementAssign(Token *token)
 {
+    bool is_plain_variable = false;
+
     if(token != NULL &&
        token->kind == TK_AT &&
        token->next != NULL &&
@@ -745,36 +839,20 @@ bool isStatementAssign(Token *token)
     if(token == NULL)
         return false;
 
-    if(token->kind != TK_IDENTIFIER && token->kind != TK_STAR)
+    if(!skipAssignablePrefix(&token, &is_plain_variable))
         return false;
 
-    int parenthesis_depth = 0;
-    int brace_depth = 0;
-    while(token && token->kind != TK_SEMICOLON && token->kind != TK_END_OF_CODE)
-    {
-        if(token->kind == TK_LEFT_PARENTHESIS)
-            parenthesis_depth ++;
-        else if(token->kind == TK_RIGHT_PARENTHESIS)
-            parenthesis_depth --;
-        else if(token->kind == TK_LEFT_BRACE)
-            brace_depth ++;
-        else if(token->kind == TK_RIGHT_BRACE)
-            brace_depth --;
-        else if(parenthesis_depth == 0 &&
-                brace_depth == 0 &&
-                (token->kind == TK_EQUAL ||
-                 token->kind == TK_COLON_EQUAL ||
-                 token->kind == TK_DOUBLE_COLON))
-            return true;
-        else if(parenthesis_depth == 0 &&
-                brace_depth == 0 &&
-                token->kind == TK_COLON &&
-                token->next != NULL &&
-                (token->next->kind == TK_EQUAL || token->next->kind == TK_COLON))
-            return true;
+    if(token == NULL)
+        return false;
 
-        token = token->next;
-    }
+    if(token->kind == TK_EQUAL)
+        return true;
+
+    if(is_plain_variable &&
+       (token->kind == TK_COLON ||
+        token->kind == TK_COLON_EQUAL ||
+        token->kind == TK_DOUBLE_COLON))
+        return true;
 
     return false;
 }
