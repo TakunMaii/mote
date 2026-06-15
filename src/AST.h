@@ -209,6 +209,7 @@ struct ASTStructLiteralField {
     int end_line_number;
     int end_column_number;
     char identifier[MAX_IDENTIFIER_LENGTH];
+    bool has_name;
     ASTNode *value;
 };
 

@@ -3676,16 +3676,33 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
         MirFieldValueList fields = newMirFieldValueList(field_count);
         ASTStructMember *member = struct_type->members;
         int index = 0;
+        bool literal_fields_have_explicit_names = node->struct_literal_fields != NULL && node->struct_literal_fields->has_name;
         while(member)
         {
             if(member->value == NULL)
             {
                 ASTStructLiteralField *field = node->struct_literal_fields;
-                while(field && strcmp(field->identifier, member->identifier) != 0)
-                    field = field->next;
-                strcpy(fields.items[index].identifier, member->identifier);
-                fields.items[index].value = lowerExprAsValue(state, scope, field->value, member->data_type);
-                index++;
+
+                if(field->has_name != literal_fields_have_explicit_names)
+                    mirLoweringAbortNode("M2011", node,
+                                         "struct literal fields must either all have explicit names or no explicit names",
+                                         member->identifier);
+                
+                if(literal_fields_have_explicit_names) // then find the field with the matching name
+                {
+                    while(field && strcmp(field->identifier, member->identifier) != 0) field = field->next;
+                    strcpy(fields.items[index].identifier, member->identifier);
+                    fields.items[index].value = lowerExprAsValue(state, scope, field->value, member->data_type);
+                    index++;
+                }
+                else // otherwise take the next field in order
+                {
+                    strcpy(fields.items[index].identifier, member->identifier);
+                    fields.items[index].value = lowerExprAsValue(state, scope, node->struct_literal_fields->value, member->data_type);
+                    node->struct_literal_fields = node->struct_literal_fields->next;
+                    index++;
+                }
+                
             }
             member = member->next;
         }

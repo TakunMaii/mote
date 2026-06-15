@@ -1113,16 +1113,27 @@ ASTStructLiteralField* parseStructLiteralFields(Token **token)
 
     while((*token)->kind != TK_RIGHT_BRACE)
     {
-        expectToken(*token, TK_DOT);
-        (*token) = (*token)->next;
+        // Allow nameless fields for struct literals,
+        // e.g. `Point { .x = 1, .y = 2 }` vs `Point { 1, 2 }`
+        ASTStructLiteralField *field = newASTStructLiteralFieldFromToken((*token));
+        if((*token)->kind == TK_DOT)
+        {
+            field->has_name = true;
+            (*token) = (*token)->next;
 
-        Token *field_token = expectToken(*token, TK_IDENTIFIER);
-        ASTStructLiteralField *field = newASTStructLiteralFieldFromToken(field_token);
-        strcpy(field->identifier, field_token->identifier);
-        (*token) = (*token)->next;
+            Token* name_token = expectToken(*token, TK_IDENTIFIER);
+            strcpy(field->identifier, name_token->identifier);
+            (*token) = (*token)->next;
 
-        expectToken(*token, TK_EQUAL);
-        (*token) = (*token)->next;
+            expectToken(*token, TK_EQUAL);
+            (*token) = (*token)->next;
+            
+        }
+        else
+        {
+            field->has_name = false;
+        }
+        
         field->value = parseExpr(token);
 
         if(head == NULL)
