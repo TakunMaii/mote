@@ -421,6 +421,7 @@ typedef struct MirSpecializedFunctionCacheEntry {
 
 MirProgram* lowerASTToMIR(ASTNode *root);
 void printMIRProgram(MirProgram *program);
+static MirValueId lowerSlicePtrValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *slice_expr);
 
 static MirOperandList newMirOperandList(int count)
 {
@@ -1440,6 +1441,28 @@ static MirValueId lowerStringLiteralAsPointer(MirFunctionState *state, ASTNode *
                           node->filename, node->line_number, node->column_number);
 }
 
+static MirValueId lowerSlicePtrFromValue(MirFunctionState *state, ASTNode *node, MirValueId slice_value)
+{
+    ASTDataType *slice_type = mirGetValueType(state, slice_value);
+    if(slice_type == NULL ||
+       (!isSliceDataType(slice_type) && !isStringDataType(slice_type)))
+        mirLoweringAbortNode("M2015", node,
+                             "slice pointer extraction requires a slice-like value",
+                             "type checking should reject non-slice operands here");
+
+    MirValueId slice_slot = mirEmitAlloca(state, slice_type,
+                                          node->filename, node->line_number, node->column_number);
+    mirEmitStore(state, slice_slot, slice_value,
+                 node->filename, node->line_number, node->column_number);
+
+    ASTDataType *ptr_field_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
+                                                     cloneDataType(slice_type->child));
+    MirValueId ptr_field_address = mirEmitFieldPtr(state, slice_slot, ptr_field_type, "ptr", 0,
+                                                   node->filename, node->line_number, node->column_number);
+    return mirEmitLoad(state, ptr_field_address, ptr_field_type,
+                       node->filename, node->line_number, node->column_number);
+}
+
 static MirValueId lowerStringLiteralAsString(MirFunctionState *state, ASTNode *node)
 {
     ASTDataType *char_ptr_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER,
@@ -1458,7 +1481,6 @@ static MirValueId lowerStringLiteralAsString(MirFunctionState *state, ASTNode *n
 static MirValueId mirMaybeConvertValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
                                        MirValueId value, ASTDataType *target_type)
 {
-    (void) scope;
     if(target_type == NULL)
         return value;
     if(node != NULL && node->kind == AST_EXPR_LITERAL_NULL && target_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
@@ -1468,6 +1490,15 @@ static MirValueId mirMaybeConvertValue(MirFunctionState *state, MirLowerScope *s
         return value;
     if(target_type->kind == AST_DATA_TYPE_KIND_OPTIONAL && isSameDataType(value_type, target_type->child))
         return mirEmitOptionalSome(state, value, target_type, node->filename, node->line_number, node->column_number);
+    if(scope != NULL &&
+       value_type != NULL &&
+       (value_type->kind == AST_DATA_TYPE_KIND_SLICE || value_type->kind == AST_DATA_TYPE_KIND_STRING) &&
+       target_type->kind == AST_DATA_TYPE_KIND_POINTER)
+    {
+        if(node == NULL)
+            return value;
+        return lowerSlicePtrFromValue(state, node, value);
+    }
     TypeSystemExprType source_type = newValueExprType(value_type);
     if(canImplicitConvertDataType(source_type, node, target_type))
         return mirEmitConvert(state, value, target_type, node->filename, node->line_number, node->column_number);

@@ -2478,7 +2478,8 @@ bool canImplicitConvertDataType(TypeSystemExprType source_type, ASTNode *source_
     if(source_data_type->kind == AST_DATA_TYPE_KIND_FUNCTION && target_type->kind == AST_DATA_TYPE_KIND_FUNCTION)
         return isSameFunctionSignature(source_data_type, target_type);
 
-    if(source_data_type->kind == AST_DATA_TYPE_KIND_SLICE &&
+    if((source_data_type->kind == AST_DATA_TYPE_KIND_SLICE ||
+        source_data_type->kind == AST_DATA_TYPE_KIND_STRING) &&
        target_type->kind == AST_DATA_TYPE_KIND_POINTER &&
        isSameDataType(source_data_type->child, target_type->child))
         return true;
