@@ -67,8 +67,13 @@ static void parsePackageDirective(Token **token, ASTNode *root)
     expectToken(*token, TK_RIGHT_PARENTHESIS);
     *token = (*token)->next;
 
-    expectToken(*token, TK_SEMICOLON);
-    *token = (*token)->next;
+    // expectToken(*token, TK_SEMICOLON);
+    // *token = (*token)->next;
+
+    // if the next token is a semicolon, consume it, but don't require it,
+    // to allow for more flexible formatting of the package directive
+    if((*token)->kind == TK_SEMICOLON)
+        *token = (*token)->next;
 }
 
 void parseQualifiedIdentifier(Token **token, char *buffer)
@@ -1376,8 +1381,13 @@ ASTNode* parseAssign(Token **token)
 {
     ASTNode *node = parseSimpleAssignNoSemicolon(token);
 
-    expectToken(*token, TK_SEMICOLON);
-    (*token) = (*token)->next;
+    // expectToken(*token, TK_SEMICOLON);
+    // *token = (*token)->next;
+
+    // if the next token is a semicolon, consume it, but don't require it,
+    // to allow for more flexible formatting of the package directive
+    if((*token)->kind == TK_SEMICOLON)
+        *token = (*token)->next;
 
     return node;
 }
@@ -1436,8 +1446,14 @@ ASTNode* parseReturnStatement(Token **token)
     if((*token)->kind != TK_SEMICOLON)
         node->lhs = parseExpr(token);
 
-    expectToken(*token, TK_SEMICOLON);
-    (*token) = (*token)->next;
+    // expectToken(*token, TK_SEMICOLON);
+    // *token = (*token)->next;
+
+    // if the next token is a semicolon, consume it, but don't require it,
+    // to allow for more flexible formatting of the package directive
+    if((*token)->kind == TK_SEMICOLON)
+        *token = (*token)->next;
+
     return node;
 }
 
@@ -1445,8 +1461,13 @@ ASTNode* parseExprStatement(Token **token)
 {
     ASTNode *node = parseExprStatementNoSemicolon(token);
 
-    expectToken(*token, TK_SEMICOLON);
-    (*token) = (*token)->next;
+    // expectToken(*token, TK_SEMICOLON);
+    // *token = (*token)->next;
+
+    // if the next token is a semicolon, consume it, but don't require it,
+    // to allow for more flexible formatting of the package directive
+    if((*token)->kind == TK_SEMICOLON)
+        *token = (*token)->next;
 
     return node;
 }
@@ -1513,8 +1534,14 @@ ASTNode* parseDoWhileStatement(Token **token)
     (*token) = (*token)->next;
     node->lhs = parseParenCondition(token);
 
-    expectToken(*token, TK_SEMICOLON);
-    (*token) = (*token)->next;
+    // expectToken(*token, TK_SEMICOLON);
+    // *token = (*token)->next;
+
+    // if the next token is a semicolon, consume it, but don't require it,
+    // to allow for more flexible formatting of the package directive
+    if((*token)->kind == TK_SEMICOLON)
+        *token = (*token)->next;
+
     return node;
 }
 
@@ -1524,8 +1551,13 @@ ASTNode* parseBreakStatement(Token **token)
     expectToken(*token, TK_BREAK);
     (*token) = (*token)->next;
 
-    expectToken(*token, TK_SEMICOLON);
-    (*token) = (*token)->next;
+    // expectToken(*token, TK_SEMICOLON);
+    // *token = (*token)->next;
+
+    // if the next token is a semicolon, consume it, but don't require it,
+    // to allow for more flexible formatting of the package directive
+    if((*token)->kind == TK_SEMICOLON)
+        *token = (*token)->next;
     return node;
 }
 
@@ -1535,8 +1567,15 @@ ASTNode* parseContinueStatement(Token **token)
     expectToken(*token, TK_CONTINUE);
     (*token) = (*token)->next;
 
-    expectToken(*token, TK_SEMICOLON);
-    (*token) = (*token)->next;
+
+    // expectToken(*token, TK_SEMICOLON);
+    // *token = (*token)->next;
+
+    // if the next token is a semicolon, consume it, but don't require it,
+    // to allow for more flexible formatting of the package directive
+    if((*token)->kind == TK_SEMICOLON)
+        *token = (*token)->next;
+
     return node;
 }
 

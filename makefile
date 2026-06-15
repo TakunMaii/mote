@@ -1,10 +1,10 @@
 .PHONY: all build test clean
 
-CC ?= gcc
+CC = gcc
 CFLAGS ?= -std=c11 -Wall -Wextra -g
 SRC := src/main.c
 HDRS := $(shell find src -name '*.h' -print)
-COMPILER ?= mote_test
+COMPILER = mote
 
 all: build
 
