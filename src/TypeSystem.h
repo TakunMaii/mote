@@ -2592,15 +2592,25 @@ bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType 
         if(!isSameDataType(literal_struct_type, resolved_target_type))
             return false;
 
+        ASTStructLiteralField *literal_field = expr->struct_literal_fields;
+        bool literal_fields_have_explicit_names = literal_field != NULL && literal_field->has_name;
         ASTStructMember *member = resolved_target_type->members;
         while(member)
         {
             if(member->value == NULL)
             {
-                ASTStructLiteralField *field = expr->struct_literal_fields;
-                while(field && strcmp(field->identifier, member->identifier) != 0)
-                    field = field->next;
-                if(field == NULL)
+                ASTStructLiteralField *field = literal_field;
+                if(literal_fields_have_explicit_names)
+                {
+                    while(field && strcmp(field->identifier, member->identifier) != 0)
+                        field = field->next;
+                }
+                else if(field != NULL)
+                {
+                    literal_field = literal_field->next;
+                }
+
+                if(field == NULL || field->has_name != literal_fields_have_explicit_names)
                     return false;
                 if(!canImplicitConvertExprToType(field->value, scope, member->data_type))
                     return false;
@@ -2611,6 +2621,13 @@ bool canImplicitConvertExprToType(ASTNode *expr, ScopeFrame *scope, ASTDataType 
         ASTStructLiteralField *field = expr->struct_literal_fields;
         while(field)
         {
+            if(field->has_name != literal_fields_have_explicit_names)
+                return false;
+            if(!literal_fields_have_explicit_names)
+            {
+                field = field->next;
+                continue;
+            }
             ASTStructMember *declared_member = findStructMember(resolved_target_type, field->identifier);
             if(declared_member == NULL || declared_member->value != NULL)
                 return false;
@@ -3233,15 +3250,25 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                                     "struct literal requires a struct type",
                                     "the expression before `{ ... }` is not a struct type");
 
+            ASTStructLiteralField *literal_field = node->struct_literal_fields;
+            bool literal_fields_have_explicit_names = literal_field != NULL && literal_field->has_name;
             ASTStructMember *member = type_expr.data_type->members;
             while(member)
             {
                 if(member->value == NULL)
                 {
-                    ASTStructLiteralField *field = node->struct_literal_fields;
-                    while(field && strcmp(field->identifier, member->identifier) != 0)
-                        field = field->next;
-                    if(field == NULL)
+                    ASTStructLiteralField *field = literal_field;
+                    if(literal_fields_have_explicit_names)
+                    {
+                        while(field && strcmp(field->identifier, member->identifier) != 0)
+                            field = field->next;
+                    }
+                    else if(field != NULL)
+                    {
+                        literal_field = literal_field->next;
+                    }
+
+                    if(field == NULL || field->has_name != literal_fields_have_explicit_names)
                         typeSystemAbortFormatted("T1232", node,
                                                  "missing struct field",
                                                  "missing field `%s` in struct literal",
@@ -3267,6 +3294,15 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
             ASTStructLiteralField *field = node->struct_literal_fields;
             while(field)
             {
+                if(field->has_name != literal_fields_have_explicit_names)
+                    typeSystemAbortNode("T1260", node,
+                                        "struct literal fields must either all have explicit names or no explicit names",
+                                        "do not mix `.field = value` with positional fields in the same struct literal");
+                if(!literal_fields_have_explicit_names)
+                {
+                    field = field->next;
+                    continue;
+                }
                 ASTStructMember *declared_member = findStructMember(type_expr.data_type, field->identifier);
                 if(declared_member == NULL || declared_member->value != NULL)
                     typeSystemAbortFormatted("T1234", field->value != NULL ? field->value : node,
