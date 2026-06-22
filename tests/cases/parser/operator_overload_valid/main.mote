@@ -1,0 +1,18 @@
+@package("operator_overload_valid");
+
+Vec2 :: struct {
+    x: i32,
+    y: i32,
+};
+
+@operator(+)
+vec2_add :: fn(lhs: Vec2, rhs: Vec2) Vec2 {
+    return lhs;
+};
+
+main :: fn() i32 {
+    lhs := Vec2 { .x = 1, .y = 2 };
+    rhs := Vec2 { .x = 3, .y = 4 };
+    sum := lhs + rhs;
+    return sum.x * 10 + sum.y;
+};

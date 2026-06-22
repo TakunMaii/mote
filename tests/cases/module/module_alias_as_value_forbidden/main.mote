@@ -1,0 +1,8 @@
+@package("module_alias_as_value_forbidden");
+
+filesystem :: @import("std:filesystem");
+
+main :: fn() i32 {
+    _ := filesystem;
+    return 0;
+};

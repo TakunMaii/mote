@@ -1,0 +1,5 @@
+@package("multi_file_package_mismatch");
+
+main :: fn() i32 {
+    return 0;
+};

@@ -1,0 +1,5 @@
+@package("main_return_type_restricted");
+
+main :: fn() bool {
+    return true;
+};

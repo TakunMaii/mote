@@ -1,0 +1,5 @@
+@package("direct_import_member_forbidden");
+
+main :: fn() i32 {
+    return @import("std:mem").cmp(0, 0, 0);
+};

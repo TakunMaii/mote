@@ -1,0 +1,11 @@
+@package("reference_init_requires_variable_or_deref");
+
+Pair :: struct {
+    value: i32,
+};
+
+main :: fn() i32 {
+    pair := Pair { .value = 7 };
+    ref: &i32 = pair.value;
+    return ref;
+};

@@ -1,0 +1,5 @@
+{
+  "mode": "emit_llvm",
+  "expect_success": false,
+  "expected_diagnostic": "P1023"
+}

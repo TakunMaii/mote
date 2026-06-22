@@ -1,0 +1,6 @@
+@package("null_requires_context");
+
+main :: fn() i32 {
+    value := null;
+    return 0;
+};

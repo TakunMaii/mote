@@ -1,0 +1,13 @@
+@package("anonymous_import");
+
+@import("std:mem")
+
+main :: fn() i32 {
+    bytes: Array(char, 3) = ['a', 'b', 'c'];
+    copied: Array(char, 3) = @zero(Array(char, 3));
+    mem.copy(&copied[0], &bytes[0], 3);
+    if(copied[1] == 'b') {
+        return 0;
+    }
+    return 1;
+};

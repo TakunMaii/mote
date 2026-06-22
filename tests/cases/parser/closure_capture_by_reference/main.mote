@@ -1,0 +1,9 @@
+@package("closure_capture_by_reference");
+
+main :: fn() i32 {
+    value := 4;
+    add := fn|&value|() i32 {
+        return value + 3;
+    };
+    return add();
+};

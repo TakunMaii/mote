@@ -1,0 +1,9 @@
+@package("optional_null_compare");
+
+main :: fn() i32 {
+    value: ?i32 = null;
+    if(value == null) {
+        return 0;
+    }
+    return 1;
+};

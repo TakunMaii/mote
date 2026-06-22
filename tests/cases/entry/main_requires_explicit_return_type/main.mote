@@ -1,0 +1,5 @@
+@package("main_requires_explicit_return_type");
+
+main :: fn() {
+    return;
+};

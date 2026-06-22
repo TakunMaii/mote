@@ -1,0 +1,6 @@
+@package("string_index_valid");
+
+main :: fn() i32 {
+    text := "abc";
+    return @as(i32, text[1]);
+};

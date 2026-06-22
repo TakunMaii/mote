@@ -1,0 +1,11 @@
+@package("zero_sizeof_alignof_valid");
+
+main :: fn() i32 {
+    buf: Array(char, 4) = @zero(Array(char, 4));
+    size := @sizeof(Array(char, 4));
+    align := @alignof(Array(char, 4));
+    if(buf[0] != '\0') {
+        return 1;
+    }
+    return @as(i32, size + align);
+};

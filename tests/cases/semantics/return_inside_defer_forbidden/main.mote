@@ -1,0 +1,8 @@
+@package("return_inside_defer_forbidden");
+
+main :: fn() i32 {
+    defer {
+        return 0;
+    }
+    return 1;
+};

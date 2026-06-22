@@ -1,0 +1,9 @@
+@package("ptr_diff_requires_matching_pointers");
+
+main :: fn() i32 {
+    a: Array(i32, 2) = [1, 2];
+    b: Array(char, 2) = ['a', 'b'];
+    lhs: *i32 = &a[0];
+    rhs: *char = &b[0];
+    return @as(i32, @ptr_diff(i32, lhs, rhs));
+};

@@ -1,0 +1,7 @@
+@package("debug_valid");
+
+main :: fn() i32 {
+    value := 3;
+    @debug(value, value + 1);
+    return value;
+};

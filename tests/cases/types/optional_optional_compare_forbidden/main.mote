@@ -1,0 +1,10 @@
+@package("optional_optional_compare_forbidden");
+
+main :: fn() i32 {
+    lhs: ?i32 = 1;
+    rhs: ?i32 = 2;
+    if(lhs == rhs) {
+        return 0;
+    }
+    return 1;
+};

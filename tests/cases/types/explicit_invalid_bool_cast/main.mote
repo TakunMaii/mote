@@ -1,0 +1,6 @@
+@package("explicit_invalid_bool_cast");
+
+main :: fn() i32 {
+    value: bool = true;
+    return @as(i32, value);
+};

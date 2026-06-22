@@ -1,0 +1,15 @@
+@package("struct_method_call");
+
+Counter :: struct {
+    value: i32,
+
+    inc: fn(self: &Self, delta: i32) void {
+        self.value = self.value + delta;
+    },
+};
+
+main :: fn() i32 {
+    c := Counter { .value = 1 };
+    c.inc(4);
+    return c.value;
+};

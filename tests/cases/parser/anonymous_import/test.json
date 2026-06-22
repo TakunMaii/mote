@@ -1,0 +1,4 @@
+{
+  "mode": "emit_llvm",
+  "expect_success": true
+}

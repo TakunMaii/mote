@@ -1,0 +1,11 @@
+@package("qualified_imported_type_valid");
+
+fs :: @import("std:filesystem");
+
+main :: fn() i32 {
+    maybe_file: ?fs.File = null;
+    if(maybe_file == null) {
+        return 0;
+    }
+    return 1;
+};

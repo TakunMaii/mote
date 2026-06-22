@@ -1,0 +1,7 @@
+@package("import_must_use_compile_time_binding");
+
+mod := @import("std:mem");
+
+main :: fn() i32 {
+    return 0;
+};

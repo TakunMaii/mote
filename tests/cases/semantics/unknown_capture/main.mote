@@ -1,0 +1,8 @@
+@package("unknown_capture");
+
+main :: fn() i32 {
+    f := fn|missing|() i32 {
+        return 0;
+    };
+    return f();
+};

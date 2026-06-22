@@ -1,0 +1,8 @@
+@package("variadic_reference_argument_forbidden");
+
+fmt :: @import("std:fmt");
+
+main :: fn() i32 {
+    fmt.print("%d\n", i32);
+    return 0;
+};

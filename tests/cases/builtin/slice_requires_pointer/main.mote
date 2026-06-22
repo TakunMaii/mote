@@ -1,0 +1,7 @@
+@package("slice_requires_pointer");
+
+main :: fn() i32 {
+    values: Array(i32, 3) = [1, 2, 3];
+    xs: []i32 = @slice(i32, values, 3);
+    return @len(xs);
+};

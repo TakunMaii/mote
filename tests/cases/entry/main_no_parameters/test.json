@@ -1,0 +1,5 @@
+{
+  "mode": "compile_only",
+  "expect_success": false,
+  "expected_stderr": "target package main must have no parameters"
+}

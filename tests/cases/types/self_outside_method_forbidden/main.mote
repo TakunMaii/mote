@@ -1,0 +1,9 @@
+@package("self_outside_method_forbidden");
+
+bad :: fn(x: Self) i32 {
+    return 0;
+};
+
+main :: fn() i32 {
+    return 0;
+};

@@ -1,0 +1,4 @@
+@package("invalid_top_level_statement");
+
+if(true) {
+}

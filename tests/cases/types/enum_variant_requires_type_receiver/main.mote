@@ -1,0 +1,15 @@
+@package("enum_variant_requires_type_receiver");
+
+Kind :: enum {
+    idle,
+    running,
+};
+
+main :: fn() i32 {
+    value := Kind.idle;
+    other := value.running;
+    if(other == Kind.running) {
+        return 1;
+    }
+    return 0;
+};

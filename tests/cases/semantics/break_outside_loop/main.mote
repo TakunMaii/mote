@@ -1,0 +1,6 @@
+@package("break_outside_loop");
+
+main :: fn() i32 {
+    break;
+    return 0;
+};

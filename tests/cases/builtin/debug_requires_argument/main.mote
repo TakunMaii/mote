@@ -1,0 +1,6 @@
+@package("debug_requires_argument");
+
+main :: fn() i32 {
+    @debug();
+    return 0;
+};

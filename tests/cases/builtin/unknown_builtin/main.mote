@@ -1,0 +1,5 @@
+@package("unknown_builtin");
+
+main :: fn() i32 {
+    return @wat(1);
+};

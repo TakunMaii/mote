@@ -1,0 +1,6 @@
+@package("extern_requires_string_symbol");
+
+main :: fn() i32 {
+    f := @extern(i32, Function([], i32));
+    return f();
+};

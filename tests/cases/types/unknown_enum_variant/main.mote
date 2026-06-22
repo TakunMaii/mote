@@ -1,0 +1,13 @@
+@package("unknown_enum_variant");
+
+Kind :: enum {
+    idle,
+};
+
+main :: fn() i32 {
+    value := Kind.running;
+    if(value == Kind.idle) {
+        return 0;
+    }
+    return 1;
+};

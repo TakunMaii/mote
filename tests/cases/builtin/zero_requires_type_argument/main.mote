@@ -1,0 +1,5 @@
+@package("zero_requires_type_argument");
+
+main :: fn() i32 {
+    return @zero(1);
+};

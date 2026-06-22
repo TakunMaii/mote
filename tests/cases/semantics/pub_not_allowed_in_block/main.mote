@@ -1,0 +1,6 @@
+@package("pub_not_allowed_in_block");
+
+main :: fn() i32 {
+    pub value := 1;
+    return value;
+};

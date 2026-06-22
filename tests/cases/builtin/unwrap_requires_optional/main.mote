@@ -1,0 +1,6 @@
+@package("unwrap_requires_optional");
+
+main :: fn() i32 {
+    value := 3;
+    return @unwrap(value);
+};

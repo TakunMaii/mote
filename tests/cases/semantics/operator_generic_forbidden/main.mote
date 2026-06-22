@@ -1,0 +1,10 @@
+@package("operator_generic_forbidden");
+
+@operator(+)
+plus :: fn(T: Type, lhs: T, rhs: T) T {
+    return lhs;
+};
+
+main :: fn() i32 {
+    return 0;
+};

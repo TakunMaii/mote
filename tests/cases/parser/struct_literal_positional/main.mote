@@ -1,0 +1,11 @@
+@package("struct_literal_positional");
+
+Pair :: struct {
+    left: i32,
+    right: i32,
+};
+
+main :: fn() i32 {
+    value := Pair { 4, 9 };
+    return value.left * 10 + value.right;
+};

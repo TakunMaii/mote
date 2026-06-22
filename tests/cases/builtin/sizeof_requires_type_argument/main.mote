@@ -1,0 +1,5 @@
+@package("sizeof_requires_type_argument");
+
+main :: fn() i32 {
+    return @sizeof(1);
+};

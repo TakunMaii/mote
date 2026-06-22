@@ -1,0 +1,5 @@
+@package("alignof_requires_type_argument");
+
+main :: fn() i32 {
+    return @alignof(1);
+};

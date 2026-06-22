@@ -1,0 +1,8 @@
+@package("explicit_pointer_to_pointer_cast_valid");
+
+main :: fn() i32 {
+    value := 5;
+    raw: *void = @as(*void, &value);
+    typed: *i32 = @as(*i32, raw);
+    return *typed;
+};

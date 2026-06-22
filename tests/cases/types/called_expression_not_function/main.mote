@@ -1,0 +1,6 @@
+@package("called_expression_not_function");
+
+main :: fn() i32 {
+    value := 1;
+    return value();
+};

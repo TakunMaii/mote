@@ -1,0 +1,10 @@
+@package("duplicate_enum_variant");
+
+Kind :: enum {
+    A,
+    A,
+};
+
+main :: fn() i32 {
+    return 0;
+};

@@ -1,0 +1,8 @@
+@package("address_of_compile_time_constant_forbidden");
+
+value :: 1;
+
+main :: fn() i32 {
+    ptr := &value;
+    return 0;
+};

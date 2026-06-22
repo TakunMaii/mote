@@ -1,0 +1,5 @@
+@package("multi_file_same_package");
+
+pub value :: fn() i32 {
+    return helper_value();
+};

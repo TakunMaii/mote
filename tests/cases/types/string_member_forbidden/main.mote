@@ -1,0 +1,6 @@
+@package("string_member_forbidden");
+
+main :: fn() i32 {
+    text := "abc";
+    return text.ptr;
+};

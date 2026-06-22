@@ -1,0 +1,11 @@
+@package("struct_literal_unknown_field");
+
+Pair :: struct {
+    left: i32,
+    right: i32,
+};
+
+main :: fn() i32 {
+    value := Pair { .left = 1, .right = 2, .extra = 3 };
+    return value.left;
+};

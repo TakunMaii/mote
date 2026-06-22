@@ -1,0 +1,5 @@
+@package("multi_file_same_package");
+
+helper_value :: fn() i32 {
+    return 0;
+};

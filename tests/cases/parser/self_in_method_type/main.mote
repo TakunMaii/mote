@@ -1,0 +1,14 @@
+@package("self_in_method_type");
+
+Box :: struct {
+    value: i32,
+
+    read: fn(self: &Self) i32 {
+        return self.value;
+    },
+};
+
+main :: fn() i32 {
+    box := Box { .value = 7 };
+    return box.read();
+};

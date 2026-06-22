@@ -1,0 +1,8 @@
+@package("operator_requires_function_value");
+
+@operator(+)
+value :: 1;
+
+main :: fn() i32 {
+    return 0;
+};

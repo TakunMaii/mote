@@ -1,0 +1,10 @@
+@package("duplicate_struct_member");
+
+Thing :: struct {
+    value: i32,
+    value: i32,
+};
+
+main :: fn() i32 {
+    return 0;
+};

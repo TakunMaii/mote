@@ -1,0 +1,5 @@
+@package("main_no_parameters");
+
+main :: fn(argc: i32) i32 {
+    return argc;
+};

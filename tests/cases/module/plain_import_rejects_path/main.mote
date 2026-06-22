@@ -1,0 +1,7 @@
+@package("plain_import_rejects_path");
+
+foo :: @import("./foo");
+
+main :: fn() i32 {
+    return 0;
+};

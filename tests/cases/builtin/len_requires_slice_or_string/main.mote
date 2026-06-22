@@ -1,0 +1,6 @@
+@package("len_requires_slice_or_string");
+
+main :: fn() i32 {
+    value := 3;
+    return @len(value);
+};

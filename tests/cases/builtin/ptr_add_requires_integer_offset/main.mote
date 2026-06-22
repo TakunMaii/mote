@@ -1,0 +1,8 @@
+@package("ptr_add_requires_integer_offset");
+
+main :: fn() i32 {
+    data: Array(i32, 2) = [1, 2];
+    base: *i32 = &data[0];
+    ptr := @ptr_add(i32, base, "x");
+    return *ptr;
+};

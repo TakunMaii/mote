@@ -1,0 +1,9 @@
+@package("ptr_add_ptr_diff_valid");
+
+main :: fn() i32 {
+    data: Array(i32, 3) = [10, 20, 30];
+    base: *i32 = &data[0];
+    second := @ptr_add(i32, base, 1);
+    diff := @ptr_diff(i32, second, base);
+    return @as(i32, diff) + *second;
+};

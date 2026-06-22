@@ -1,0 +1,9 @@
+@package("duplicate_capture");
+
+main :: fn() i32 {
+    value := 2;
+    f := fn|value, value|() i32 {
+        return value;
+    };
+    return f();
+};

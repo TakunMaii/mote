@@ -1,0 +1,14 @@
+@package("type_value_function_valid");
+
+MakePair :: fn(T: Type) Type {
+    return struct {
+        left: T,
+        right: T,
+    };
+};
+
+main :: fn() i32 {
+    PairI32: Type = MakePair(i32);
+    pair := PairI32 { .left = 10, .right = 20 };
+    return pair.left + pair.right;
+};

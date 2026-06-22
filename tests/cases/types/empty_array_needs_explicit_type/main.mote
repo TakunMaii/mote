@@ -1,0 +1,6 @@
+@package("empty_array_needs_explicit_type");
+
+main :: fn() i32 {
+    xs := [];
+    return 0;
+};

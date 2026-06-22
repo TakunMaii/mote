@@ -1,0 +1,867 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Mote 语法与实现说明</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      line-height: 1.6;
+      margin: 2rem auto;
+      max-width: 1100px;
+      padding: 0 1.25rem 3rem;
+    }
+    h1, h2, h3, h4 {
+      line-height: 1.3;
+    }
+    code, pre {
+      font-family: Consolas, "Courier New", monospace;
+    }
+    pre {
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      padding: 0.9rem;
+      overflow-x: auto;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1rem 0 1.5rem;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      text-align: left;
+      vertical-align: top;
+      padding: 0.5rem 0.6rem;
+    }
+    th {
+      background: #f0f0f0;
+    }
+    .note {
+      border-left: 4px solid #888;
+      padding: 0.75rem 1rem;
+      background: #fafafa;
+      margin: 1rem 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Mote 语法与实现说明</h1>
+  <p>本文档以当前仓库中的编译器源码实现为准，目标是严格记录 Mote 语言已经实现的词法、语法、关键语义约束，以及这些规则在编译器中的实现位置与工作方式。它不是面向入门者的教程，而是面向语言实现、测试设计和重构工作的实现规格说明。</p>
+
+  <div class="note">
+    <strong>范围说明</strong>
+    <p>本文档主要基于 <code>src/Lexer.h</code>、<code>src/Parser.h</code>、<code>src/ModuleSystem.h</code>、<code>src/Semantic.h</code>、<code>src/TypeSystem.h</code>、<code>src/mir/MIRLowering.h</code>、<code>src/LLVMBackend.h</code> 以及 <code>docs/runtime_abi.md</code>。如果现有教程、README 与源码行为不一致，以源码行为为准。</p>
+  </div>
+
+  <h2>1. 编译单元、包与总体编译流程</h2>
+  <h3>1.1 编译输入单位</h3>
+  <p>Mote 编译器的输入不是单个文件，而是一个“包目录”。目录内所有 <code>.mote</code> 文件会被视为同一个包的一部分，统一词法分析、解析、导入扫描、顶层重写、语义检查和类型检查。</p>
+  <p>相关实现：</p>
+  <ul>
+    <li><code>src/main.c</code> 中的 <code>buildModuleProgramAST(input_path, ...)</code> 接受目录路径</li>
+    <li><code>src/ModuleSystem.h</code> 中的 <code>moduleParsePackageDirectory</code> 负责列出目录内全部 <code>.mote</code> 文件并逐个解析</li>
+  </ul>
+
+  <h3>1.2 每个源文件必须以包声明开头</h3>
+  <p>每个源文件必须以如下形式开头：</p>
+  <pre><code>@package("pkg_name");
+</code></pre>
+  <p>其中结尾分号在 parser 中是“可选消费”的，也就是：</p>
+  <pre><code>@package("pkg_name")
+@package("pkg_name");
+</code></pre>
+  <p>都能被接受，但统一风格仍建议保留分号。</p>
+  <p>相关实现：</p>
+  <ul>
+    <li><code>parsePackageDirective</code> 强制首个顶层构造必须是 <code>@package(...)</code></li>
+    <li>若缺失，报错码为 <code>P1020</code></li>
+    <li>若包名为空，报错码为 <code>P1021</code></li>
+    <li>若第二个 <code>@package</code> 不在文件开头，报错码为 <code>P1022</code></li>
+    <li><code>moduleParsePackageDirectory</code> 强制同目录内所有文件的包名一致</li>
+  </ul>
+
+  <h3>1.3 顶层只能出现声明</h3>
+  <p>顶层不允许裸表达式、控制流或其它可执行语句。顶层必须是声明式结构，主要包括：</p>
+  <ul>
+    <li>普通绑定 / 赋值形式的顶层定义</li>
+    <li>顶层导入绑定</li>
+    <li>匿名导入语句 <code>@import("...")</code></li>
+    <li>带 <code>@operator(...)</code> 注解的顶层函数声明</li>
+  </ul>
+  <p>如果顶层出现普通可执行语句，parser 会直接报错 <code>P1023</code>。</p>
+
+  <h3>1.4 编译管线</h3>
+  <p>当前编译器主流程是：</p>
+  <ol>
+    <li>解析 CLI 参数，构造搜索根、collection 和链接参数</li>
+    <li>从包目录构建模块树，并递归解析 <code>@import</code></li>
+    <li>对模块顶层名字做符号前缀改写与导入重写</li>
+    <li>将所有模块的顶层声明拼成一个统一 AST</li>
+    <li>做语义检查 <code>checkAssignSemantics</code></li>
+    <li>做类型检查 <code>checkAssignTypes</code></li>
+    <li>降到 MIR：<code>lowerASTToMIR</code></li>
+    <li>生成 LLVM IR：<code>emitLLVMProgramToFile</code></li>
+    <li>若不是 <code>-S</code>，再调用外部 <code>clang</code> 链接运行时与额外 C 源</li>
+  </ol>
+
+  <h2>2. 词法规则</h2>
+  <h3>2.1 空白符与换行</h3>
+  <p>lexer 显式跳过：</p>
+  <ul>
+    <li>空格 <code>' '</code></li>
+    <li>回车 <code>13</code></li>
+    <li>换行 <code>'\n'</code></li>
+  </ul>
+  <p>换行用于更新行列号，但不是语法分隔符。Mote 没有“按换行自动结束语句”的规则。</p>
+
+  <h3>2.2 注释</h3>
+  <p>支持两种注释：</p>
+  <ul>
+    <li>行注释：<code>// ...</code></li>
+    <li>块注释：<code>/* ... */</code></li>
+  </ul>
+  <p>块注释不能嵌套，未闭合会报 <code>L1002</code>。</p>
+
+  <h3>2.3 标识符</h3>
+  <p>标识符规则：</p>
+  <ul>
+    <li>首字符：<code>a-z</code>、<code>A-Z</code>、<code>_</code></li>
+    <li>后续字符：首字符集合再加上数字 <code>0-9</code></li>
+  </ul>
+  <p>也就是说，不支持 Unicode 标识符，不支持连字符，不支持以数字开头。</p>
+
+  <h3>2.4 关键字</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>关键字</th>
+        <th>词法 token</th>
+        <th>主要语法用途</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><code>pub</code></td><td><code>TK_PUB</code></td><td>顶层导出标记</td></tr>
+      <tr><td><code>fn</code></td><td><code>TK_FN</code></td><td>函数字面量</td></tr>
+      <tr><td><code>struct</code></td><td><code>TK_STRUCT</code></td><td>结构体表达式</td></tr>
+      <tr><td><code>enum</code></td><td><code>TK_ENUM</code></td><td>枚举表达式</td></tr>
+      <tr><td><code>return</code></td><td><code>TK_RETURN</code></td><td>返回语句</td></tr>
+      <tr><td><code>Type</code></td><td><code>TK_TYPE</code></td><td>类型的类型</td></tr>
+      <tr><td><code>if</code></td><td><code>TK_IF</code></td><td>条件语句</td></tr>
+      <tr><td><code>else</code></td><td><code>TK_ELSE</code></td><td>条件分支</td></tr>
+      <tr><td><code>for</code></td><td><code>TK_FOR</code></td><td>C 风格 for</td></tr>
+      <tr><td><code>while</code></td><td><code>TK_WHILE</code></td><td>while 语句</td></tr>
+      <tr><td><code>do</code></td><td><code>TK_DO</code></td><td>do-while 语句</td></tr>
+      <tr><td><code>break</code></td><td><code>TK_BREAK</code></td><td>循环控制</td></tr>
+      <tr><td><code>continue</code></td><td><code>TK_CONTINUE</code></td><td>循环控制</td></tr>
+      <tr><td><code>defer</code></td><td><code>TK_DEFER</code></td><td>延迟语句</td></tr>
+      <tr><td><code>void</code></td><td><code>TK_VOID</code></td><td>空返回 / 空类型</td></tr>
+      <tr><td><code>opaque</code></td><td><code>TK_OPAQUE</code></td><td>不透明类型</td></tr>
+      <tr><td><code>true</code></td><td><code>TK_TRUE</code></td><td>布尔字面量</td></tr>
+      <tr><td><code>false</code></td><td><code>TK_FALSE</code></td><td>布尔字面量</td></tr>
+      <tr><td><code>null</code></td><td><code>TK_NULL</code></td><td>空值字面量</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2.5 操作符与分隔符</h3>
+  <p>已实现的词法符号包括：</p>
+  <pre><code>&amp;&amp; || == != ? ... &lt;= &gt;= &lt;&lt; &gt;&gt;
+= - * / % &amp; | ^ ~ ! &lt; &gt;
+( ) { } [ ] , := :: : . @ = ;
+</code></pre>
+
+  <h3>2.6 字符字面量</h3>
+  <p>字符字面量形式：</p>
+  <pre><code>'a'
+'\n'
+'\\'
+'\0'
+</code></pre>
+  <p>支持的转义序列：</p>
+  <ul>
+    <li><code>\0</code></li>
+    <li><code>\n</code></li>
+    <li><code>\r</code></li>
+    <li><code>\t</code></li>
+    <li><code>\\</code></li>
+    <li><code>\'</code></li>
+    <li><code>\"</code></li>
+  </ul>
+  <p>错误条件：</p>
+  <ul>
+    <li>未知转义：<code>L1001</code></li>
+    <li>未闭合字符字面量：<code>L1003</code></li>
+    <li>字符数不是恰好一个：<code>L1004</code></li>
+  </ul>
+
+  <h3>2.7 字符串字面量</h3>
+  <p>字符串字面量形式：</p>
+  <pre><code>"hello"
+"line\nnext"
+</code></pre>
+  <p>与字符字面量共用同一套转义规则。字符串不能跨行。未闭合时报 <code>L1005</code>，过长时报 <code>L1006</code>。</p>
+  <p>字符串字面量的默认表达式类型是 <code>string</code>，不是 <code>*char</code>。</p>
+
+  <h3>2.8 数值字面量</h3>
+  <p>支持：</p>
+  <ul>
+    <li>十进制整数：<code>0</code>、<code>1</code>、<code>123</code></li>
+    <li>十六进制整数：<code>0xFF</code>、<code>0x10</code></li>
+    <li>十进制浮点：<code>1.0</code>、<code>3.14</code></li>
+  </ul>
+  <p>当前不支持：</p>
+  <ul>
+    <li>指数记法，如 <code>1e9</code></li>
+    <li>数字分隔符，如 <code>1_000</code></li>
+    <li>浮点十六进制</li>
+    <li>后缀类型字面量</li>
+  </ul>
+  <p>词法阶段把整数字面量保存在 <code>u64</code> 中；若溢出则报 <code>L1010</code>。十六进制前缀后必须至少有一位，缺失时报 <code>L1009</code>。同一数字中第二个小数点会报 <code>L1007</code>。</p>
+
+  <h2>3. 顶层结构与模块规则</h2>
+  <h3>3.1 顶层声明形式</h3>
+  <p>顶层允许的核心形态是绑定声明：</p>
+  <pre><code>name :: expr;
+name: T = expr;
+name := expr;
+</code></pre>
+  <p>在顶层，最常见的是 <code>::</code>，因为它表达编译期常量绑定，适合函数、类型和导入。</p>
+
+  <h3>3.2 顶层匿名导入</h3>
+  <p>顶层允许直接写：</p>
+  <pre><code>@import("std:fmt");
+</code></pre>
+  <p>parser 会把它改写为一个隐式绑定：别名取导入路径的最后一个段。例如上例会变成类似：</p>
+  <pre><code>fmt :: @import("std:fmt");
+</code></pre>
+  <p>这个改写发生在 <code>parseAnonymousImport</code>。如果路径最后一段不能构成合法标识符，会报 <code>P1027</code>。</p>
+  <p>需要特别注意：当前实现里，顶层匿名导入分支不会额外消费结尾分号，因此可工作的写法是：</p>
+  <pre><code>@import("std:fmt")
+</code></pre>
+  <p>而不是：</p>
+  <pre><code>@import("std:fmt");
+</code></pre>
+  <p>后者会在下一轮顶层解析中把残留的 <code>;</code> 视为非法顶层 token，并触发 <code>P1023</code>。这是当前 parser 的真实行为。</p>
+
+  <h3>3.3 import 路径规则</h3>
+  <p><code>@import</code> 必须恰好接收一个字符串字面量参数。模块系统支持两种导入路径：</p>
+  <ul>
+    <li>plain package import：<code>@import("pkg")</code></li>
+    <li>collection import：<code>@import("std:list")</code></li>
+  </ul>
+  <p>plain package import 规则：</p>
+  <ul>
+    <li>只能是简单包名</li>
+    <li>不能包含 <code>/</code>、<code>\</code>、相对前缀或绝对路径</li>
+  </ul>
+  <p>collection import 规则：</p>
+  <ul>
+    <li>必须是 <code>collection:path</code></li>
+    <li><code>path</code> 不能为空</li>
+    <li>不能是绝对路径</li>
+    <li>不能包含 <code>..</code></li>
+    <li>不能包含反斜杠</li>
+  </ul>
+  <p>解析位置：<code>moduleResolveImportPath</code>。</p>
+
+  <h3>3.4 模块重写机制</h3>
+  <p>Mote 当前不是在 AST 中保留模块命名空间节点，而是采用“导入扫描 + 顶层名字改写”的方式。每个模块顶层绑定会被分配形如 <code>m0__foo</code> 的 mangled 名字，然后：</p>
+  <ul>
+    <li>导入别名在 rewrite 阶段进入作用域</li>
+    <li><code>mod.name</code> 若 <code>mod</code> 是导入别名，则会被直接重写为被导出绑定的 mangled 名称</li>
+    <li>直接对 <code>@import(...)</code> 做成员访问会被拒绝</li>
+  </ul>
+  <p>因此，模块访问的真实实现不是运行时对象访问，而是编译期名字解析和 AST 改写。</p>
+
+  <h3>3.5 导出与可见性</h3>
+  <p><code>pub</code> 只能用于顶层声明。块级语句中使用 <code>pub</code> 会报 <code>P1005</code>。</p>
+  <p>被其它模块通过 <code>mod.name</code> 访问的绑定必须是 <code>pub</code>。否则在 rewrite 阶段会报错“imported module does not export the requested member”。</p>
+  <p>当前不支持 <code>pub import</code> 形式的重导出。</p>
+
+  <h3>3.6 入口规则</h3>
+  <p>当编译目标需要生成可执行文件时，根包必须定义顶层 <code>main</code> 绑定，并满足：</p>
+  <ul>
+    <li><code>main</code> 必须是函数</li>
+    <li>不能有参数</li>
+    <li>必须显式声明返回类型</li>
+    <li>返回类型只能是 <code>void</code> 或 <code>i32</code></li>
+  </ul>
+  <p>这些约束由 <code>moduleFindEntryBinding</code> 检查，而不是由 parser 检查。</p>
+
+  <h2>4. 声明、赋值与语句</h2>
+  <h3>4.1 四种绑定/赋值表面形式</h3>
+  <pre><code>name = expr;
+name := expr;
+name: T = expr;
+name :: expr;
+</code></pre>
+  <p>parser 统一把它们归约成 <code>AST_ASSIGN</code>，差异体现在 <code>ASTAssignModifier</code> 和 <code>data_type</code> 上。</p>
+  <table>
+    <thead>
+      <tr>
+        <th>语法</th>
+        <th>parser 标记</th>
+        <th>含义</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><code>name = expr</code></td><td>非显式声明</td><td>赋值给已有名字</td></tr>
+      <tr><td><code>name := expr</code></td><td><code>is_runtime_binding = true</code></td><td>运行时绑定，类型推断</td></tr>
+      <tr><td><code>name: T = expr</code></td><td><code>explicit_type = true</code> + <code>is_runtime_binding = true</code></td><td>运行时绑定，显式类型</td></tr>
+      <tr><td><code>name :: expr</code></td><td><code>is_compile_time_binding = true</code></td><td>编译时绑定，常用于函数、类型、导入</td></tr>
+    </tbody>
+  </table>
+
+  <h3>4.2 左值规则</h3>
+  <p><code>=</code> 左侧可出现的 assignable expression 只有：</p>
+  <ul>
+    <li>变量</li>
+    <li>解引用表达式</li>
+    <li>成员访问表达式</li>
+    <li>索引表达式</li>
+  </ul>
+  <p>由 <code>parseLValue</code> 强制。否则报 <code>P1004</code>。</p>
+
+  <h3>4.3 分号规则</h3>
+  <p>parser 对很多语句的结尾分号采取“可选消费”策略，而不是强制要求：</p>
+  <ul>
+    <li>赋值/声明语句</li>
+    <li>return 语句</li>
+    <li>普通表达式语句</li>
+    <li>do-while 语句后的分号</li>
+    <li>break / continue</li>
+  </ul>
+  <p>这意味着当前实现中，很多地方即使不写 <code>;</code> 也可能被接受。这个行为来自 parser 当前实现，不是语言设计上已经严格定型的“必须无分号”或“必须有分号”规则。</p>
+
+  <h3>4.4 语句列表</h3>
+  <p>块语句形式：</p>
+  <pre><code>{
+    stmt1
+    stmt2
+    ...
+}
+</code></pre>
+  <p>块在 AST 中对应 <code>AST_BLOCK</code>，其 <code>lhs</code> 挂语句链表。</p>
+
+  <h3>4.5 return</h3>
+  <pre><code>return;
+return expr;
+</code></pre>
+  <p>类型检查阶段约束：</p>
+  <ul>
+    <li>只能出现在函数体内，否则报 <code>T1123</code></li>
+    <li>不能出现在 <code>defer</code> 内，否则报 <code>T1124</code></li>
+  </ul>
+
+  <h3>4.6 if / else</h3>
+  <pre><code>if cond stmt
+if (cond) stmt
+if cond stmt else stmt
+</code></pre>
+  <p>当前 parser 允许条件表达式不带括号。类型检查要求条件结果必须是 <code>bool</code> 值。</p>
+
+  <h3>4.7 while</h3>
+  <pre><code>while cond stmt
+while (cond) stmt
+</code></pre>
+  <p>同样允许无括号条件。</p>
+
+  <h3>4.8 do-while</h3>
+  <pre><code>do stmt while cond;
+do stmt while (cond);
+</code></pre>
+  <p>尾部分号是 parser 可选消费。</p>
+
+  <h3>4.9 for</h3>
+  <pre><code>for(init; cond; post) stmt
+</code></pre>
+  <p>这是严格的 C 风格三段式 <code>for</code>。三部分都可以省略，但分号和外层括号必须存在。第一段和第三段可以是赋值声明形式，也可以是表达式语句形式。</p>
+
+  <h3>4.10 break / continue</h3>
+  <p>类型检查阶段约束：</p>
+  <ul>
+    <li>必须位于循环内，否则报 <code>T1125</code></li>
+    <li>不能位于 <code>defer</code> 内，否则报 <code>T1126</code></li>
+  </ul>
+
+  <h3>4.11 defer</h3>
+  <pre><code>defer stmt
+</code></pre>
+  <p><code>defer</code> 的参数是一个完整语句，而不是特殊表达式。语义阶段和类型阶段有额外限制：</p>
+  <ul>
+    <li>不能在 <code>defer</code> 中声明新类型</li>
+    <li>不能在 <code>defer</code> 中声明新变量</li>
+    <li><code>defer</code> 中对变量的赋值目标必须已存在于外层作用域</li>
+    <li><code>defer</code> 中不能 <code>return</code>、<code>break</code>、<code>continue</code></li>
+  </ul>
+
+  <h2>5. 表达式语法</h2>
+  <h3>5.1 表达式优先级</h3>
+  <p>当前 parser 实现的优先级从低到高如下：</p>
+  <ol>
+    <li><code>||</code></li>
+    <li><code>&&</code></li>
+    <li><code>|</code></li>
+    <li><code>^</code></li>
+    <li><code>&amp;</code></li>
+    <li><code>== !=</code></li>
+    <li><code>&lt; &lt;= &gt; &gt;=</code></li>
+    <li><code>&lt;&lt; &gt;&gt;</code></li>
+    <li><code>+ -</code></li>
+    <li><code>* / %</code></li>
+    <li>一元：<code>+ - ! ~ * &amp;</code></li>
+    <li>后缀：调用、成员访问、索引、结构体字面量后缀</li>
+    <li>主表达式</li>
+  </ol>
+
+  <h3>5.2 主表达式</h3>
+  <p>主表达式可为：</p>
+  <ul>
+    <li>函数字面量</li>
+    <li>类型字面量表达式</li>
+    <li><code>enum</code> 表达式</li>
+    <li><code>struct</code> 表达式</li>
+    <li>数组字面量</li>
+    <li>括号表达式</li>
+    <li>标识符</li>
+    <li>内建函数表达式</li>
+    <li>字面量</li>
+  </ul>
+
+  <h3>5.3 后缀表达式</h3>
+  <p>任意主表达式后可以反复接：</p>
+  <ul>
+    <li>调用：<code>expr(...)</code></li>
+    <li>成员访问：<code>expr.name</code></li>
+    <li>索引：<code>expr[index]</code></li>
+    <li>结构体字面量后缀：<code>TypeExpr { ... }</code></li>
+  </ul>
+  <p>最后这一条非常关键：结构体实例化语法不是独立关键字，而是“某个前置表达式后面跟一个结构体字面量字段列表”。因此下面是合法形态：</p>
+  <pre><code>Vec2 { .x = 1, .y = 2 }
+make_type() { .x = 1, .y = 2 }
+</code></pre>
+
+  <h3>5.4 一元表达式</h3>
+  <pre><code>+expr
+-expr
+!expr
+~expr
+*expr
+&amp;expr
+</code></pre>
+  <p>实现上没有单独的 <code>&amp;mut</code> 语法；AST 中虽然有 <code>AST_EXPR_ADDRESS_OF_MUT</code> 节点种类，但当前 parser 实际只构造 <code>AST_EXPR_ADDRESS_OF</code>。</p>
+
+  <h2>6. 类型语法</h2>
+  <h3>6.1 类型表达式总览</h3>
+  <p>类型语法通过 <code>parseDataType</code> 和 <code>parseTypeExpr</code> 解析。已实现类型构造包括：</p>
+  <ul>
+    <li>主类型：<code>void</code>、<code>Type</code>、内建数值类型、<code>char</code>、<code>bool</code>、<code>string</code></li>
+    <li>命名类型</li>
+    <li>指针：<code>*T</code></li>
+    <li>引用：<code>&amp;T</code></li>
+    <li>可选：<code>?T</code></li>
+    <li>切片：<code>[]T</code></li>
+    <li>数组：<code>Array(T, N)</code></li>
+    <li>函数类型：<code>Function([A, B, ...], Ret)</code></li>
+    <li>类型应用：<code>Foo(T1, T2)</code></li>
+    <li>结构体类型值</li>
+    <li>枚举类型值</li>
+    <li>不透明类型：<code>opaque</code></li>
+  </ul>
+
+  <h3>6.2 内建主类型</h3>
+  <pre><code>void
+Type
+i8 i16 i32 i64
+u8 u16 u32 u64
+f8 f16 f32 f64
+char
+bool
+string
+opaque
+</code></pre>
+
+  <h3>6.3 包装类型</h3>
+  <pre><code>*T
+&amp;T
+?T
+[]T
+</code></pre>
+  <p>这些在 AST 中分别映射到：</p>
+  <ul>
+    <li><code>AST_DATA_TYPE_KIND_POINTER</code></li>
+    <li><code>AST_DATA_TYPE_KIND_REFERENCE</code></li>
+    <li><code>AST_DATA_TYPE_KIND_OPTIONAL</code></li>
+    <li><code>AST_DATA_TYPE_KIND_SLICE</code></li>
+  </ul>
+
+  <h3>6.4 数组类型</h3>
+  <pre><code>Array(T, N)
+</code></pre>
+  <p>其中 <code>N</code> 在 parser 阶段必须是整数字面量，并且必须能装入 <code>i64</code>，否则报 <code>P1023</code>。</p>
+
+  <h3>6.5 函数类型</h3>
+  <pre><code>Function([P1, P2, ...], Ret)
+</code></pre>
+  <p>函数类型的参数列表写在方括号中，支持 variadic 形态：</p>
+  <pre><code>Function([*char, ...], i32)
+</code></pre>
+
+  <h3>6.6 类型应用</h3>
+  <p>任意主类型表达式后跟括号型参数列表会被解析为类型应用：</p>
+  <pre><code>Vec2(i32)
+Map(string, i32)
+</code></pre>
+  <p>在语义上，这不是内建“泛型语法糖”，而是“返回类型值的函数调用在类型层面的表现”。</p>
+
+  <h2>7. 函数、闭包与调用</h2>
+  <h3>7.1 函数字面量</h3>
+  <pre><code>fn(params) RetType { ... }
+fn(params) { ... }
+</code></pre>
+  <p>返回类型可以省略；若省略，parser 中 <code>return_data_type</code> 为 <code>NULL</code>，之后由类型系统推断或在特定上下文中要求显式写出。</p>
+
+  <h3>7.2 参数列表</h3>
+  <pre><code>fn(a: i32, b: string) i32 { ... }
+</code></pre>
+  <p>函数参数必须是 <code>name: Type</code> 形式。参数列表支持尾部可变参数标记：</p>
+  <pre><code>fn(fmt: *char, ...) i32 { ... }
+</code></pre>
+  <p>但语义阶段当前会拒绝用户定义的 variadic Mote 函数，报 <code>S1004</code>。也就是说，variadic 目前主要用于 <code>@extern</code> 函数类型，而不是普通 Mote 函数定义。</p>
+
+  <h3>7.3 闭包捕获</h3>
+  <pre><code>fn|x, y|(...) { ... }
+fn|&amp;x|(...) { ... }
+</code></pre>
+  <p>捕获列表位于 <code>fn</code> 之后、参数列表之前。支持两种捕获种类：</p>
+  <ul>
+    <li>值捕获：<code>x</code></li>
+    <li>引用捕获：<code>&amp;x</code></li>
+  </ul>
+  <p>语义阶段会检查：</p>
+  <ul>
+    <li>捕获名不能重复，重复时报 <code>S1002</code></li>
+    <li>被捕获变量必须已存在，未知捕获时报 <code>S1003</code></li>
+  </ul>
+
+  <h3>7.4 调用表达式</h3>
+  <pre><code>callee(arg1, arg2)
+</code></pre>
+  <p>调用的 callee 可以是：</p>
+  <ul>
+    <li>普通函数值</li>
+    <li>闭包值</li>
+    <li>结构体成员函数</li>
+    <li>返回函数的表达式</li>
+  </ul>
+
+  <h3>7.5 方法调用与自动 receiver 绑定</h3>
+  <p>当调用形如 <code>obj.method(...)</code>，并且结构体成员 <code>method</code> 的第一个参数类型可绑定 receiver 时，类型系统会做方法调用语义处理。它会检查第一个参数是否匹配：</p>
+  <ul>
+    <li><code>Self</code></li>
+    <li><code>&amp;Self</code></li>
+    <li><code>*Self</code></li>
+    <li>解析后的等价结构体类型</li>
+  </ul>
+  <p>这个逻辑主要在 <code>inferExprType</code> 对 <code>AST_EXPR_CALL</code> + <code>AST_EXPR_MEMBER</code> 的分支中完成。</p>
+
+  <h2>8. 结构体、枚举与字面量</h2>
+  <h3>8.1 结构体表达式</h3>
+  <pre><code>struct {
+    x: i32,
+    y: i32,
+}
+</code></pre>
+  <p><code>struct</code> 在 Mote 里是表达式，求值结果是一个类型值。若它被顶层绑定到名字上，就同时形成顶层类型声明。</p>
+  <p>成员形态有两类：</p>
+  <ul>
+    <li>数据字段：<code>name: Type</code></li>
+    <li>方法成员：<code>name: fn(...) ... { ... }</code></li>
+  </ul>
+  <p>结构体成员还支持有限的 <code>@operator(...)</code> 注解元信息，但操作符函数本身仍然是普通命名函数声明语义。</p>
+
+  <h3>8.2 结构体字面量</h3>
+  <pre><code>TypeExpr {
+    .x = 1,
+    .y = 2,
+}
+</code></pre>
+  <p>字段可以具名，也可以省略字段名，省略时按位置初始化：</p>
+  <pre><code>Point { 1, 2 }
+</code></pre>
+  <p>具名字段在 parser 中以 <code>.name = expr</code> 形式识别。</p>
+
+  <h3>8.3 枚举表达式</h3>
+  <pre><code>enum {
+    idle,
+    running,
+}
+</code></pre>
+  <p>当前枚举是纯 tag 枚举，没有 payload。运行时 ABI 文档规定其底层表示为有符号 32 位标签，变体序号从 0 开始。</p>
+
+  <h3>8.4 结构体和枚举作为类型声明的实现原理</h3>
+  <p>语义阶段中的 <code>isStructDeclAssign</code> / <code>isEnumDeclAssign</code> 会识别“名字绑定到 <code>struct</code>/<code>enum</code> 表达式”的模式，把它既当作变量绑定，也当作类型声明。类型系统里会为该名字建立 <code>TypeInfo</code>，并把同名值绑定成类型值。</p>
+
+  <h2>9. 数组、切片、字符串、指针、引用、可选</h2>
+  <h3>9.1 数组字面量</h3>
+  <pre><code>[1, 2, 3]
+[]
+</code></pre>
+  <p>非空数组字面量会根据首元素推断元素类型，并要求所有元素可隐式转换到该类型。空数组字面量的类型检查有额外限制：</p>
+  <ul>
+    <li>若作为独立表达式语句，报 <code>T1127</code></li>
+    <li>若用于声明初始化，必须目标类型显式为 <code>Array(T, 0)</code>，否则报 <code>T1120</code></li>
+  </ul>
+
+  <h3>9.2 索引</h3>
+  <pre><code>arr[i]
+slice[i]
+str[i]
+</code></pre>
+  <p>索引对象必须是数组、切片或字符串；索引值必须是整数。</p>
+
+  <h3>9.3 指针与引用</h3>
+  <p>当前实现中的关键规则：</p>
+  <ul>
+    <li><code>&amp;expr</code> 对地址可取的值产生指针值，而不是独立的“引用值构造”语法</li>
+    <li>引用类型变量在读取时会自动退化为其目标值类型</li>
+    <li>声明为 <code>&amp;T</code> 的变量初始化时，当前实现只接受变量表达式或解引用表达式作为右值，不是“任意 addressable expression”都可绑定</li>
+  </ul>
+  <p>这里还存在一个很重要的“双重语义”事实：</p>
+  <ul>
+    <li>当操作数是运行时值时，<code>&amp;expr</code> / <code>*expr</code> 分别表示取地址和解引用</li>
+    <li>当操作数是类型值时，<code>&amp;T</code> / <code>*T</code> 会被类型系统解释为“引用类型值” / “指针类型值”</li>
+  </ul>
+  <p>也就是说，<code>&amp;</code> 和 <code>*</code> 同时承担“值级运算符”和“类型构造器”两种职责，具体落在哪条路径，由 <code>inferExprType</code> 先判断操作数是值表达式还是类型表达式。</p>
+  <p>相关检查位于 <code>checkAssignTypesNode</code> 和 <code>inferExprType</code>。</p>
+
+  <h3>9.4 可选类型</h3>
+  <pre><code>?T
+</code></pre>
+  <p>已实现行为：</p>
+  <ul>
+    <li><code>null</code> 可隐式转换为任意 <code>?T</code></li>
+    <li><code>?T</code> 与 <code>null</code> 可做 <code>==</code> / <code>!=</code> 比较</li>
+    <li><code>@unwrap(x)</code> 要求参数类型为 <code>?T</code>，结果类型为 <code>T</code></li>
+  </ul>
+  <p>当前未实现行为：</p>
+  <ul>
+    <li>两个可选值直接相互比较会报 <code>T1248</code></li>
+  </ul>
+
+  <h3>9.5 字符串</h3>
+  <p><code>string</code> 是只读字符串视图，ABI 为 <code>{ ptr, len }</code>。字符串索引按字节取元素，元素类型是 <code>char</code>。</p>
+  <p>字符串字面量在“指针目标上下文”里可以隐式/显式转成 <code>*char</code>，用于 C 互操作。底层实现会生成 NUL 结尾全局缓冲，但这不改变字符串字面量本身的静态类型仍是 <code>string</code>。</p>
+  <p>尽管 ABI 上字符串和切片都有 <code>ptr</code> / <code>len</code> 字段，但源码层面当前不会把这些字段公开成成员访问接口；对 <code>string</code> 或 <code>[]T</code> 执行 <code>.ptr</code> / <code>.len</code> 会报错，必须使用 <code>@len(value)</code> 或显式转换辅助路径。</p>
+
+  <h2>10. 内建函数</h2>
+  <h3>10.1 总览</h3>
+  <p>当前 parser 和类型系统共同实现的内建函数包括：</p>
+  <pre><code>@import
+@extern
+@zero
+@len
+@sizeof
+@alignof
+@debug
+@as
+@slice
+@unwrap
+@ptr_add
+@ptr_diff
+</code></pre>
+  <p>若出现未知 builtin，类型检查时报 <code>T1227</code>。</p>
+
+  <h3>10.2 <code>@import("path")</code></h3>
+  <p>返回一个模块值占位表达式，真正含义在模块重写阶段完成。它必须恰好带一个字符串字面量参数。</p>
+
+  <h3>10.3 <code>@extern("symbol", Function(...))</code></h3>
+  <p>返回一个函数值，其类型由第二个参数给出。类型系统检查：</p>
+  <ul>
+    <li>参数个数必须是 2</li>
+    <li>第一个参数必须是字符串字面量</li>
+    <li>第二个参数必须是能解析为 <code>Function(...)</code> 的类型值</li>
+  </ul>
+
+  <h3>10.4 <code>@zero(Type)</code></h3>
+  <p>参数必须是类型值，结果是该类型的零值。</p>
+
+  <h3>10.5 <code>@len(value)</code></h3>
+  <p>参数必须是切片或字符串值，返回 <code>i64</code>。</p>
+
+  <h3>10.6 <code>@sizeof(Type)</code> / <code>@alignof(Type)</code></h3>
+  <p>参数必须是类型值，返回 <code>i64</code>。底层使用目标 ABI 布局计算函数。</p>
+
+  <h3>10.7 <code>@debug(value, ...)</code></h3>
+  <p>至少需要一个参数，结果类型是 <code>void</code>。</p>
+  <p>MIR 降级阶段会把它改写为一系列运行时调试打印调用。对类型值参数，输出走 <code>Type(...)</code> 路径；对 <code>null</code>，直接输出字面量 <code>null</code>；对普通值则递归按其已解析类型展开。</p>
+
+  <h3>10.8 <code>@as(TargetType, value)</code></h3>
+  <p>第一参数必须是类型值，第二参数是被转换值。是否允许转换由 <code>canExplicitConvertDataType</code> 决定。它覆盖的转换比隐式转换更宽，但仍然是受限集合，不是任意 reinterpret cast。</p>
+
+  <h3>10.9 <code>@slice(T, ptr, len)</code></h3>
+  <p>规则：</p>
+  <ul>
+    <li>必须恰好 3 个参数</li>
+    <li>第一个参数必须是类型值</li>
+    <li>第二个参数必须是 <code>*T</code></li>
+    <li>第三个参数必须是整数值</li>
+    <li>结果类型是 <code>[]T</code></li>
+  </ul>
+
+  <h3>10.10 <code>@ptr_add(T, ptr, count)</code></h3>
+  <p>规则与 <code>@slice</code> 类似，结果类型是和输入相同的指针类型。</p>
+
+  <h3>10.11 <code>@ptr_diff(T, lhs, rhs)</code></h3>
+  <p>要求后两个参数都是 <code>*T</code>，结果类型是 <code>i64</code>。</p>
+
+  <h3>10.12 <code>@unwrap(optional)</code></h3>
+  <p>参数必须是 <code>?T</code>，结果类型是 <code>T</code>。</p>
+
+  <h2>11. 运算符与重载</h2>
+  <h3>11.1 内建二元运算</h3>
+  <p>已实现：</p>
+  <ul>
+    <li>算术：<code>+ - * / %</code></li>
+    <li>位运算：<code>&amp; | ^ ~ &lt;&lt; &gt;&gt;</code></li>
+    <li>逻辑：<code>&amp;&amp; || !</code></li>
+    <li>比较：<code>== != &lt; &lt;= &gt; &gt;=</code></li>
+  </ul>
+
+  <h3>11.2 数值提升与字面量推断</h3>
+  <p>整数字面量与浮点字面量在类型系统中先以“字面量类别”存在，而不是直接固定到某个主类型。它们会在赋值、比较、运算和调用参数检查时，根据目标上下文选择默认类型或做适配。</p>
+  <p>默认推断函数见 <code>inferDeclaredTypeFromExpr</code>，默认整型/浮点型由类型系统内部辅助函数决定。</p>
+
+  <h3>11.3 操作符重载注解</h3>
+  <pre><code>@operator(+)
+name :: fn(lhs: T, rhs: T) T { ... };
+</code></pre>
+  <p>当前 parser 和语义系统只支持如下操作符注解：</p>
+  <ul>
+    <li><code>+</code></li>
+    <li><code>-</code></li>
+    <li><code>*</code></li>
+    <li><code>/</code></li>
+    <li><code>==</code></li>
+  </ul>
+  <p>语义约束：</p>
+  <ul>
+    <li><code>@operator</code> 只能标注命名函数声明</li>
+    <li>不能单独作为表达式使用</li>
+  </ul>
+  <p>对应报错主要在 <code>S1006</code> / <code>S1007</code> 一带。</p>
+
+  <h2>12. 类型值、泛型与 <code>Self</code></h2>
+  <h3>12.1 类型是值</h3>
+  <p>Mote 的关键设计是：类型本身也是表达式值，且其静态“类型”是 <code>Type</code>。因此：</p>
+  <ul>
+    <li>内建类型名如 <code>i32</code> 在表达式位置会被当作类型值</li>
+    <li><code>struct { ... }</code> 和 <code>enum { ... }</code> 表达式会产生类型值</li>
+    <li>函数可以返回类型值</li>
+  </ul>
+
+  <h3>12.2 泛型的真实实现方式</h3>
+  <p>Mote 当前没有独立的模板/泛型语法层。所谓“泛型”，是“参数里出现 <code>Type</code>，函数返回类型值或使用类型值参与实例化”的普通函数系统。</p>
+  <pre><code>Vec2 :: fn(T: Type) Type {
+    return struct {
+        x: T,
+        y: T,
+    };
+};
+</code></pre>
+  <p>后续 <code>Vec2(i32)</code> 在类型层面会表现为应用类型；语义上则通过类型系统实例化逻辑来解析。</p>
+  <p>这也意味着当前实现中的“泛型”有一个很硬的运行时边界：带 <code>Type</code> 参数的函数若要作为运行时函数值使用，必须先在编译期完成专门化。未专门化的 generic function value 不能直接降到 MIR，相关保护在 <code>lowerFunctionExprAsValue</code> 中完成。</p>
+
+  <h3>12.3 <code>Self</code></h3>
+  <p><code>Self</code> 在结构体成员函数中被当作一个特殊类型值名字引入到局部作用域里。它不是 lexer 关键字，而是在语义/类型阶段特殊处理的保留标识符。</p>
+  <p>更准确地说，<code>Self</code> 只在结构体方法相关的作用域搭建过程中被显式注入；若在其它位置把它当普通类型名使用，最终会在类型解析阶段报错。</p>
+
+  <h2>13. 语义阶段的关键约束</h2>
+  <h3>13.1 名字声明与作用域</h3>
+  <p>语义阶段首先做“名字是否已声明”和“声明位置是否合法”的检查，随后类型阶段再做具体类型验证。顶层作用域还会进行预声明，以支持一定程度的前向引用和类型声明解析。</p>
+
+  <h3>13.2 类型声明识别</h3>
+  <p>以下形式会被识别为“类型声明值绑定”：</p>
+  <ul>
+    <li>右侧是 <code>struct</code> 表达式</li>
+    <li>右侧是 <code>enum</code> 表达式</li>
+    <li>右侧是明显像类型值的表达式，例如返回 <code>Type</code> 的函数、类型字面量、类型名</li>
+  </ul>
+
+  <h3>13.3 结构体与枚举的预声明</h3>
+  <p>为了支持递归引用和先用后定义的一部分情况，顶层结构体和枚举名字会先注册成 placeholder 类型，再在后续 <code>resolveTopLevelTypeDeclarations</code> 中完成解析。</p>
+
+  <h2>14. 类型系统的关键规则</h2>
+  <h3>14.1 表达式类型种类</h3>
+  <p>类型系统不是简单返回“一个类型”，而是区分：</p>
+  <ul>
+    <li>值表达式</li>
+    <li>类型表达式</li>
+    <li><code>null</code></li>
+    <li>整数字面量</li>
+    <li>浮点字面量</li>
+  </ul>
+  <p>这使得 Mote 能区分“求值结果是一个运行时值”与“求值结果是一个类型值”。</p>
+
+  <h3>14.2 引用变量的读取规则</h3>
+  <p>若一个变量信息的静态类型是 <code>&amp;T</code>，则读取该变量时 <code>inferExprType</code> 会直接返回值类型 <code>T</code>。这意味着引用更接近“可隐式解引用的别名绑定”，而不是必须显式 <code>*</code> 才能访问的指针。</p>
+
+  <h3>14.3 void 值限制</h3>
+  <p><code>void</code> 不能作为普通变量类型，也不能把一个 <code>void</code> 表达式赋值给变量。这些在 <code>typeSystemRejectVoidValueExpr</code> 和赋值检查中处理。</p>
+
+  <h3>14.4 成员访问、调用与索引的值/类型边界</h3>
+  <p>若从源码行为来精确描述，当前实现还有几条非常关键的边界：</p>
+  <ul>
+    <li>枚举变体只能通过枚举类型访问，即 <code>EnumType.Variant</code>；若通过枚举值访问变体，报 <code>T1235</code></li>
+    <li>字符串和切片不会暴露 ABI 字段成员；访问 <code>.ptr</code> / <code>.len</code> 走统一拒绝路径，报 <code>T1238</code></li>
+    <li>索引要求左侧是运行时值，不能对纯类型值做索引；左侧类型还必须是数组、切片或字符串</li>
+    <li>调用表达式最终要求 callee 的推断结果是函数值；否则报 <code>T1243</code></li>
+  </ul>
+  <p>这些规则主要都在 <code>inferExprType</code> 的 <code>AST_EXPR_MEMBER</code>、<code>AST_EXPR_INDEX</code> 和 <code>AST_EXPR_CALL</code> 分支中实现。</p>
+
+  <h3>14.4 opaque 限制</h3>
+  <p>裸 <code>opaque</code> 类型不能作为一等运行时值直接出现，必须通过 <code>*opaque</code> 或命名 opaque 指针方式使用。类型系统会显式拒绝 bare opaque runtime value。</p>
+
+  <h2>15. 运行时 ABI 事实</h2>
+  <p>来自 <code>docs/runtime_abi.md</code> 与后端实现的关键事实如下：</p>
+  <ul>
+    <li><code>bool</code>：逻辑上是 0/1，SSA 中用 <code>i1</code>，内存与外部 ABI 中占 1 字节</li>
+    <li><code>char</code>：1 字节原始码元</li>
+    <li><code>enum</code>：当前是无 payload 的 32 位 tag</li>
+    <li><code>Array(T, N)</code>：内联连续存储，无头部</li>
+    <li><code>string</code>：<code>{ ptr, len }</code></li>
+    <li><code>struct</code>：只存数据字段，方法不占运行时空间</li>
+    <li>函数值/闭包：<code>{ code_ptr, env_ptr }</code></li>
+  </ul>
+
+  <h2>16. 当前实现已知边界</h2>
+  <ul>
+    <li>用户定义 variadic Mote 函数尚不支持，只支持 variadic extern 函数类型</li>
+    <li>可选类型目前只支持和 <code>null</code> 比较</li>
+    <li>枚举还不支持 payload</li>
+    <li>模块循环导入不支持</li>
+    <li><code>pub import</code> 重导出不支持</li>
+    <li>很多语句的分号目前是 parser 可选消费，不是强制</li>
+    <li>数值字面量语法较窄，不支持指数、后缀、分隔符</li>
+  </ul>
+
+  <h2>17. 供测试体系使用的语法覆盖清单</h2>
+  <p>为了测试当前实现，至少应覆盖以下类别：</p>
+  <ul>
+    <li>包声明、包目录、多文件同包约束</li>
+    <li>顶层声明限制</li>
+    <li>plain import 与 collection import</li>
+    <li>匿名导入</li>
+    <li>变量声明四种表面形式</li>
+    <li>控制流语句</li>
+    <li>结构体、枚举、结构体字面量、方法调用</li>
+    <li>函数、闭包捕获、函数类型</li>
+    <li>数组、切片、字符串、指针、引用、可选</li>
+    <li>内建函数各自的参数个数、参数类别、成功路径与失败路径</li>
+    <li>类型值、<code>Type</code> 参数函数、<code>Self</code>、类型应用与泛型专门化边界</li>
+    <li>枚举变体访问、字符串/切片成员限制、索引和值/类型边界</li>
+    <li>操作符重载</li>
+    <li>错误路径：parser 报错、semantic 报错、type 报错、module 报错</li>
+  </ul>
+</body>
+</html>
