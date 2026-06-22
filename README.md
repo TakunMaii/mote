@@ -52,6 +52,52 @@ mote [options] <dir>
 - `-Wl,<args>`：把参数直接转发给 linker
 - `--dump-ast` / `--dump-mir`：显式打印 AST / MIR
 
+## 测试脚本
+
+仓库内置了一套 Python 测试脚本，入口是 `tests/runner.py`。
+
+先构建编译器，再在仓库根目录执行：
+
+```bash
+python tests/runner.py --compiler ./mote --all
+```
+
+常用用法：
+
+```bash
+python tests/runner.py --compiler ./mote --list
+python tests/runner.py --compiler ./mote --group parser
+python tests/runner.py --compiler ./mote --group builtin
+python tests/runner.py --compiler ./mote --case parser/invalid_top_level_statement
+python tests/runner.py --compiler ./mote --all --verbose
+```
+
+参数说明：
+
+- `--compiler <path>`：指定 `mote` 编译器可执行文件路径
+- `--all`：运行全部测试
+- `--group <name>`：只运行某个测试分组
+- `--case <group/name>`：只运行单个测试用例
+- `--list`：列出所有可用测试用例
+- `--verbose`：打印实际执行的编译/运行命令
+
+测试分组当前主要包括：
+
+- `parser`
+- `module`
+- `builtin`
+- `semantics`
+- `types`
+- `entry`
+
+测试脚本支持三类检查：
+
+- 仅检查是否成功编译 / 是否按预期报错
+- 检查 LLVM IR 输出
+- 在 `clang` 可用时检查原生可执行文件的输入输出与退出码
+
+如果系统里没有 `clang`，需要原生执行的 case 会被自动跳过。更详细的测试目录结构和约定见 [tests/README.md](/abs/path/C:/Users/maii/Desktop/mote/tests/README.md)。
+
 ## 快速开始
 
 `notgate` 是一个用mote语言写成的推箱子游戏。
