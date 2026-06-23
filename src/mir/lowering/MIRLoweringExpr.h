@@ -508,6 +508,68 @@ static ASTDataType* inferComparisonOperandType(ASTNode *lhs, ASTNode *rhs, Scope
     return defaultIntegerDataType();
 }
 
+static MirValueId lowerOptionalFieldLoad(MirFunctionState *state, MirValueId optional_slot,
+                                         ASTDataType *field_type, const char *field_name, int field_index,
+                                         ASTNode *node)
+{
+    MirValueId field_ptr = mirEmitFieldPtr(state, optional_slot, field_type, field_name, field_index,
+                                           node->filename, node->line_number, node->column_number);
+    return mirEmitLoad(state, field_ptr, field_type,
+                       node->filename, node->line_number, node->column_number);
+}
+
+static MirValueId lowerValueEqualityCompare(MirFunctionState *state, MirLowerScope *scope,
+                                            ASTNode *node, ASTDataType *operand_type,
+                                            MirValueId lhs, MirValueId rhs, bool is_equal)
+{
+    ASTDataType *resolved_operand_type = resolveNamedDataType(operand_type, &(scope->type_scope), scope->self_data_type);
+    if(resolved_operand_type != NULL &&
+       resolved_operand_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
+    {
+        MirValueId lhs_slot = mirEmitAlloca(state, resolved_operand_type,
+                                            node->filename, node->line_number, node->column_number);
+        MirValueId rhs_slot = mirEmitAlloca(state, resolved_operand_type,
+                                            node->filename, node->line_number, node->column_number);
+        mirEmitStore(state, lhs_slot, lhs, node->filename, node->line_number, node->column_number);
+        mirEmitStore(state, rhs_slot, rhs, node->filename, node->line_number, node->column_number);
+
+        ASTDataType *bool_type = mirOptionalBoolType();
+        MirValueId lhs_has_value = lowerOptionalFieldLoad(state, lhs_slot, bool_type, "has_value", 0, node);
+        MirValueId rhs_has_value = lowerOptionalFieldLoad(state, rhs_slot, bool_type, "has_value", 0, node);
+        MirValueId same_has_value = mirEmitBinary(state, MIR_INST_EQ, lhs_has_value, rhs_has_value, bool_type,
+                                                  node->filename, node->line_number, node->column_number);
+
+        MirValueId lhs_inner = lowerOptionalFieldLoad(state, lhs_slot, resolved_operand_type->child, "value", 1, node);
+        MirValueId rhs_inner = lowerOptionalFieldLoad(state, rhs_slot, resolved_operand_type->child, "value", 1, node);
+        MirValueId same_inner = lowerValueEqualityCompare(state, scope, node, resolved_operand_type->child,
+                                                          lhs_inner, rhs_inner, true);
+
+        MirValueId both_none = mirEmitUnary(state, MIR_INST_NOT, lhs_has_value, bool_type,
+                                            node->filename, node->line_number, node->column_number);
+        both_none = mirEmitBinary(state, MIR_INST_BIT_AND, both_none,
+                                  mirEmitUnary(state, MIR_INST_NOT, rhs_has_value, bool_type,
+                                               node->filename, node->line_number, node->column_number),
+                                  bool_type,
+                                  node->filename, node->line_number, node->column_number);
+        MirValueId both_some = mirEmitBinary(state, MIR_INST_BIT_AND, lhs_has_value, rhs_has_value, bool_type,
+                                             node->filename, node->line_number, node->column_number);
+        MirValueId some_and_equal = mirEmitBinary(state, MIR_INST_BIT_AND, both_some, same_inner, bool_type,
+                                                  node->filename, node->line_number, node->column_number);
+        MirValueId equal_value = mirEmitBinary(state, MIR_INST_BIT_OR, both_none, some_and_equal, bool_type,
+                                               node->filename, node->line_number, node->column_number);
+        equal_value = mirEmitBinary(state, MIR_INST_BIT_AND, same_has_value, equal_value, bool_type,
+                                    node->filename, node->line_number, node->column_number);
+        if(is_equal)
+            return equal_value;
+        return mirEmitUnary(state, MIR_INST_NOT, equal_value, bool_type,
+                            node->filename, node->line_number, node->column_number);
+    }
+
+    MirInstKind kind = is_equal ? MIR_INST_EQ : MIR_INST_NE;
+    return mirEmitBinary(state, kind, lhs, rhs, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL),
+                         node->filename, node->line_number, node->column_number);
+}
+
 static MirValueId lowerCallExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node, ASTDataType *expected_type)
 {
     MirMaybeValue comptime_call = tryLowerComptimeFunctionCall(state, scope, node);
@@ -1097,26 +1159,32 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                operand_type != NULL &&
                operand_type->kind == AST_DATA_TYPE_KIND_OPTIONAL)
             {
-                MirValueId optional_value = -1;
-                if(inferExprType(node->lhs, &(scope->type_scope)).kind == TYPE_SYSTEM_EXPR_TYPE_NULL)
-                    optional_value = lowerExprAsValue(state, scope, node->rhs, operand_type);
-                else
-                    optional_value = lowerExprAsValue(state, scope, node->lhs, operand_type);
+                TypeSystemExprType lhs_type = inferExprType(node->lhs, &(scope->type_scope));
+                TypeSystemExprType rhs_type = inferExprType(node->rhs, &(scope->type_scope));
+                bool is_equal = node->kind == AST_EXPR_EQUAL;
+                if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL || rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL)
+                {
+                    MirValueId optional_value = lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_NULL
+                        ? lowerExprAsValue(state, scope, node->rhs, operand_type)
+                        : lowerExprAsValue(state, scope, node->lhs, operand_type);
 
-                MirValueId optional_slot = mirEmitAlloca(state, operand_type,
-                                                         node->filename, node->line_number, node->column_number);
-                mirEmitStore(state, optional_slot, optional_value,
-                             node->filename, node->line_number, node->column_number);
-                MirValueId has_value_ptr = mirEmitFieldPtr(state, optional_slot, mirOptionalBoolType(),
-                                                           "has_value", 0,
-                                                           node->filename, node->line_number, node->column_number);
-                MirValueId has_value = mirEmitLoad(state, has_value_ptr, mirOptionalBoolType(),
-                                                   node->filename, node->line_number, node->column_number);
-                MirValueId result = has_value;
-                if(node->kind == AST_EXPR_EQUAL)
-                    result = mirEmitUnary(state, MIR_INST_NOT, has_value, mirOptionalBoolType(),
-                                          node->filename, node->line_number, node->column_number);
-                return mirMaybeConvertValue(state, scope, node, result, expected_type);
+                    MirValueId optional_slot = mirEmitAlloca(state, operand_type,
+                                                             node->filename, node->line_number, node->column_number);
+                    mirEmitStore(state, optional_slot, optional_value,
+                                 node->filename, node->line_number, node->column_number);
+                    MirValueId has_value = lowerOptionalFieldLoad(state, optional_slot, mirOptionalBoolType(),
+                                                                  "has_value", 0, node);
+                    MirValueId result = has_value;
+                    if(is_equal)
+                        result = mirEmitUnary(state, MIR_INST_NOT, has_value, mirOptionalBoolType(),
+                                              node->filename, node->line_number, node->column_number);
+                    return mirMaybeConvertValue(state, scope, node, result, expected_type);
+                }
+
+                MirValueId lhs = lowerExprAsValue(state, scope, node->lhs, operand_type);
+                MirValueId rhs = lowerExprAsValue(state, scope, node->rhs, operand_type);
+                MirValueId value = lowerValueEqualityCompare(state, scope, node, operand_type, lhs, rhs, is_equal);
+                return mirMaybeConvertValue(state, scope, node, value, expected_type);
             }
             MirValueId lhs = lowerExprAsValue(state, scope, node->lhs, operand_type);
             MirValueId rhs = lowerExprAsValue(state, scope, node->rhs, operand_type);

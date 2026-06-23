@@ -522,11 +522,6 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
                isOptionalDataType(lhs_type.data_type))
                 return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
-            if(lhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE && rhs_type.kind == TYPE_SYSTEM_EXPR_TYPE_VALUE &&
-               (isOptionalDataType(lhs_type.data_type) || isOptionalDataType(rhs_type.data_type)))
-                typeSystemAbortNode("T1248", node,
-                                    "optional values currently only support comparison with `null`",
-                                    "compare `?T` values using `== null` or `!= null`");
             if(isZeroComparablePointerOrFunction(lhs_type, rhs_type, node->rhs) ||
                isZeroComparablePointerOrFunction(rhs_type, lhs_type, node->lhs))
                 return newValueExprType(newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));

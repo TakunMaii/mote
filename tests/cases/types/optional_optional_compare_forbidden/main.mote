@@ -2,9 +2,27 @@
 
 main :: fn() i32 {
     lhs: ?i32 = 1;
-    rhs: ?i32 = 2;
-    if(lhs == rhs) {
-        return 0;
+    rhs: ?i32 = 1;
+    none: ?i32 = null;
+    other: ?i32 = 2;
+
+    if(lhs != rhs) {
+        return 1;
     }
-    return 1;
+    if(lhs == other) {
+        return 2;
+    }
+    if(lhs == none) {
+        return 3;
+    }
+    if(none != null) {
+        return 4;
+    }
+    if(none == lhs) {
+        return 5;
+    }
+    if(none == other) {
+        return 6;
+    }
+    return 0;
 };

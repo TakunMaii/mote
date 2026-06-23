@@ -641,12 +641,9 @@ str[i]
   <ul>
     <li><code>null</code> 可隐式转换为任意 <code>?T</code></li>
     <li><code>?T</code> 与 <code>null</code> 可做 <code>==</code> / <code>!=</code> 比较</li>
+    <li>同类型的两个 <code>?T</code> 可直接做 <code>==</code> / <code>!=</code> 比较</li>
     <li><code>@unwrap(x)</code> 要求参数类型为 <code>?T</code>，结果类型为 <code>T</code></li>
     <li><code>x?</code> 是 <code>@unwrap(x)</code> 的后缀语法糖</li>
-  </ul>
-  <p>当前未实现行为：</p>
-  <ul>
-    <li>两个可选值直接相互比较会报 <code>T1248</code></li>
   </ul>
 
   <h3>9.5 字符串</h3>

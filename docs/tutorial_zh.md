@@ -149,8 +149,7 @@ same_value: i32 = other_num?;
 
 当前实现边界：
 
-- `?T` 现在只能和 `null` 比较
-- 不能直接比较两个可选值
+- `?T` 可以和同类型的另一个 `?T` 比较
 - `@unwrap(null)` 会在运行时 panic
 - `value?` 是 `@unwrap(value)` 的语法糖
 
