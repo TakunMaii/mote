@@ -1,0 +1,6 @@
+{
+  "mode": "native",
+  "expect_success": true,
+  "expected_exit_code": 3221226505,
+  "expected_stderr": "runtime panic: @assert failed\n"
+}

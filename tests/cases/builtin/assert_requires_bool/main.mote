@@ -1,0 +1,6 @@
+@package("assert_requires_bool");
+
+main :: fn() i32 {
+    @assert(123);
+    return 0;
+};

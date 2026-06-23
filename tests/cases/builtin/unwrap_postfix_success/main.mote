@@ -1,0 +1,7 @@
+@package("unwrap_postfix_success");
+
+main :: fn() i32 {
+    value: ?i32 = 42;
+    unwrapped: i32 = value?;
+    return unwrapped - 42;
+};

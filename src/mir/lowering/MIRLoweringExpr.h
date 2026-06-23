@@ -3,6 +3,9 @@
 
 #include "MIRLoweringFunction.h"
 
+static MirValueId lowerSlicePtrValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *slice_expr);
+static MirValueId lowerSliceLenValue(MirFunctionState *state, MirLowerScope *scope, ASTNode *slice_expr);
+
 static MirValueId lowerLogicalShortCircuit(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
                                            bool is_and)
 {
@@ -123,6 +126,63 @@ static MirValueId lowerDebugBuiltinExpr(MirFunctionState *state, MirLowerScope *
     }
 
     mirEmitDebugRuntimeCall(state, node, "mote_debug_end", mirDebugExternType0Void(), newMirOperandList(0));
+    return -1;
+}
+
+static ASTDataType* mirPanicExternTypePtrLenVoid(void)
+{
+    ASTFunctionParameter *ptr_param = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
+    ASTFunctionParameter *len_param = (ASTFunctionParameter*) malloc(sizeof(ASTFunctionParameter));
+    if(ptr_param == NULL || len_param == NULL)
+        mirLoweringAbortInternal("ICE0302", "mirPanicExternTypePtrLenVoid", "AST function parameter allocation failed");
+    memset(ptr_param, 0, sizeof(ASTFunctionParameter));
+    memset(len_param, 0, sizeof(ASTFunctionParameter));
+    ptr_param->data_type = newWrappedDataType(AST_DATA_TYPE_KIND_POINTER, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_CHAR));
+    len_param->data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_I64);
+    ptr_param->next = len_param;
+    return newFunctionDataType(ptr_param, false, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID));
+}
+
+static void lowerPanicBuiltinTerminator(MirFunctionState *state, MirLowerScope *scope, ASTNode *node,
+                                        ASTNode *message_expr, const char *symbol_name)
+{
+    ASTDataType *panic_type = mirPanicExternTypePtrLenVoid();
+    const char *panic_name = mirEnsureExternFunction(state->lowering, symbol_name, panic_type,
+                                                     node->filename, node->line_number, node->column_number);
+    MirOperandList panic_args = newMirOperandList(2);
+    panic_args.items[0] = lowerSlicePtrValue(state, scope, message_expr);
+    panic_args.items[1] = lowerSliceLenValue(state, scope, message_expr);
+    (void) mirEmitExternCall(state, panic_name, panic_type, panic_args,
+                             newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID),
+                             node->filename, node->line_number, node->column_number);
+    mirEmitUnreachable(state);
+}
+
+static MirValueId lowerPanicBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node)
+{
+    lowerPanicBuiltinTerminator(state, scope, node, node->lhs, "mote_panic");
+    return -1;
+}
+
+static MirValueId lowerAssertBuiltinExpr(MirFunctionState *state, MirLowerScope *scope, ASTNode *node)
+{
+    MirFunction *function = mirCurrentFunction(state);
+    MirBlockId ok_block = mirCreateBlock(state->lowering, function, "assert_ok");
+    MirBlockId panic_block = mirCreateBlock(state->lowering, function, "assert_panic");
+    MirValueId condition = lowerExprAsValue(state, scope, node->lhs, newPrimaryDataType(AST_PRIMARY_DATA_TYPE_BOOL));
+    mirEmitCondBr(state, condition, ok_block, panic_block);
+
+    mirSwitchToBlock(state, panic_block);
+    ASTNode *message = newASTNode(AST_EXPR_LITERAL_STRING);
+    strcpy(message->literal_string, "@assert failed");
+    message->filename = node->filename;
+    message->line_number = node->line_number;
+    message->column_number = node->column_number;
+    message->end_line_number = node->end_line_number;
+    message->end_column_number = node->end_column_number;
+    lowerPanicBuiltinTerminator(state, scope, node, message, "mote_assert_fail");
+
+    mirSwitchToBlock(state, ok_block);
     return -1;
 }
 
@@ -808,6 +868,10 @@ static MirValueId lowerExprAsValue(MirFunctionState *state, MirLowerScope *scope
                 return lowerZeroBuiltinExpr(state, scope, node, expected_type);
             if(strcmp(node->identifier, "debug") == 0)
                 return lowerDebugBuiltinExpr(state, scope, node);
+            if(strcmp(node->identifier, "panic") == 0)
+                return lowerPanicBuiltinExpr(state, scope, node);
+            if(strcmp(node->identifier, "assert") == 0)
+                return lowerAssertBuiltinExpr(state, scope, node);
             if(strcmp(node->identifier, "len") == 0)
                 return lowerLenBuiltinExpr(state, scope, node, expected_type);
             if(strcmp(node->identifier, "ptr_add") == 0)

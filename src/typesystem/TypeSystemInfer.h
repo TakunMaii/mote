@@ -38,6 +38,10 @@ TypeSystemExprType inferExprType(ASTNode *node, ScopeFrame *scope)
                 return newValueExprType(inferAlignofBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "debug") == 0)
                 return newValueExprType(inferDebugBuiltinValueType(node, scope));
+            if(strcmp(node->identifier, "panic") == 0)
+                return newValueExprType(inferPanicBuiltinValueType(node, scope));
+            if(strcmp(node->identifier, "assert") == 0)
+                return newValueExprType(inferAssertBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "as") == 0)
                 return newValueExprType(inferAsBuiltinValueType(node, scope));
             if(strcmp(node->identifier, "slice") == 0)

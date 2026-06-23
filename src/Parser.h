@@ -751,6 +751,22 @@ ASTNode* parseBuiltinExpr(Token **token)
     return node;
 }
 
+static ASTNode* makeUnwrapSugarNode(ASTNode *operand, Token *question_token)
+{
+    ASTNode *node = newASTNodeFromToken(AST_EXPR_BUILTIN, question_token);
+    strcpy(node->identifier, "unwrap");
+    node->lhs = operand;
+    if(operand != NULL)
+    {
+        node->filename = operand->filename;
+        node->line_number = operand->line_number;
+        node->column_number = operand->column_number;
+        node->end_line_number = question_token->end_line_number;
+        node->end_column_number = question_token->end_column_number;
+    }
+    return node;
+}
+
 ASTNode* parseLiteralValue(Token **token)
 {
     ASTNode *node = newASTNodeFromToken(AST_EXPR_LITERAL_INTEGER, *token);
@@ -1233,6 +1249,14 @@ ASTNode* parsePostfix(Token **token)
             literal_node->lhs = node;
             literal_node->struct_literal_fields = parseStructLiteralFields(token);
             node = literal_node;
+            continue;
+        }
+
+        if((*token)->kind == TK_QUESTION)
+        {
+            Token *question_token = *token;
+            (*token) = (*token)->next;
+            node = makeUnwrapSugarNode(node, question_token);
             continue;
         }
 

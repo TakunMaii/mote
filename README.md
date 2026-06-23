@@ -96,16 +96,4 @@ python tests/runner.py --compiler ./mote --all --verbose
 - 检查 LLVM IR 输出
 - 在 `clang` 可用时检查原生可执行文件的输入输出与退出码
 
-如果系统里没有 `clang`，需要原生执行的 case 会被自动跳过。更详细的测试目录结构和约定见 [tests/README.md](/abs/path/C:/Users/maii/Desktop/mote/tests/README.md)。
-
-## 快速开始
-
-`notgate` 是一个用mote语言写成的推箱子游戏。
-
-编译运行：
-
-```bash
-cd ./test/game/notgate
-../../../mote .. -o notgate
-./notgate
-```
+如果系统里没有 `clang`，需要原生执行的 case 会被自动跳过。更详细的测试目录结构和约定见 [tests/README.md](tests/README.md)。

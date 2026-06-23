@@ -1,0 +1,6 @@
+@package("panic_runtime_message");
+
+main :: fn() i32 {
+    @panic("boom");
+    return 0;
+};

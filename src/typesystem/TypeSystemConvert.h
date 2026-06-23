@@ -343,6 +343,45 @@ ASTDataType* inferDebugBuiltinValueType(ASTNode *node, ScopeFrame *scope)
     return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
 }
 
+ASTDataType* inferPanicBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    if(node->lhs == NULL || node->lhs->next != NULL)
+        typeSystemAbortNode("T1270", node,
+                            "@panic expects exactly one argument",
+                            "expected `@panic(message)`");
+
+    TypeSystemExprType message_type = inferExprType(node->lhs, scope);
+    if(message_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
+       message_type.data_type == NULL ||
+       !isStringDataType(message_type.data_type))
+        typeSystemAbortExpectedDescriptionFoundExpr("T1271", node->lhs,
+                                                    "@panic expects a string message",
+                                                    "a `string` value",
+                                                    message_type);
+
+    return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
+}
+
+ASTDataType* inferAssertBuiltinValueType(ASTNode *node, ScopeFrame *scope)
+{
+    if(node->lhs == NULL || node->lhs->next != NULL)
+        typeSystemAbortNode("T1272", node,
+                            "@assert expects exactly one argument",
+                            "expected `@assert(condition)`");
+
+    TypeSystemExprType condition_type = inferExprType(node->lhs, scope);
+    if(condition_type.kind != TYPE_SYSTEM_EXPR_TYPE_VALUE ||
+       condition_type.data_type == NULL ||
+       condition_type.data_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
+       condition_type.data_type->primary != AST_PRIMARY_DATA_TYPE_BOOL)
+        typeSystemAbortExpectedDescriptionFoundExpr("T1273", node->lhs,
+                                                    "@assert expects a bool condition",
+                                                    "a `bool` value",
+                                                    condition_type);
+
+    return newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
+}
+
 ASTDataType* inferAsBuiltinValueType(ASTNode *node, ScopeFrame *scope)
 {
     if(node->lhs == NULL || node->lhs->next == NULL || node->lhs->next->next != NULL)

@@ -1,0 +1,6 @@
+@package("assert_runtime_fail");
+
+main :: fn() i32 {
+    @assert(false);
+    return 0;
+};

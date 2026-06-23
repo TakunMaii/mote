@@ -287,6 +287,20 @@ void mote_unwrap_null_panic(void)
     abort();
 }
 
+void mote_panic(const char *ptr, long long len)
+{
+    fputs("runtime panic: ", stderr);
+    if(ptr != NULL && len > 0)
+        fwrite(ptr, 1, (size_t) len, stderr);
+    fputc('\n', stderr);
+    abort();
+}
+
+void mote_assert_fail(const char *ptr, long long len)
+{
+    mote_panic(ptr, len);
+}
+
 void mote_debug_begin(const char *file, long long line)
 {
     fprintf(stderr, "%s:%lld: ", file != NULL ? file : "<unknown>", line);

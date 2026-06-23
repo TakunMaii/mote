@@ -1,0 +1,6 @@
+@package("panic_requires_string");
+
+main :: fn() i32 {
+    @panic(123);
+    return 0;
+};

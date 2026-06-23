@@ -643,6 +643,7 @@ str[i]
     <li><code>null</code> 可隐式转换为任意 <code>?T</code></li>
     <li><code>?T</code> 与 <code>null</code> 可做 <code>==</code> / <code>!=</code> 比较</li>
     <li><code>@unwrap(x)</code> 要求参数类型为 <code>?T</code>，结果类型为 <code>T</code></li>
+    <li><code>x?</code> 是 <code>@unwrap(x)</code> 的后缀语法糖</li>
   </ul>
   <p>当前未实现行为：</p>
   <ul>
@@ -664,6 +665,8 @@ str[i]
 @sizeof
 @alignof
 @debug
+@panic
+@assert
 @as
 @slice
 @unwrap
@@ -699,7 +702,13 @@ str[i]
   <h3>10.8 <code>@as(TargetType, value)</code></h3>
   <p>第一参数必须是类型值，第二参数是被转换值。是否允许转换由 <code>canExplicitConvertDataType</code> 决定。它覆盖的转换比隐式转换更宽，但仍然是受限集合，不是任意 reinterpret cast。</p>
 
-  <h3>10.9 <code>@slice(T, ptr, len)</code></h3>
+  <h3>10.9 <code>@panic(message)</code></h3>
+  <p>必须恰好带一个 <code>string</code> 参数。运行时会输出 <code>runtime panic: ...</code> 并终止程序。</p>
+
+  <h3>10.10 <code>@assert(condition)</code></h3>
+  <p>必须恰好带一个 <code>bool</code> 参数。条件为 <code>false</code> 时会触发运行时 panic。</p>
+
+  <h3>10.11 <code>@slice(T, ptr, len)</code></h3>
   <p>规则：</p>
   <ul>
     <li>必须恰好 3 个参数</li>
@@ -709,13 +718,13 @@ str[i]
     <li>结果类型是 <code>[]T</code></li>
   </ul>
 
-  <h3>10.10 <code>@ptr_add(T, ptr, count)</code></h3>
+  <h3>10.12 <code>@ptr_add(T, ptr, count)</code></h3>
   <p>规则与 <code>@slice</code> 类似，结果类型是和输入相同的指针类型。</p>
 
-  <h3>10.11 <code>@ptr_diff(T, lhs, rhs)</code></h3>
+  <h3>10.13 <code>@ptr_diff(T, lhs, rhs)</code></h3>
   <p>要求后两个参数都是 <code>*T</code>，结果类型是 <code>i64</code>。</p>
 
-  <h3>10.12 <code>@unwrap(optional)</code></h3>
+  <h3>10.14 <code>@unwrap(optional)</code> / <code>optional?</code></h3>
   <p>参数必须是 <code>?T</code>，结果类型是 <code>T</code>。</p>
 
   <h2>11. 运算符与重载</h2>

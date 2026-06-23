@@ -154,6 +154,7 @@ other_num: ?i32 = 42;
 is_null: bool = maybe_num == null;
 is_not_null: bool = other_num != null;
 value: i32 = @unwrap(other_num);
+same_value: i32 = other_num?;
 ```
 
 当前实现边界：
@@ -161,6 +162,7 @@ value: i32 = @unwrap(other_num);
 - `?T` 现在只能和 `null` 比较
 - 不能直接比较两个可选值
 - `@unwrap(null)` 会在运行时 panic
+- `value?` 是 `@unwrap(value)` 的语法糖
 
 ### 字符串、数组和切片
 
@@ -408,6 +410,9 @@ main :: fn() i32 {
 - `@len(slice_or_string)`
 - `@slice(T, ptr, len)`
 - `@unwrap(optional)`
+- `optional?`
+- `@panic(message)`
+- `@assert(condition)`
 - `@sizeof(T)` 或 `@sizeof(value_type)`
 - `@alignof(T)` 或 `@alignof(value_type)`
 - `@ptr_add(T, ptr, count)`
@@ -474,6 +479,13 @@ main :: fn() i32 {
     return 1;
 };
 ```
+
+### `@unwrap`、`?`、`@panic`、`@assert`
+
+- `@unwrap(optional)`：参数必须是 `?T`，结果是 `T`
+- `optional?`：等价于 `@unwrap(optional)`
+- `@panic(message)`：参数必须是 `string`，运行时打印消息并终止
+- `@assert(condition)`：参数必须是 `bool`；为 `false` 时运行时 panic
 
 ## 操作符重载
 

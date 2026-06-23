@@ -1729,7 +1729,10 @@ static void llvmEmitDynamicFunctionPointerSignature(FILE *stream, ASTDataType *f
 
 static bool llvmExternSymbolIsNoReturn(const char *symbol_name)
 {
-    return symbol_name != NULL && strcmp(symbol_name, "mote_unwrap_null_panic") == 0;
+    return symbol_name != NULL &&
+           (strcmp(symbol_name, "mote_unwrap_null_panic") == 0 ||
+            strcmp(symbol_name, "mote_panic") == 0 ||
+            strcmp(symbol_name, "mote_assert_fail") == 0);
 }
 
 static bool llvmProgramHasExternSymbol(MirProgram *program, const char *symbol_name)
