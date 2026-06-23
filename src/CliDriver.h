@@ -80,20 +80,6 @@ static void print_usage(const char *argv0)
     printf("  --dump-ast        Print AST after parsing and rewriting\n");
     printf("  --dump-mir        Print MIR after lowering\n");
     printf("  --help, -h        Show this help text\n");
-    printf("\n");
-    printf("Notes:\n");
-    printf("  - Default behavior emits an executable.\n");
-    printf("  - -S writes LLVM IR instead of linking.\n");
-    printf("  - mote requires clang to be available in PATH for executable emission.\n");
-    printf("  - Predefined collections std, c, and vendor are searched automatically relative to the compiler executable.\n");
-    printf("  - If -o is omitted, the compiler derives output from the root package name.\n");
-    printf("\n");
-    printf("Examples:\n");
-    printf("  %s test\\\\basic\\\\simple\n", argv0);
-    printf("  %s -S test\\\\basic\\\\simple -o test\\\\basic\\\\simple.ll\n", argv0);
-    printf("  %s test\\\\game\\\\notgate -o notgate.exe\n", argv0);
-    printf("  %s app -Lthird_party\\\\lib -lfoo -o app.exe\n", argv0);
-    printf("  %s cube_demo -o cube_demo\n", argv0);
 }
 
 static void build_output_path(char *buffer, size_t buffer_size, const char *basename, const char *extension)
