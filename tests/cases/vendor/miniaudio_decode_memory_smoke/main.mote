@@ -1,0 +1,36 @@
+@package("miniaudio_decode_memory_smoke");
+
+audio :: @import("vendor:miniaudio");
+
+main :: fn() i32 {
+    wav: Array(u8, 48) = [
+        82, 73, 70, 70, 40, 0, 0, 0, 87, 65, 86, 69, 102, 109, 116, 32,
+        16, 0, 0, 0, 1, 0, 1, 0, 64, 31, 0, 0, 64, 31, 0, 0,
+        1, 0, 8, 0, 100, 97, 116, 97, 4, 0, 0, 0, 128, 160, 96, 128
+    ];
+
+    config := audio.default_config();
+    decoded := audio.decode_memory(@slice(u8, &wav[0], 48), config);
+    if(decoded == null) {
+        return 1;
+    }
+
+    data := @unwrap(decoded);
+    defer {
+        audio.decoded_audio_uninit(&data);
+    }
+
+    if(data.frame_count != 4) {
+        return 2;
+    }
+    if(data.channels != 1) {
+        return 3;
+    }
+    if(data.sample_rate != 8000) {
+        return 4;
+    }
+    if(data.format != audio.FORMAT_U8) {
+        return 5;
+    }
+    return 0;
+};

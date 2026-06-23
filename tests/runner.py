@@ -209,7 +209,7 @@ def run_case(case: TestCase, compiler: Path, clang_available: bool, verbose: boo
         if not exe_path.exists():
             return {"status": "FAIL", "reason": "native executable was not produced"}
 
-        exec_result = run_command_with_input([str(exe_path)], ROOT, stdin_text)
+        exec_result = run_command_with_input([str(exe_path)], package_dir, stdin_text)
         if verbose:
             print(f"[run] {case.case_id}: {exe_path}")
         if exec_result.returncode != expected_exit:

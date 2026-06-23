@@ -1,0 +1,5 @@
+{
+  "mode": "native",
+  "expect_success": true,
+  "expected_exit_code": 0
+}

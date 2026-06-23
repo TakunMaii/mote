@@ -1,0 +1,8 @@
+@package("stb_image_import_smoke");
+
+image :: @import("vendor:stb/image");
+
+main :: fn() i32 {
+    image.SetFlipVerticallyOnLoad(1);
+    return image.RGBA - image.RGB;
+};

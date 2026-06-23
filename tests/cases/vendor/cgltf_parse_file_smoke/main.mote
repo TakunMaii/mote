@@ -1,0 +1,77 @@
+@package("cgltf_parse_file_smoke");
+
+cgltf :: @import("vendor:cgltf");
+fmt :: @import("std:fmt");
+
+main :: fn() i32 {
+    data := cgltf.parse_file("triangle.gltf");
+    if(data == null) {
+        return 1;
+    }
+
+    parsed: *void = @as(*void, @unwrap(data));
+    defer {
+        cgltf.free_data(parsed);
+    }
+
+    if(!cgltf.validate_data(parsed)) {
+        return 2;
+    }
+    if(!cgltf.load_buffers_for_file(parsed, "triangle.gltf")) {
+        return 3;
+    }
+
+    counts := cgltf.counts(parsed);
+    if(counts == null) {
+        return 4;
+    }
+
+    summary := @unwrap(counts);
+    if(summary.meshes != 1) {
+        return 5;
+    }
+    if(summary.accessors != 1) {
+        return 6;
+    }
+    if(summary.nodes != 1) {
+        return 7;
+    }
+    if(summary.scenes != 1) {
+        return 8;
+    }
+    if(summary.has_default_scene == 0) {
+        return 9;
+    }
+
+    maybe_accessor := cgltf.accessor_at(parsed, 0);
+    if(maybe_accessor == null) {
+        return 10;
+    }
+
+    accessor: *void = @unwrap(maybe_accessor);
+    values: Array(f32, 9) = @zero(Array(f32, 9));
+    written := cgltf.accessor_unpack_floats(accessor, @slice(f32, &values[0], 9));
+    if(written == null) {
+        return 11;
+    }
+    if(@unwrap(written) != 9) {
+        return 12;
+    }
+    if(values[3] != 1.0) {
+        return 13;
+    }
+    if(values[7] != 1.0) {
+        return 14;
+    }
+
+    first: Array(f32, 3) = @zero(Array(f32, 3));
+    if(!cgltf.accessor_read_float(accessor, 0, @slice(f32, &first[0], 3))) {
+        return 15;
+    }
+    if(first[0] != 0.0 || first[1] != 0.0 || first[2] != 0.0) {
+        return 16;
+    }
+
+    fmt.println("ok");
+    return 0;
+};

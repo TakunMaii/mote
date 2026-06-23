@@ -1,0 +1,7 @@
+@package("stb_easy_font_link_smoke");
+
+easy_font :: @import("vendor:stb/easy_font");
+
+main :: fn() i32 {
+    return easy_font.Width("abc");
+};

@@ -1,0 +1,115 @@
+@package("miniaudio_engine_sound_smoke");
+
+audio :: @import("vendor:miniaudio");
+mem :: @import("std:mem");
+fmt :: @import("std:fmt");
+
+main :: fn() i32 {
+    config := audio.default_engine_config();
+    config.channels = 1;
+    config.sample_rate = 8000;
+    config.no_device = true;
+    config.no_auto_start = true;
+
+    engine_storage: []u8 = mem.make_zeroed(u8, audio.engine_size());
+    defer {
+        mem.free_slice(u8, engine_storage);
+    }
+    engine: *void = @as(*void, @as(*u8, engine_storage));
+
+    if(audio.engine_init(config, engine) != audio.SUCCESS) {
+        return 1;
+    }
+    defer {
+        audio.engine_uninit(engine);
+    }
+
+    if(audio.engine_get_channels(engine) != 1) {
+        return 2;
+    }
+    if(audio.engine_get_sample_rate(engine) != 8000) {
+        return 3;
+    }
+
+    audio.engine_set_volume(engine, 0.5);
+    if(audio.engine_get_volume(engine) != 0.5) {
+        return 4;
+    }
+
+    sound_storage: []u8 = mem.make_zeroed(u8, audio.sound_size());
+    defer {
+        mem.free_slice(u8, sound_storage);
+    }
+    sound: *void = @as(*void, @as(*u8, sound_storage));
+
+    if(audio.sound_init_from_file(engine, "tone.wav", audio.SOUND_FLAG_DECODE, sound) != audio.SUCCESS) {
+        return 5;
+    }
+    defer {
+        audio.sound_uninit(sound);
+    }
+
+    audio.sound_set_volume(sound, 0.25);
+    if(audio.sound_get_volume(sound) != 0.25) {
+        return 6;
+    }
+    if(!audio.sound_set_looping(sound, true)) {
+        return 7;
+    }
+    if(!audio.sound_is_looping(sound)) {
+        return 8;
+    }
+
+    maybe_length := audio.sound_get_length_in_pcm_frames(sound);
+    if(maybe_length == null) {
+        return 9;
+    }
+    if(@unwrap(maybe_length) != 4) {
+        return 10;
+    }
+
+    maybe_seconds := audio.sound_get_length_in_seconds(sound);
+    if(maybe_seconds == null) {
+        return 11;
+    }
+    if(@unwrap(maybe_seconds) <= 0.0) {
+        return 12;
+    }
+
+    if(audio.sound_start(sound) != audio.SUCCESS) {
+        return 13;
+    }
+    if(!audio.sound_is_playing(sound)) {
+        return 14;
+    }
+
+    out: Array(f32, 4) = @zero(Array(f32, 4));
+    read := audio.engine_read_pcm_frames(engine, @as(*void, &out[0]), 4);
+    if(read == null) {
+        return 15;
+    }
+    if(@unwrap(read) != 4) {
+        return 16;
+    }
+    if(out[0] == 0.0 && out[1] == 0.0 && out[2] == 0.0 && out[3] == 0.0) {
+        return 17;
+    }
+
+    if(!audio.sound_seek_to_pcm_frame(sound, 0)) {
+        return 18;
+    }
+    cursor := audio.sound_get_cursor_in_pcm_frames(sound);
+    if(cursor == null) {
+        return 19;
+    }
+    if(@unwrap(cursor) != 0) {
+        return 20;
+    }
+
+    if(audio.sound_stop(sound) != audio.SUCCESS) {
+        return 21;
+    }
+
+    fmt.println("ok");
+    return 0;
+};

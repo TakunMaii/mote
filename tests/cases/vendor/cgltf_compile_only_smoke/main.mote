@@ -1,0 +1,8 @@
+@package("cgltf_compile_only_smoke");
+
+cgltf :: @import("vendor:cgltf");
+
+main :: fn() i32 {
+    _ := cgltf.TYPE_VEC3;
+    return @as(i32, cgltf.num_components(cgltf.TYPE_VEC3));
+};

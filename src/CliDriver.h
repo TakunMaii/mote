@@ -661,6 +661,8 @@ static void add_default_official_link_args(const char *argv0, ModulePackage *pac
 
     if(uses_miniaudio)
         add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/miniaudio/src/miniaudio.c");
+    if(uses_miniaudio)
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/miniaudio/src/mote_miniaudio_shim.c");
     if(uses_stb_image)
         add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/stb/src/stb_image_impl.c");
     if(uses_stb_truetype)
@@ -669,6 +671,8 @@ static void add_default_official_link_args(const char *argv0, ModulePackage *pac
         add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/stb/src/stb_easy_font_shim.c");
     if(uses_cgltf)
         add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/cgltf/src/cgltf.c");
+    if(uses_cgltf)
+        add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/cgltf/src/mote_cgltf_shim.c");
     if(uses_enet)
     {
         add_extra_c_source_resolved(argv0, extra_c_sources, extra_c_source_count, "vendor/enet/src/callbacks.c");

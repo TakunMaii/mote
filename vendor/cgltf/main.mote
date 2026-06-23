@@ -1,6 +1,41 @@
 @package("cgltf");
 
+fmt :: @import("std:fmt");
+mem :: @import("std:mem");
+cstr :: @import("std:internal/cstr");
+c :: @import("std:internal/c");
+types :: @import("std:types");
+
 pub SUCCESS :: 0;
+pub DATA_TOO_SHORT :: 1;
+pub UNKNOWN_FORMAT :: 2;
+pub INVALID_JSON :: 3;
+pub INVALID_GLTF :: 4;
+pub INVALID_OPTIONS :: 5;
+pub FILE_NOT_FOUND :: 6;
+pub IO_ERROR :: 7;
+pub OUT_OF_MEMORY :: 8;
+pub LEGACY_GLTF :: 9;
+
+pub TYPE_INVALID :: 0;
+pub TYPE_SCALAR :: 1;
+pub TYPE_VEC2 :: 2;
+pub TYPE_VEC3 :: 3;
+pub TYPE_VEC4 :: 4;
+pub TYPE_MAT2 :: 5;
+pub TYPE_MAT3 :: 6;
+pub TYPE_MAT4 :: 7;
+pub PRIMITIVE_TYPE_INVALID :: 0;
+pub PRIMITIVE_TYPE_POINTS :: 1;
+pub PRIMITIVE_TYPE_LINES :: 2;
+pub PRIMITIVE_TYPE_LINE_LOOP :: 3;
+pub PRIMITIVE_TYPE_LINE_STRIP :: 4;
+pub PRIMITIVE_TYPE_TRIANGLES :: 5;
+pub PRIMITIVE_TYPE_TRIANGLE_STRIP :: 6;
+pub PRIMITIVE_TYPE_TRIANGLE_FAN :: 7;
+pub ALPHA_MODE_OPAQUE :: 0;
+pub ALPHA_MODE_MASK :: 1;
+pub ALPHA_MODE_BLEND :: 2;
 
 pub Options :: opaque;
 pub Data :: opaque;
@@ -12,8 +47,323 @@ pub Primitive :: opaque;
 pub Node :: opaque;
 pub Scene :: opaque;
 
+pub Counts :: struct {
+    meshes: types.size_t,
+    materials: types.size_t,
+    accessors: types.size_t,
+    nodes: types.size_t,
+    scenes: types.size_t,
+    animations: types.size_t,
+    has_default_scene: i32,
+};
+
+pub MeshInfo :: struct {
+    name: *char,
+    primitives_count: types.size_t,
+    weights_count: types.size_t,
+    target_names_count: types.size_t,
+};
+
+pub PrimitiveInfo :: struct {
+    type: i32,
+    has_indices: i32,
+    has_material: i32,
+    attributes_count: types.size_t,
+    targets_count: types.size_t,
+};
+
+pub MaterialInfo :: struct {
+    name: *char,
+    alpha_mode: i32,
+    alpha_cutoff: f32,
+    double_sided: i32,
+    unlit: i32,
+    has_pbr_metallic_roughness: i32,
+    has_normal_texture: i32,
+    has_occlusion_texture: i32,
+    has_emissive_texture: i32,
+    emissive_factor: Array(f32, 3),
+};
+
+pub NodeInfo :: struct {
+    name: *char,
+    children_count: types.size_t,
+    has_mesh: i32,
+    has_translation: i32,
+    has_rotation: i32,
+    has_scale: i32,
+    translation: Array(f32, 3),
+    rotation: Array(f32, 4),
+    scale: Array(f32, 3),
+};
+
 pub Parse :: @extern("cgltf_parse", Function([*Options, *void, i64, **Data], i32));
 pub ParseFile :: @extern("cgltf_parse_file", Function([*Options, *char, **Data], i32));
 pub LoadBuffers :: @extern("cgltf_load_buffers", Function([*Options, *Data, *char], i32));
 pub Validate :: @extern("cgltf_validate", Function([*Data], i32));
 pub Free :: @extern("cgltf_free", Function([*Data], void));
+
+parse_file_default :: @extern("mote_cgltf_parse_file", Function([*char, **Data], i32));
+load_buffers_default :: @extern("mote_cgltf_load_buffers", Function([*char, *void], i32));
+validate_default :: @extern("mote_cgltf_validate", Function([*void], i32));
+free_default :: @extern("mote_cgltf_free", Function([*void], void));
+get_counts_raw :: @extern("mote_cgltf_get_counts", Function([*void, *Counts], i32));
+num_components_raw :: @extern("mote_cgltf_num_components", Function([i32], types.size_t));
+accessor_unpack_floats_raw :: @extern("mote_cgltf_accessor_unpack_floats", Function([*void, *f32, types.size_t, *types.size_t], i32));
+accessor_read_float_raw :: @extern("mote_cgltf_accessor_read_float", Function([*void, types.size_t, *f32, types.size_t], i32));
+data_accessor_at_raw :: @extern("mote_cgltf_data_accessor_at", Function([*void, types.size_t], *void));
+accessor_count_raw :: @extern("mote_cgltf_accessor_count", Function([*void], types.size_t));
+data_mesh_at_raw :: @extern("mote_cgltf_data_mesh_at", Function([*void, types.size_t], *void));
+mesh_count_raw :: @extern("mote_cgltf_mesh_count", Function([*void], types.size_t));
+mesh_get_info_raw :: @extern("mote_cgltf_mesh_get_info", Function([*void, *MeshInfo], i32));
+mesh_primitive_at_raw :: @extern("mote_cgltf_mesh_primitive_at", Function([*void, types.size_t], *void));
+primitive_get_info_raw :: @extern("mote_cgltf_primitive_get_info", Function([*void, *PrimitiveInfo], i32));
+data_material_at_raw :: @extern("mote_cgltf_data_material_at", Function([*void, types.size_t], *void));
+material_count_raw :: @extern("mote_cgltf_material_count", Function([*void], types.size_t));
+material_get_info_raw :: @extern("mote_cgltf_material_get_info", Function([*void, *MaterialInfo], i32));
+data_node_at_raw :: @extern("mote_cgltf_data_node_at", Function([*void, types.size_t], *void));
+node_count_raw :: @extern("mote_cgltf_node_count", Function([*void], types.size_t));
+node_get_info_raw :: @extern("mote_cgltf_node_get_info", Function([*void, *NodeInfo], i32));
+node_transform_local_raw :: @extern("mote_cgltf_node_transform_local", Function([*void, *f32], void));
+node_transform_world_raw :: @extern("mote_cgltf_node_transform_world", Function([*void, *f32], void));
+
+pub parse_file :: fn(path: string) ?*Data {
+    c_path: *char = cstr.dup_z(path);
+    if(c_path == 0) {
+        return null;
+    }
+    defer {
+        cstr.free(c_path);
+    }
+
+    data: *Data = 0;
+    if(parse_file_default(c_path, &data) != SUCCESS) {
+        return null;
+    }
+    return data;
+};
+
+pub load_buffers_for_file :: fn(data: *void, path: string) bool {
+    c_path: *char = cstr.dup_z(path);
+    if(c_path == 0) {
+        return false;
+    }
+    defer {
+        cstr.free(c_path);
+    }
+    return load_buffers_default(c_path, data) == SUCCESS;
+};
+
+pub validate_data :: fn(data: *void) bool {
+    return validate_default(data) == SUCCESS;
+};
+
+pub free_data :: fn(data: *void) void {
+    free_default(data);
+};
+
+pub counts :: fn(data: *void) ?Counts {
+    result: Counts = @zero(Counts);
+    if(get_counts_raw(data, &result) == 0) {
+        return null;
+    }
+    return result;
+};
+
+pub accessor_count :: fn(data: *void) types.size_t {
+    return accessor_count_raw(data);
+};
+
+pub mesh_count :: fn(data: *void) types.size_t {
+    return mesh_count_raw(data);
+};
+
+pub mesh_at :: fn(data: *void, index: types.size_t) ?*void {
+    mesh: *void = data_mesh_at_raw(data, index);
+    if(mesh == 0) {
+        return null;
+    }
+    return mesh;
+};
+
+pub mesh_info :: fn(mesh: *void) ?MeshInfo {
+    info: MeshInfo = @zero(MeshInfo);
+    if(mesh_get_info_raw(mesh, &info) == 0) {
+        return null;
+    }
+    return info;
+};
+
+pub mesh_primitive_at :: fn(mesh: *void, index: types.size_t) ?*void {
+    primitive: *void = mesh_primitive_at_raw(mesh, index);
+    if(primitive == 0) {
+        return null;
+    }
+    return primitive;
+};
+
+pub primitive_info :: fn(primitive: *void) ?PrimitiveInfo {
+    info: PrimitiveInfo = @zero(PrimitiveInfo);
+    if(primitive_get_info_raw(primitive, &info) == 0) {
+        return null;
+    }
+    return info;
+};
+
+pub material_count :: fn(data: *void) types.size_t {
+    return material_count_raw(data);
+};
+
+pub material_at :: fn(data: *void, index: types.size_t) ?*void {
+    material: *void = data_material_at_raw(data, index);
+    if(material == 0) {
+        return null;
+    }
+    return material;
+};
+
+pub material_info :: fn(material: *void) ?MaterialInfo {
+    info: MaterialInfo = @zero(MaterialInfo);
+    if(material_get_info_raw(material, &info) == 0) {
+        return null;
+    }
+    return info;
+};
+
+pub node_count :: fn(data: *void) types.size_t {
+    return node_count_raw(data);
+};
+
+pub node_at :: fn(data: *void, index: types.size_t) ?*void {
+    node: *void = data_node_at_raw(data, index);
+    if(node == 0) {
+        return null;
+    }
+    return node;
+};
+
+pub node_info :: fn(node: *void) ?NodeInfo {
+    info: NodeInfo = @zero(NodeInfo);
+    if(node_get_info_raw(node, &info) == 0) {
+        return null;
+    }
+    return info;
+};
+
+pub node_transform_local :: fn(node: *void, out: []f32) bool {
+    if(@len(out) < 16) {
+        return false;
+    }
+    node_transform_local_raw(node, @as(*f32, out));
+    return true;
+};
+
+pub node_transform_world :: fn(node: *void, out: []f32) bool {
+    if(@len(out) < 16) {
+        return false;
+    }
+    node_transform_world_raw(node, @as(*f32, out));
+    return true;
+};
+
+pub accessor_at :: fn(data: *void, index: types.size_t) ?*void {
+    accessor: *void = data_accessor_at_raw(data, index);
+    if(accessor == 0) {
+        return null;
+    }
+    return accessor;
+};
+
+pub num_components :: fn(type_value: i32) types.size_t {
+    return num_components_raw(type_value);
+};
+
+pub accessor_read_float :: fn(accessor: *void, index: types.size_t, out: []f32) bool {
+    if(@len(out) == 0) {
+        return false;
+    }
+    return accessor_read_float_raw(accessor, index, @as(*f32, out), @len(out)) != 0;
+};
+
+pub accessor_unpack_floats :: fn(accessor: *void, out: []f32) ?types.size_t {
+    written: types.size_t = 0;
+    if(accessor_unpack_floats_raw(accessor, @as(*f32, out), @len(out), &written) == 0) {
+        return null;
+    }
+    return written;
+};
+
+pub result_name :: fn(code: i32) string {
+    if(code == SUCCESS) {
+        return "success";
+    }
+    if(code == DATA_TOO_SHORT) {
+        return "data_too_short";
+    }
+    if(code == UNKNOWN_FORMAT) {
+        return "unknown_format";
+    }
+    if(code == INVALID_JSON) {
+        return "invalid_json";
+    }
+    if(code == INVALID_GLTF) {
+        return "invalid_gltf";
+    }
+    if(code == INVALID_OPTIONS) {
+        return "invalid_options";
+    }
+    if(code == FILE_NOT_FOUND) {
+        return "file_not_found";
+    }
+    if(code == IO_ERROR) {
+        return "io_error";
+    }
+    if(code == OUT_OF_MEMORY) {
+        return "out_of_memory";
+    }
+    if(code == LEGACY_GLTF) {
+        return "legacy_gltf";
+    }
+    return "unknown";
+};
+
+pub alpha_mode_name :: fn(mode: i32) string {
+    if(mode == ALPHA_MODE_OPAQUE) {
+        return "opaque";
+    }
+    if(mode == ALPHA_MODE_MASK) {
+        return "mask";
+    }
+    if(mode == ALPHA_MODE_BLEND) {
+        return "blend";
+    }
+    return "unknown";
+};
+
+pub debug_counts :: fn(data: *void) void {
+    maybe_counts := counts(data);
+    if(maybe_counts == null) {
+        fmt.println("cgltf counts unavailable");
+        return;
+    }
+
+    summary: Counts = @unwrap(maybe_counts);
+    buffer: []char = mem.make_zeroed(char, 192);
+    defer {
+        mem.free_slice(char, buffer);
+    }
+
+    default_scene: i32 = 0;
+    if(summary.has_default_scene != 0) {
+        default_scene = 1;
+    }
+
+    written: i32 = fmt.format_into(@as(*char, buffer), @len(buffer),
+                                   "meshes=%llu materials=%llu accessors=%llu nodes=%llu scenes=%llu animations=%llu default_scene=%d",
+                                   summary.meshes, summary.materials, summary.accessors,
+                                   summary.nodes, summary.scenes, summary.animations,
+                                   default_scene);
+    if(written > 0) {
+        fmt.println(@as(string, @slice(char, @as(*char, buffer), @as(types.size_t, written))));
+    }
+};

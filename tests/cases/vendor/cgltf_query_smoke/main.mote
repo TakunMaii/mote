@@ -1,0 +1,128 @@
+@package("cgltf_query_smoke");
+
+cgltf :: @import("vendor:cgltf");
+fmt :: @import("std:fmt");
+
+main :: fn() i32 {
+    data := cgltf.parse_file("rich.gltf");
+    if(data == null) {
+        return 1;
+    }
+
+    parsed: *void = @as(*void, @unwrap(data));
+    defer {
+        cgltf.free_data(parsed);
+    }
+
+    if(!cgltf.load_buffers_for_file(parsed, "rich.gltf")) {
+        return 2;
+    }
+
+    if(cgltf.mesh_count(parsed) != 1) {
+        return 3;
+    }
+    if(cgltf.material_count(parsed) != 1) {
+        return 4;
+    }
+    if(cgltf.node_count(parsed) != 2) {
+        return 5;
+    }
+
+    maybe_mesh := cgltf.mesh_at(parsed, 0);
+    if(maybe_mesh == null) {
+        return 6;
+    }
+    mesh := @unwrap(maybe_mesh);
+    maybe_mesh_info := cgltf.mesh_info(mesh);
+    if(maybe_mesh_info == null) {
+        return 7;
+    }
+    mesh_info := @unwrap(maybe_mesh_info);
+    if(mesh_info.primitives_count != 1) {
+        return 8;
+    }
+
+    maybe_primitive := cgltf.mesh_primitive_at(mesh, 0);
+    if(maybe_primitive == null) {
+        return 9;
+    }
+    primitive := @unwrap(maybe_primitive);
+    maybe_primitive_info := cgltf.primitive_info(primitive);
+    if(maybe_primitive_info == null) {
+        return 10;
+    }
+    primitive_info := @unwrap(maybe_primitive_info);
+    if(primitive_info.type != cgltf.PRIMITIVE_TYPE_TRIANGLES) {
+        return 11;
+    }
+    if(primitive_info.has_material == 0) {
+        return 12;
+    }
+    if(primitive_info.attributes_count != 1) {
+        return 13;
+    }
+
+    maybe_material := cgltf.material_at(parsed, 0);
+    if(maybe_material == null) {
+        return 14;
+    }
+    material := @unwrap(maybe_material);
+    maybe_material_info := cgltf.material_info(material);
+    if(maybe_material_info == null) {
+        return 15;
+    }
+    material_info := @unwrap(maybe_material_info);
+    if(material_info.alpha_mode != cgltf.ALPHA_MODE_MASK) {
+        return 16;
+    }
+    if(material_info.double_sided == 0) {
+        return 17;
+    }
+    if(material_info.emissive_factor[0] != 1.0) {
+        return 18;
+    }
+
+    maybe_node0 := cgltf.node_at(parsed, 0);
+    maybe_node1 := cgltf.node_at(parsed, 1);
+    if(maybe_node0 == null || maybe_node1 == null) {
+        return 19;
+    }
+    node0 := @unwrap(maybe_node0);
+    node1 := @unwrap(maybe_node1);
+
+    node0_info := cgltf.node_info(node0);
+    node1_info := cgltf.node_info(node1);
+    if(node0_info == null || node1_info == null) {
+        return 20;
+    }
+
+    info0 := @unwrap(node0_info);
+    info1 := @unwrap(node1_info);
+    if(info0.children_count != 1) {
+        return 21;
+    }
+    if(info1.translation[0] != 1.0 || info1.translation[1] != 2.0 || info1.translation[2] != 3.0) {
+        return 22;
+    }
+    if(info1.scale[0] != 2.0 || info1.scale[1] != 2.0 || info1.scale[2] != 2.0) {
+        return 23;
+    }
+
+    local: Array(f32, 16) = @zero(Array(f32, 16));
+    world: Array(f32, 16) = @zero(Array(f32, 16));
+    if(!cgltf.node_transform_local(node1, @slice(f32, &local[0], 16))) {
+        return 24;
+    }
+    if(!cgltf.node_transform_world(node1, @slice(f32, &world[0], 16))) {
+        return 25;
+    }
+    if(local[12] != 1.0 || local[13] != 2.0 || local[14] != 3.0) {
+        return 26;
+    }
+    if(world[12] != 1.0 || world[13] != 2.0 || world[14] != 3.0) {
+        return 27;
+    }
+
+    fmt.println("ok");
+    return 0;
+};

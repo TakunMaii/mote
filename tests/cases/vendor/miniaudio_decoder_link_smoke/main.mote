@@ -1,0 +1,7 @@
+@package("miniaudio_decoder_link_smoke");
+
+audio :: @import("vendor:miniaudio");
+
+main :: fn() i32 {
+    return @as(i32, audio.decoder_size());
+};

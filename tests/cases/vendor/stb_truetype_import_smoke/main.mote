@@ -1,0 +1,8 @@
+@package("stb_truetype_import_smoke");
+
+truetype :: @import("vendor:stb/truetype");
+
+main :: fn() i32 {
+    _ := @sizeof(*truetype.FontInfo);
+    return 0;
+};

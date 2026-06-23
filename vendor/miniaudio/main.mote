@@ -1,6 +1,474 @@
 @package("miniaudio");
 
+str :: @import("std:str");
+mem :: @import("std:mem");
+cstr :: @import("std:internal/cstr");
+types :: @import("std:types");
+
 pub SUCCESS :: 0;
+pub ERROR :: -1;
+pub INVALID_ARGS :: -2;
+pub INVALID_OPERATION :: -3;
+pub OUT_OF_MEMORY :: -4;
+pub OUT_OF_RANGE :: -5;
+pub ACCESS_DENIED :: -6;
+pub DOES_NOT_EXIST :: -7;
+pub ALREADY_EXISTS :: -8;
+pub TOO_MANY_OPEN_FILES :: -9;
+pub INVALID_FILE :: -10;
+pub TOO_BIG :: -11;
+pub PATH_TOO_LONG :: -12;
+pub NAME_TOO_LONG :: -13;
+pub NOT_DIRECTORY :: -14;
+pub IS_DIRECTORY :: -15;
+pub DIRECTORY_NOT_EMPTY :: -16;
+pub END_OF_FILE :: -17;
+pub NO_SPACE :: -18;
+pub BUSY :: -19;
+pub IO_ERROR :: -20;
+pub INTERRUPT :: -21;
+pub UNAVAILABLE :: -22;
+pub ALREADY_IN_USE :: -23;
+pub BAD_ADDRESS :: -24;
+pub BAD_SEEK :: -25;
+pub BAD_PIPE :: -26;
+pub DEADLOCK :: -27;
+pub TOO_MANY_LINKS :: -28;
+pub NOT_IMPLEMENTED :: -29;
+pub NO_MESSAGE :: -30;
+pub BAD_MESSAGE :: -31;
+pub NO_DATA_AVAILABLE :: -32;
+pub INVALID_DATA :: -33;
+pub TIMEOUT :: -34;
+pub NO_NETWORK :: -35;
+pub NOT_UNIQUE :: -36;
+pub NOT_SOCKET :: -37;
+pub NO_ADDRESS :: -38;
+pub BAD_PROTOCOL :: -39;
+pub PROTOCOL_UNAVAILABLE :: -40;
+pub PROTOCOL_NOT_SUPPORTED :: -41;
+pub PROTOCOL_FAMILY_NOT_SUPPORTED :: -42;
+pub ADDRESS_FAMILY_NOT_SUPPORTED :: -43;
+pub SOCKET_NOT_SUPPORTED :: -44;
+pub CONNECTION_RESET :: -45;
+pub ALREADY_CONNECTED :: -46;
+pub NOT_CONNECTED :: -47;
+pub CONNECTION_REFUSED :: -48;
+pub NO_HOST :: -49;
+pub IN_PROGRESS :: -50;
+pub CANCELLED :: -51;
+pub MEMORY_ALREADY_MAPPED :: -52;
+pub CRC_MISMATCH :: -100;
+pub FORMAT_NOT_SUPPORTED :: -200;
+pub DEVICE_TYPE_NOT_SUPPORTED :: -201;
+pub SHARE_MODE_NOT_SUPPORTED :: -202;
+pub NO_BACKEND :: -203;
+pub NO_DEVICE :: -204;
+pub API_NOT_FOUND :: -205;
+pub INVALID_DEVICE_CONFIG :: -206;
+pub LOOP :: -207;
+pub BACKEND_NOT_ENABLED :: -208;
+pub DEVICE_ALREADY_INITIALIZED :: -300;
+pub DEVICE_NOT_INITIALIZED :: -301;
+pub DEVICE_NOT_STARTED :: -302;
+pub DEVICE_NOT_STOPPED :: -303;
+pub FAILED_TO_INIT_BACKEND :: -304;
+pub FAILED_TO_OPEN_BACKEND_DEVICE :: -305;
+pub FAILED_TO_START_BACKEND_DEVICE :: -306;
+pub FAILED_TO_STOP_BACKEND_DEVICE :: -307;
+
+pub FORMAT_UNKNOWN :: 0;
+pub FORMAT_U8 :: 1;
+pub FORMAT_S16 :: 2;
+pub FORMAT_S24 :: 3;
+pub FORMAT_S32 :: 4;
+pub FORMAT_F32 :: 5;
+pub SOUND_FLAG_STREAM: u32 = 0x00000001;
+pub SOUND_FLAG_DECODE: u32 = 0x00000002;
+pub SOUND_FLAG_ASYNC: u32 = 0x00000004;
+pub SOUND_FLAG_WAIT_INIT: u32 = 0x00000008;
+pub SOUND_FLAG_UNKNOWN_LENGTH: u32 = 0x00000010;
+pub SOUND_FLAG_LOOPING: u32 = 0x00000020;
+pub SOUND_FLAG_NO_DEFAULT_ATTACHMENT: u32 = 0x00001000;
+pub SOUND_FLAG_NO_PITCH: u32 = 0x00002000;
+pub SOUND_FLAG_NO_SPATIALIZATION: u32 = 0x00004000;
 
 pub Version :: @extern("ma_version", Function([*u32, *u32, *u32], void));
 pub VersionString :: @extern("ma_version_string", Function([], *char));
+
+decoder_size_raw :: @extern("mote_miniaudio_decoder_size", Function([], i32));
+decoder_init_file_raw :: @extern("mote_miniaudio_decoder_init_file", Function([*char, i32, u32, u32, *void], i32));
+decoder_init_memory_raw :: @extern("mote_miniaudio_decoder_init_memory", Function([*void, types.size_t, i32, u32, u32, *void], i32));
+decoder_uninit_raw :: @extern("mote_miniaudio_decoder_uninit", Function([*void], i32));
+decoder_get_data_format_raw :: @extern("mote_miniaudio_decoder_get_data_format", Function([*void, *FormatInfo], i32));
+decoder_get_length_raw :: @extern("mote_miniaudio_decoder_get_length_in_pcm_frames", Function([*void, *u64], i32));
+decoder_get_cursor_raw :: @extern("mote_miniaudio_decoder_get_cursor_in_pcm_frames", Function([*void, *u64], i32));
+decoder_seek_raw :: @extern("mote_miniaudio_decoder_seek_to_pcm_frame", Function([*void, u64], i32));
+decoder_read_raw :: @extern("mote_miniaudio_decoder_read_pcm_frames", Function([*void, *void, u64, *u64], i32));
+decode_file_raw :: @extern("mote_miniaudio_decode_file", Function([*char, i32, u32, u32, *DecodedAudio], i32));
+decode_memory_raw :: @extern("mote_miniaudio_decode_memory", Function([*void, types.size_t, i32, u32, u32, *DecodedAudio], i32));
+decoded_audio_uninit_raw :: @extern("mote_miniaudio_decoded_audio_uninit", Function([*DecodedAudio], void));
+engine_size_raw :: @extern("mote_miniaudio_engine_size", Function([], i32));
+sound_size_raw :: @extern("mote_miniaudio_sound_size", Function([], i32));
+engine_init_raw :: @extern("mote_miniaudio_engine_init", Function([*EngineConfig, *void], i32));
+engine_uninit_raw :: @extern("mote_miniaudio_engine_uninit", Function([*void], void));
+engine_start_raw :: @extern("mote_miniaudio_engine_start", Function([*void], i32));
+engine_stop_raw :: @extern("mote_miniaudio_engine_stop", Function([*void], i32));
+engine_get_channels_raw :: @extern("mote_miniaudio_engine_get_channels", Function([*void], i32));
+engine_get_sample_rate_raw :: @extern("mote_miniaudio_engine_get_sample_rate", Function([*void], i32));
+engine_get_volume_raw :: @extern("mote_miniaudio_engine_get_volume", Function([*void], f32));
+engine_set_volume_raw :: @extern("mote_miniaudio_engine_set_volume", Function([*void, f32], void));
+engine_read_pcm_frames_raw :: @extern("mote_miniaudio_engine_read_pcm_frames", Function([*void, *void, u64, *u64], i32));
+sound_init_from_file_raw :: @extern("mote_miniaudio_sound_init_from_file", Function([*void, *char, u32, *void], i32));
+sound_uninit_raw :: @extern("mote_miniaudio_sound_uninit", Function([*void], void));
+sound_start_raw :: @extern("mote_miniaudio_sound_start", Function([*void], i32));
+sound_stop_raw :: @extern("mote_miniaudio_sound_stop", Function([*void], i32));
+sound_is_playing_raw :: @extern("mote_miniaudio_sound_is_playing", Function([*void], i32));
+sound_set_volume_raw :: @extern("mote_miniaudio_sound_set_volume", Function([*void, f32], void));
+sound_get_volume_raw :: @extern("mote_miniaudio_sound_get_volume", Function([*void], f32));
+sound_set_looping_raw :: @extern("mote_miniaudio_sound_set_looping", Function([*void, i32], i32));
+sound_is_looping_raw :: @extern("mote_miniaudio_sound_is_looping", Function([*void], i32));
+sound_seek_pcm_raw :: @extern("mote_miniaudio_sound_seek_to_pcm_frame", Function([*void, u64], i32));
+sound_cursor_pcm_raw :: @extern("mote_miniaudio_sound_get_cursor_in_pcm_frames", Function([*void, *u64], i32));
+sound_length_pcm_raw :: @extern("mote_miniaudio_sound_get_length_in_pcm_frames", Function([*void, *u64], i32));
+sound_cursor_seconds_raw :: @extern("mote_miniaudio_sound_get_cursor_in_seconds", Function([*void, *f32], i32));
+sound_length_seconds_raw :: @extern("mote_miniaudio_sound_get_length_in_seconds", Function([*void, *f32], i32));
+
+pub Decoder :: opaque;
+pub Engine :: opaque;
+pub Sound :: opaque;
+
+pub FormatInfo :: struct {
+    format: i32,
+    channels: u32,
+    sample_rate: u32,
+};
+
+pub DecodedAudio :: struct {
+    frames: *void,
+    frame_count: u64,
+    format: i32,
+    channels: u32,
+    sample_rate: u32,
+};
+
+pub Config :: struct {
+    format: i32,
+    channels: u32,
+    sample_rate: u32,
+};
+
+pub EngineConfig :: struct {
+    channels: u32,
+    sample_rate: u32,
+    no_device: bool,
+    no_auto_start: bool,
+};
+
+pub default_config :: fn() Config {
+    return Config {
+        .format = FORMAT_UNKNOWN,
+        .channels = 0,
+        .sample_rate = 0,
+    };
+};
+
+pub default_engine_config :: fn() EngineConfig {
+    return EngineConfig {
+        .channels = 0,
+        .sample_rate = 0,
+        .no_device = false,
+        .no_auto_start = false,
+    };
+};
+
+pub version_string :: fn() string {
+    return str.from_c_string(VersionString());
+};
+
+pub version :: fn() Array(u32, 3) {
+    out: Array(u32, 3) = [0, 0, 0];
+    Version(&out[0], &out[1], &out[2]);
+    return out;
+};
+
+pub decoder_size :: fn() types.size_t {
+    return @as(types.size_t, decoder_size_raw());
+};
+
+pub engine_size :: fn() types.size_t {
+    return @as(types.size_t, engine_size_raw());
+};
+
+pub sound_size :: fn() types.size_t {
+    return @as(types.size_t, sound_size_raw());
+};
+
+pub decoder_init_file :: fn(path: string, config: Config, decoder: *void) i32 {
+    c_path: *char = cstr.dup_z(path);
+    if(c_path == 0) {
+        return OUT_OF_MEMORY;
+    }
+    defer {
+        cstr.free(c_path);
+    }
+    return decoder_init_file_raw(c_path, config.format, config.channels, config.sample_rate, decoder);
+};
+
+pub decoder_init_memory :: fn(data: []u8, config: Config, decoder: *void) i32 {
+    return decoder_init_memory_raw(@as(*void, @as(*u8, data)), @len(data),
+                                   config.format, config.channels, config.sample_rate, decoder);
+};
+
+pub decoder_uninit :: fn(decoder: *void) i32 {
+    return decoder_uninit_raw(decoder);
+};
+
+pub decoder_get_data_format :: fn(decoder: *void) ?FormatInfo {
+    info: FormatInfo = @zero(FormatInfo);
+    if(decoder_get_data_format_raw(decoder, &info) != SUCCESS) {
+        return null;
+    }
+    return info;
+};
+
+pub decoder_get_length_in_pcm_frames :: fn(decoder: *void) ?u64 {
+    out: u64 = 0;
+    if(decoder_get_length_raw(decoder, &out) != SUCCESS) {
+        return null;
+    }
+    return out;
+};
+
+pub decoder_get_cursor_in_pcm_frames :: fn(decoder: *void) ?u64 {
+    out: u64 = 0;
+    if(decoder_get_cursor_raw(decoder, &out) != SUCCESS) {
+        return null;
+    }
+    return out;
+};
+
+pub decoder_seek_to_pcm_frame :: fn(decoder: *void, frame_index: u64) bool {
+    return decoder_seek_raw(decoder, frame_index) == SUCCESS;
+};
+
+pub decoder_read_pcm_frames :: fn(decoder: *void, out_frames: *void, frame_count: u64) ?u64 {
+    frames_read: u64 = 0;
+    if(decoder_read_raw(decoder, out_frames, frame_count, &frames_read) != SUCCESS) {
+        return null;
+    }
+    return frames_read;
+};
+
+pub decode_file :: fn(path: string, config: Config) ?DecodedAudio {
+    c_path: *char = cstr.dup_z(path);
+    if(c_path == 0) {
+        return null;
+    }
+    defer {
+        cstr.free(c_path);
+    }
+
+    out: DecodedAudio = @zero(DecodedAudio);
+    if(decode_file_raw(c_path, config.format, config.channels, config.sample_rate, &out) != SUCCESS) {
+        return null;
+    }
+    return out;
+};
+
+pub decode_memory :: fn(data: []u8, config: Config) ?DecodedAudio {
+    out: DecodedAudio = @zero(DecodedAudio);
+    if(decode_memory_raw(@as(*void, @as(*u8, data)), @len(data),
+                         config.format, config.channels, config.sample_rate, &out) != SUCCESS) {
+        return null;
+    }
+    return out;
+};
+
+pub decoded_audio_uninit :: fn(audio: *DecodedAudio) void {
+    decoded_audio_uninit_raw(audio);
+};
+
+pub engine_init :: fn(config: EngineConfig, engine: *void) i32 {
+    return engine_init_raw(&config, engine);
+};
+
+pub engine_uninit :: fn(engine: *void) void {
+    engine_uninit_raw(engine);
+};
+
+pub engine_start :: fn(engine: *void) i32 {
+    return engine_start_raw(engine);
+};
+
+pub engine_stop :: fn(engine: *void) i32 {
+    return engine_stop_raw(engine);
+};
+
+pub engine_get_channels :: fn(engine: *void) u32 {
+    return @as(u32, engine_get_channels_raw(engine));
+};
+
+pub engine_get_sample_rate :: fn(engine: *void) u32 {
+    return @as(u32, engine_get_sample_rate_raw(engine));
+};
+
+pub engine_get_volume :: fn(engine: *void) f32 {
+    return engine_get_volume_raw(engine);
+};
+
+pub engine_set_volume :: fn(engine: *void, volume: f32) void {
+    engine_set_volume_raw(engine, volume);
+};
+
+pub engine_read_pcm_frames :: fn(engine: *void, out_frames: *void, frame_count: u64) ?u64 {
+    frames_read: u64 = 0;
+    if(engine_read_pcm_frames_raw(engine, out_frames, frame_count, &frames_read) != SUCCESS) {
+        return null;
+    }
+    return frames_read;
+};
+
+pub sound_init_from_file :: fn(engine: *void, path: string, flags: u32, sound: *void) i32 {
+    c_path: *char = cstr.dup_z(path);
+    if(c_path == 0) {
+        return OUT_OF_MEMORY;
+    }
+    defer {
+        cstr.free(c_path);
+    }
+    return sound_init_from_file_raw(engine, c_path, flags, sound);
+};
+
+pub sound_uninit :: fn(sound: *void) void {
+    sound_uninit_raw(sound);
+};
+
+pub sound_start :: fn(sound: *void) i32 {
+    return sound_start_raw(sound);
+};
+
+pub sound_stop :: fn(sound: *void) i32 {
+    return sound_stop_raw(sound);
+};
+
+pub sound_is_playing :: fn(sound: *void) bool {
+    return sound_is_playing_raw(sound) != 0;
+};
+
+pub sound_set_volume :: fn(sound: *void, volume: f32) void {
+    sound_set_volume_raw(sound, volume);
+};
+
+pub sound_get_volume :: fn(sound: *void) f32 {
+    return sound_get_volume_raw(sound);
+};
+
+pub sound_set_looping :: fn(sound: *void, looping: bool) bool {
+    value: i32 = 0;
+    if(looping) {
+        value = 1;
+    }
+    return sound_set_looping_raw(sound, value) == SUCCESS;
+};
+
+pub sound_is_looping :: fn(sound: *void) bool {
+    return sound_is_looping_raw(sound) != 0;
+};
+
+pub sound_seek_to_pcm_frame :: fn(sound: *void, frame_index: u64) bool {
+    return sound_seek_pcm_raw(sound, frame_index) == SUCCESS;
+};
+
+pub sound_get_cursor_in_pcm_frames :: fn(sound: *void) ?u64 {
+    out: u64 = 0;
+    if(sound_cursor_pcm_raw(sound, &out) != SUCCESS) {
+        return null;
+    }
+    return out;
+};
+
+pub sound_get_length_in_pcm_frames :: fn(sound: *void) ?u64 {
+    out: u64 = 0;
+    if(sound_length_pcm_raw(sound, &out) != SUCCESS) {
+        return null;
+    }
+    return out;
+};
+
+pub sound_get_cursor_in_seconds :: fn(sound: *void) ?f32 {
+    out: f32 = 0.0;
+    if(sound_cursor_seconds_raw(sound, &out) != SUCCESS) {
+        return null;
+    }
+    return out;
+};
+
+pub sound_get_length_in_seconds :: fn(sound: *void) ?f32 {
+    out: f32 = 0.0;
+    if(sound_length_seconds_raw(sound, &out) != SUCCESS) {
+        return null;
+    }
+    return out;
+};
+
+pub decoded_frames_f32 :: fn(audio: DecodedAudio) []f32 {
+    sample_count: u64 = audio.frame_count * @as(u64, audio.channels);
+    return @slice(f32, @as(*f32, audio.frames), @as(types.size_t, sample_count));
+};
+
+pub format_name :: fn(format: i32) string {
+    if(format == FORMAT_UNKNOWN) {
+        return "unknown";
+    }
+    if(format == FORMAT_U8) {
+        return "u8";
+    }
+    if(format == FORMAT_S16) {
+        return "s16";
+    }
+    if(format == FORMAT_S24) {
+        return "s24";
+    }
+    if(format == FORMAT_S32) {
+        return "s32";
+    }
+    if(format == FORMAT_F32) {
+        return "f32";
+    }
+    return "unknown";
+};
+
+pub result_name :: fn(code: i32) string {
+    if(code == SUCCESS) {
+        return "success";
+    }
+    if(code == INVALID_ARGS) {
+        return "invalid_args";
+    }
+    if(code == INVALID_OPERATION) {
+        return "invalid_operation";
+    }
+    if(code == OUT_OF_MEMORY) {
+        return "out_of_memory";
+    }
+    if(code == FORMAT_NOT_SUPPORTED) {
+        return "format_not_supported";
+    }
+    if(code == NO_BACKEND) {
+        return "no_backend";
+    }
+    if(code == NO_DEVICE) {
+        return "no_device";
+    }
+    if(code == INVALID_DEVICE_CONFIG) {
+        return "invalid_device_config";
+    }
+    if(code == DOES_NOT_EXIST) {
+        return "does_not_exist";
+    }
+    if(code == IO_ERROR) {
+        return "io_error";
+    }
+    return "error";
+};
