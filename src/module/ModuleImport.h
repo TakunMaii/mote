@@ -335,9 +335,12 @@ static ModuleTopLevelBinding* moduleFindEntryBinding(ModuleSourceFile *module, b
     if(function->parameters != NULL || function->is_variadic)
         moduleSystemError("target package main must have no parameters",
                           function->filename, function->line_number, function->column_number);
+    
+    // if the return type is not specified, we treat it as void
     if(function->return_data_type == NULL)
-        moduleSystemError("target package main must declare an explicit return type",
-                          function->filename, function->line_number, function->column_number);
+    {
+        function->return_data_type = newPrimaryDataType(AST_PRIMARY_DATA_TYPE_VOID);
+    }
 
     ASTDataType *return_type = function->return_data_type;
     if(return_type->kind != AST_DATA_TYPE_KIND_PRIMARY ||
