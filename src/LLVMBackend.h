@@ -2022,7 +2022,10 @@ static void llvmEmitConvertInst(FILE *stream, LLVMFunctionEmitContext *context, 
 
     if(source_type->kind == AST_DATA_TYPE_KIND_POINTER || source_type->kind == AST_DATA_TYPE_KIND_REFERENCE)
     {
-        context->aliases[inst->result] = llvmResolveAlias(context, inst->data.convert.operand);
+        llvmEmitInstructionPrefix(stream, inst->result);
+        fprintf(stream, "bitcast ptr ");
+        llvmEmitValueRef(stream, context, inst->data.convert.operand);
+        fprintf(stream, " to ptr\n");
         return;
     }
 

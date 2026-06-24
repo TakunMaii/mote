@@ -2,7 +2,14 @@
 
 c :: @import("std:internal/c");
 cstr :: @import("std:internal/cstr");
+list :: @import("std:list");
+mem :: @import("std:mem");
 str :: @import("std:str");
+types :: @import("std:types");
+
+pub RunResult :: struct {
+    exit_code: i64,
+};
 
 pub arg_count :: fn() i64 {
     return c.arg_count();
@@ -17,11 +24,86 @@ pub arg :: fn(index: i64) ?string {
 };
 
 pub run_shell :: fn(command: string) i64 {
+    return run_shell_in(command, "");
+};
+
+pub run_shell_in :: fn(command: string, cwd: string) i64 {
     z_command: *char = cstr.dup_z(command);
     if(z_command == 0) {
         return -1;
     }
-    exit_code: i64 = c.system_run(z_command);
+    z_cwd: *char = 0;
+    if(!str.is_empty(cwd)) {
+        z_cwd = cstr.dup_z(cwd);
+        if(z_cwd == 0) {
+            cstr.free(z_command);
+            return -1;
+        }
+    }
+    exit_code: i64 = c.system_run_in(z_command, z_cwd);
+    if(z_cwd != 0) {
+        cstr.free(z_cwd);
+    }
     cstr.free(z_command);
     return exit_code;
+};
+
+pub run_exe :: fn(exe: string, args: []string) RunResult {
+    return run_exe_in(exe, args, "");
+};
+
+pub run_exe_in :: fn(exe: string, args: []string, cwd: string) RunResult {
+    z_exe: *char = cstr.dup_z(exe);
+    if(z_exe == 0) {
+        return RunResult { .exit_code = -1 };
+    }
+
+    z_cwd: *char = 0;
+    if(!str.is_empty(cwd)) {
+        z_cwd = cstr.dup_z(cwd);
+        if(z_cwd == 0) {
+            cstr.free(z_exe);
+            return RunResult { .exit_code = -1 };
+        }
+    }
+
+    ArgPtr :: *char;
+    argv: []ArgPtr = mem.make_zeroed(ArgPtr, @len(args) + 1);
+    copied: list.List(ArgPtr) = list.init_cap(ArgPtr, @len(args));
+    index: types.size_t = 0;
+    while(index < @len(args)) {
+        z_arg: *char = cstr.dup_z(args[index]);
+        if(z_arg == 0) {
+            cleanup_args(&copied);
+            copied.deinit();
+            mem.free_slice(*char, argv);
+            if(z_cwd != 0) {
+                cstr.free(z_cwd);
+            }
+            cstr.free(z_exe);
+            return RunResult { .exit_code = -1 };
+        }
+        copied.append(z_arg);
+        argv[index] = z_arg;
+        index = index + 1;
+    }
+    argv[@len(args)] = 0;
+
+    exit_code: i64 = c.process_run_in(z_exe, @as(**char, &argv[0]), @as(i64, @len(args)), z_cwd);
+    cleanup_args(&copied);
+    copied.deinit();
+    mem.free_slice(ArgPtr, argv);
+    if(z_cwd != 0) {
+        cstr.free(z_cwd);
+    }
+    cstr.free(z_exe);
+    return RunResult { .exit_code = exit_code };
+};
+
+cleanup_args :: fn(values: &list.List(*char)) void {
+    index: types.size_t = 0;
+    while(index < values.len) {
+        cstr.free(values.data[index]);
+        index = index + 1;
+    }
 };

@@ -15,8 +15,10 @@
 #include <time.h>
 #include <errno.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <sched.h>
@@ -112,6 +114,298 @@ long long mote_system_run(const char *command)
     if(command == NULL)
         return -1;
     return (long long) system(command);
+}
+
+long long mote_system_run_in(const char *command, const char *cwd)
+{
+    if(command == NULL)
+        return -1;
+
+    if(cwd == NULL || cwd[0] == '\0')
+        return (long long) system(command);
+
+#if defined(_WIN32)
+    DWORD needed = GetCurrentDirectoryA(0, NULL);
+    char *original_cwd = NULL;
+    int exit_code = -1;
+
+    if(needed == 0)
+        return -1;
+
+    original_cwd = (char*) malloc((size_t) needed);
+    if(original_cwd == NULL)
+        return -1;
+
+    if(GetCurrentDirectoryA(needed, original_cwd) == 0)
+    {
+        free(original_cwd);
+        return -1;
+    }
+
+    if(!SetCurrentDirectoryA(cwd))
+    {
+        free(original_cwd);
+        return -1;
+    }
+
+    exit_code = system(command);
+    SetCurrentDirectoryA(original_cwd);
+    free(original_cwd);
+    return (long long) exit_code;
+#else
+    int saved_cwd = open(".", O_RDONLY);
+    int exit_code = -1;
+    int saved_errno = 0;
+
+    if(saved_cwd < 0)
+        return -1;
+
+    if(chdir(cwd) != 0)
+    {
+        close(saved_cwd);
+        return -1;
+    }
+
+    exit_code = system(command);
+    saved_errno = errno;
+    if(fchdir(saved_cwd) != 0)
+        exit_code = -1;
+    close(saved_cwd);
+    errno = saved_errno;
+    return (long long) exit_code;
+#endif
+}
+
+#if defined(_WIN32)
+static int mote_process_arg_needs_quotes(const char *value)
+{
+    if(value == NULL || *value == '\0')
+        return 1;
+
+    while(*value != '\0')
+    {
+        if(*value == ' ' || *value == '\t' || *value == '"')
+            return 1;
+        value++;
+    }
+    return 0;
+}
+
+static size_t mote_process_quoted_arg_length(const char *value)
+{
+    size_t length = 0;
+    size_t backslash_count = 0;
+    int needs_quotes = mote_process_arg_needs_quotes(value);
+
+    if(value == NULL)
+        value = "";
+
+    if(!needs_quotes)
+        return strlen(value);
+
+    length += 2;
+    while(*value != '\0')
+    {
+        if(*value == '\\')
+        {
+            backslash_count++;
+        }
+        else if(*value == '"')
+        {
+            length += backslash_count * 2 + 1;
+            backslash_count = 0;
+        }
+        else
+        {
+            length += backslash_count;
+            backslash_count = 0;
+        }
+        length++;
+        value++;
+    }
+
+    length += backslash_count;
+    return length;
+}
+
+static char *mote_process_append_quoted_arg(char *dst, const char *value)
+{
+    size_t backslash_count = 0;
+    int needs_quotes = mote_process_arg_needs_quotes(value);
+
+    if(value == NULL)
+        value = "";
+
+    if(!needs_quotes)
+    {
+        size_t len = strlen(value);
+        memcpy(dst, value, len);
+        return dst + len;
+    }
+
+    *dst++ = '"';
+    while(*value != '\0')
+    {
+        if(*value == '\\')
+        {
+            backslash_count++;
+            value++;
+            continue;
+        }
+
+        if(*value == '"')
+        {
+            size_t i = 0;
+            for(i = 0; i < backslash_count * 2 + 1; i++)
+                *dst++ = '\\';
+            *dst++ = '"';
+            backslash_count = 0;
+            value++;
+            continue;
+        }
+
+        while(backslash_count > 0)
+        {
+            *dst++ = '\\';
+            backslash_count--;
+        }
+        *dst++ = *value++;
+    }
+
+    while(backslash_count > 0)
+    {
+        *dst++ = '\\';
+        *dst++ = '\\';
+        backslash_count--;
+    }
+    *dst++ = '"';
+    return dst;
+}
+
+static char *mote_process_build_command_line(const char *exe, const char *const *argv, long long arg_count)
+{
+    size_t total_length = 0;
+    long long index = 0;
+    char *buffer = NULL;
+    char *cursor = NULL;
+
+    if(exe == NULL)
+        return NULL;
+
+    total_length += mote_process_quoted_arg_length(exe);
+    for(index = 0; index < arg_count; index++)
+        total_length += 1 + mote_process_quoted_arg_length(argv[index]);
+
+    buffer = (char*) malloc(total_length + 1);
+    if(buffer == NULL)
+        return NULL;
+
+    cursor = mote_process_append_quoted_arg(buffer, exe);
+    for(index = 0; index < arg_count; index++)
+    {
+        *cursor++ = ' ';
+        cursor = mote_process_append_quoted_arg(cursor, argv[index]);
+    }
+    *cursor = '\0';
+    return buffer;
+}
+#endif
+
+long long mote_process_run(const char *exe, const char *const *argv, long long arg_count)
+{
+    return mote_process_run_in(exe, argv, arg_count, NULL);
+}
+
+long long mote_process_run_in(const char *exe, const char *const *argv, long long arg_count, const char *cwd)
+{
+    if(exe == NULL || arg_count < 0)
+        return -1;
+
+#if defined(_WIN32)
+    STARTUPINFOA startup_info;
+    PROCESS_INFORMATION process_info;
+    DWORD exit_code = 0;
+    char *command_line = mote_process_build_command_line(exe, argv, arg_count);
+    BOOL ok;
+
+    if(command_line == NULL)
+        return -1;
+
+    memset(&startup_info, 0, sizeof(startup_info));
+    memset(&process_info, 0, sizeof(process_info));
+    startup_info.cb = sizeof(startup_info);
+
+    ok = CreateProcessA(NULL,
+                        command_line,
+                        NULL,
+                        NULL,
+                        TRUE,
+                        0,
+                        NULL,
+                        (cwd != NULL && cwd[0] != '\0') ? cwd : NULL,
+                        &startup_info,
+                        &process_info);
+    free(command_line);
+    if(!ok)
+        return -1;
+
+    WaitForSingleObject(process_info.hProcess, INFINITE);
+    if(!GetExitCodeProcess(process_info.hProcess, &exit_code))
+    {
+        CloseHandle(process_info.hThread);
+        CloseHandle(process_info.hProcess);
+        return -1;
+    }
+
+    CloseHandle(process_info.hThread);
+    CloseHandle(process_info.hProcess);
+    return (long long) exit_code;
+#else
+    char **child_argv = NULL;
+    pid_t pid;
+    int status = 0;
+    long long index = 0;
+
+    child_argv = (char**) malloc(sizeof(char*) * (size_t) (arg_count + 2));
+    if(child_argv == NULL)
+        return -1;
+
+    child_argv[0] = (char*) exe;
+    for(index = 0; index < arg_count; index++)
+        child_argv[index + 1] = (char*) argv[index];
+    child_argv[arg_count + 1] = NULL;
+
+    pid = fork();
+    if(pid < 0)
+    {
+        free(child_argv);
+        return -1;
+    }
+
+    if(pid == 0)
+    {
+        if(cwd != NULL && cwd[0] != '\0' && chdir(cwd) != 0)
+            _exit(127);
+        execvp(exe, child_argv);
+        _exit(127);
+    }
+
+    free(child_argv);
+    for(;;)
+    {
+        pid_t waited = waitpid(pid, &status, 0);
+        if(waited == pid)
+            break;
+        if(waited < 0 && errno != EINTR)
+            return -1;
+    }
+
+    if(WIFEXITED(status))
+        return (long long) WEXITSTATUS(status);
+    if(WIFSIGNALED(status))
+        return (long long) (128 + WTERMSIG(status));
+    return -1;
+#endif
 }
 
 float mote_sinf(float x)

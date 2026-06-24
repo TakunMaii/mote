@@ -49,6 +49,13 @@ pub RunOptions :: struct {
     always_run: bool,
 };
 
+pub ExeRunOptions :: struct {
+    exe: string,
+    args: []string,
+    cwd: string,
+    always_run: bool,
+};
+
 ActionEntry :: struct {
     name: string,
     entry: ActionFn,
@@ -66,6 +73,9 @@ RunStepData :: struct {
     command: string,
     cwd: string,
     always_run: bool,
+    exe: string,
+    args: list.List(string),
+    use_argv: bool,
 };
 
 StepNode :: struct {
@@ -162,6 +172,9 @@ new_step_node :: fn(builder: &Builder, kind: StepKind) StepNode {
             .command = "",
             .cwd = "",
             .always_run = false,
+            .exe = "",
+            .args = list.init(string),
+            .use_argv = false,
         },
         .executed = false,
         .success = false,
@@ -202,6 +215,22 @@ pub add_run :: fn(builder: &Builder, options: RunOptions) Step {
         .command = options.command,
         .cwd = options.cwd,
         .always_run = options.always_run,
+        .exe = "",
+        .args = list.init(string),
+        .use_argv = false,
+    };
+    return append_step(builder, node);
+};
+
+pub add_run_exe :: fn(builder: &Builder, options: ExeRunOptions) Step {
+    node: StepNode = new_step_node(builder, StepKind.run);
+    node.run = RunStepData {
+        .command = "",
+        .cwd = options.cwd,
+        .always_run = options.always_run,
+        .exe = options.exe,
+        .args = clone_string_list(options.args),
+        .use_argv = true,
     };
     return append_step(builder, node);
 };
@@ -262,6 +291,29 @@ pub run_in :: fn(builder: &Builder, command: string, cwd: string) Step {
     });
 };
 
+pub run_exe :: fn(builder: &Builder, exe: string, args: []string) Step {
+    return run_exe_in(builder, exe, args, "");
+};
+
+pub run_exe_in :: fn(builder: &Builder, exe: string, args: []string, cwd: string) Step {
+    return add_run_exe(builder, ExeRunOptions {
+        .exe = exe,
+        .args = args,
+        .cwd = cwd,
+        .always_run = true,
+    });
+};
+
+clone_string_list :: fn(values: []string) list.List(string) {
+    copied: list.List(string) = list.init_cap(string, @len(values));
+    index: types.size_t = 0;
+    while(index < @len(values)) {
+        copied.append(values[index]);
+        index = index + 1;
+    }
+    return copied;
+};
+
 pub phony :: fn(builder: &Builder, name: string) Step {
     node: StepNode = new_step_node(builder, StepKind.phony);
     node.description = name;
@@ -319,10 +371,14 @@ compile_step :: fn(node: *StepNode) i32 {
 };
 
 run_step :: fn(node: *StepNode) i32 {
+    if(node.run.use_argv) {
+        result: process.RunResult = process.run_exe_in(node.run.exe, node.run.args.as_slice(), node.run.cwd);
+        return @as(i32, result.exit_code);
+    }
     if(str.is_empty(node.run.cwd)) {
         return @as(i32, process.run_shell(node.run.command));
     }
-    return @as(i32, process.run_shell(node.run.command));
+    return @as(i32, process.run_shell_in(node.run.command, node.run.cwd));
 };
 
 execute_step_at :: fn(builder: &Builder, index: types.size_t) i32 {

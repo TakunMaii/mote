@@ -5,6 +5,8 @@ mote
 *.obj
 *.exe
 *.ll
+*.mir.txt
+*.dbg.log
 *.o
 mote_out.txt
 mote_err.txt
@@ -17,6 +19,7 @@ test/game/notgate/*.obj
 mote_test
 TODO.local.std.md
 tmp_repro_*/
+process_run_exe*
 libmote_core.a
 mote_core.dll
 mote_core.lib

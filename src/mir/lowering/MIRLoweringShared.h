@@ -671,6 +671,10 @@ static MirRuntimeBinding* findMirRuntimeBinding(MirLowerScope *scope, const char
 
 static MirRuntimeBinding* declareMirRuntimeBinding(MirLowerScope *scope, const char *identifier)
 {
+    if(scope->binding_count >= 1024)
+        mirLoweringAbortInternal("ICE0307",
+                                 "runtime binding capacity exceeded during MIR lowering",
+                                 astUserFacingIdentifier(identifier));
     MirRuntimeBinding *binding = &(scope->bindings[scope->binding_count++]);
     memset(binding, 0, sizeof(MirRuntimeBinding));
     strcpy(binding->identifier, identifier);

@@ -75,6 +75,9 @@ pub directory_list_names :: c.directory_list_names;
 pub arg_count :: c.arg_count;
 pub arg_at :: c.arg_at;
 pub system_run :: c.system_run;
+pub system_run_in :: c.system_run_in;
+pub process_run :: c.process_run;
+pub process_run_in :: c.process_run_in;
 
 pub sinf :: c.sinf;
 pub sin :: c.sin;

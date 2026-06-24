@@ -5,9 +5,10 @@
 
 static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNode *node)
 {
+    const char *binding_name = semanticAssignIdentifier(node);
+
     if(isStructDeclAssign(node))
     {
-        const char *binding_name = semanticAssignIdentifier(node);
         TypeInfo *existing_type_info = findTypeInfoInScope(&(scope->type_scope), binding_name) >= 0
             ? &(scope->type_scope.type_infos[findTypeInfoInScope(&(scope->type_scope), binding_name)])
             : NULL;
@@ -21,7 +22,6 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
 
     if(isEnumDeclAssign(node))
     {
-        const char *binding_name = semanticAssignIdentifier(node);
         TypeInfo *existing_type_info = findTypeInfoInScope(&(scope->type_scope), binding_name) >= 0
             ? &(scope->type_scope.type_infos[findTypeInfoInScope(&(scope->type_scope), binding_name)])
             : NULL;
@@ -35,9 +35,9 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
 
     if(node->lhs->kind == AST_EXPR_VARIABLE)
     {
-        MirRuntimeBinding *local_binding = findMirRuntimeBindingInScope(scope, node->identifier);
-        MirRuntimeBinding *existing_binding = findMirRuntimeBinding(scope, node->identifier);
-        VariableInfo *existing_variable_info = findVariableInfo(&(scope->type_scope), node->identifier);
+        MirRuntimeBinding *local_binding = findMirRuntimeBindingInScope(scope, binding_name);
+        MirRuntimeBinding *existing_binding = findMirRuntimeBinding(scope, binding_name);
+        VariableInfo *existing_variable_info = findVariableInfo(&(scope->type_scope), binding_name);
         bool explicit_decl = isExplicitDeclared(node);
         bool is_new_variable = explicit_decl ||
                                existing_binding == NULL ||
@@ -60,9 +60,9 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
                 expr_type = inferExprType(node->rhs, &(scope->type_scope));
             mirDeclareVariableInfo(scope, node, declared_type, expr_type);
 
-            MirRuntimeBinding *binding = existing_binding;
+            MirRuntimeBinding *binding = local_binding;
             if(binding == NULL)
-                binding = declareMirRuntimeBinding(scope, node->identifier);
+                binding = declareMirRuntimeBinding(scope, binding_name);
             binding->is_compile_time_constant = node->modifier.is_compile_time_binding;
             binding->declared_data_type = cloneDataType(declared_type);
             binding->function_value = resolved_function_value;
@@ -91,8 +91,8 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
             if(scope->declare_as_globals)
             {
                 binding->kind = MIR_RUNTIME_BINDING_GLOBAL_SLOT;
-                strcpy(binding->global_name, node->identifier);
-                mirEnsureGlobal(state->lowering, node->identifier, declared_type, false);
+                strcpy(binding->global_name, binding_name);
+                mirEnsureGlobal(state->lowering, binding_name, declared_type, false);
 
                 if(state->is_top_level_init &&
                    node->rhs->kind == AST_EXPR_BUILTIN &&
@@ -115,7 +115,7 @@ static void lowerAssignNode(MirFunctionState *state, MirLowerScope *scope, ASTNo
             {
                 binding->local_value = mirEmitAlloca(state, declared_type,
                                                      node->filename, node->line_number, node->column_number);
-                mirRecordDebugLocal(mirCurrentFunction(state), node->identifier, node->filename,
+                mirRecordDebugLocal(mirCurrentFunction(state), binding_name, node->filename,
                                     node->line_number, node->column_number, declared_type, binding->local_value,
                                     state->current_debug_scope_id);
                 mirEmitStore(state, binding->local_value, value, node->filename, node->line_number, node->column_number);
