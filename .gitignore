@@ -17,3 +17,5 @@ test/game/notgate/*.obj
 mote_test
 TODO.local.std.md
 tmp_repro_*/
+libmote_core.a
+mote_core.dll

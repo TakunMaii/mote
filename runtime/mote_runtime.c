@@ -42,6 +42,9 @@ typedef struct MoteThreadHandle {
     int exit_code;
 } MoteThreadHandle;
 
+static int g_mote_argc = 0;
+static char **g_mote_argv = NULL;
+
 static void mote_oom_panic(void);
 
 #if defined(_WIN32)
@@ -84,6 +87,31 @@ void *mote_stderr_handle(void)
 void *mote_stdout_handle(void)
 {
     return stdout;
+}
+
+void mote_runtime_set_args(int argc, char **argv)
+{
+    g_mote_argc = argc;
+    g_mote_argv = argv;
+}
+
+long long mote_arg_count(void)
+{
+    return (long long) g_mote_argc;
+}
+
+const char *mote_arg_at(long long index)
+{
+    if(index < 0 || index >= g_mote_argc || g_mote_argv == NULL)
+        return NULL;
+    return g_mote_argv[index];
+}
+
+long long mote_system_run(const char *command)
+{
+    if(command == NULL)
+        return -1;
+    return (long long) system(command);
 }
 
 float mote_sinf(float x)

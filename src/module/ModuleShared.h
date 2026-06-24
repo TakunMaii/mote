@@ -15,6 +15,7 @@
 #include "../Diagnostic.h"
 #include "../Lexer.h"
 #include "../Parser.h"
+#include "../TypeSystem.h"
 
 #define MODULE_MAX_PATH_LENGTH 1024
 #define MODULE_MAX_PACKAGES 128

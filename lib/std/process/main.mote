@@ -1,0 +1,27 @@
+@package("process");
+
+c :: @import("std:internal/c");
+cstr :: @import("std:internal/cstr");
+str :: @import("std:str");
+
+pub arg_count :: fn() i64 {
+    return c.arg_count();
+};
+
+pub arg :: fn(index: i64) ?string {
+    ptr: *char = c.arg_at(index);
+    if(ptr == 0) {
+        return null;
+    }
+    return str.from_c_string(ptr);
+};
+
+pub run_shell :: fn(command: string) i64 {
+    z_command: *char = cstr.dup_z(command);
+    if(z_command == 0) {
+        return -1;
+    }
+    exit_code: i64 = c.system_run(z_command);
+    cstr.free(z_command);
+    return exit_code;
+};

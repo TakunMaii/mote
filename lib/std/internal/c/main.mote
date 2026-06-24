@@ -72,6 +72,9 @@ pub directory_remove :: c.directory_remove;
 pub directory_exists :: c.directory_exists;
 pub directory_entry_count :: c.directory_entry_count;
 pub directory_list_names :: c.directory_list_names;
+pub arg_count :: c.arg_count;
+pub arg_at :: c.arg_at;
+pub system_run :: c.system_run;
 
 pub sinf :: c.sinf;
 pub sin :: c.sin;

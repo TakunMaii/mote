@@ -54,6 +54,9 @@ pub directory_remove :: @extern("mote_directory_remove", Function([*char], i64))
 pub directory_exists :: @extern("mote_directory_exists", Function([*char], i64));
 pub directory_entry_count :: @extern("mote_directory_entry_count", Function([*char], i64));
 pub directory_list_names :: @extern("mote_directory_list_names", Function([*char, *char, i64], i64));
+pub arg_count :: @extern("mote_arg_count", Function([], i64));
+pub arg_at :: @extern("mote_arg_at", Function([i64], *char));
+pub system_run :: @extern("mote_system_run", Function([*char], i64));
 
 pub sinf :: @extern("mote_sinf", Function([f32], f32));
 pub sin :: @extern("mote_sin", Function([f64], f64));

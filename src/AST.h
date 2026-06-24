@@ -257,6 +257,7 @@ struct ASTNode {
     // function literal
     ASTFunctionParameter *parameters;
     bool is_variadic;
+    bool has_explicit_return_type;
     ASTFunctionCapture *captures;
     ASTDataType *return_data_type;
     ASTNode *body;

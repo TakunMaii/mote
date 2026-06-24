@@ -2,6 +2,7 @@
 #define DIAGNOSTIC_H
 
 #include <ctype.h>
+#include <setjmp.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -50,7 +51,14 @@ typedef struct SourceFileCacheEntry {
     struct SourceFileCacheEntry *next;
 } SourceFileCacheEntry;
 
+typedef struct DiagnosticTrap {
+    jmp_buf jump_buffer;
+    Diagnostic diagnostic;
+    bool has_diagnostic;
+} DiagnosticTrap;
+
 static SourceFileCacheEntry *g_source_file_cache_head = NULL;
+static DiagnosticTrap *g_diagnostic_trap = NULL;
 static void diagnosticAbortInternal(const char *context, const char *detail);
 
 static SourceSpan makeSourceSpan(const char *filename, int start_line, int start_column, int end_line, int end_column)
@@ -326,6 +334,19 @@ static void diagnosticEmit(const Diagnostic *diagnostic)
         printf("note: %s\n", diagnostic->notes[i]);
 }
 
+static void diagnosticTrapPush(DiagnosticTrap *trap)
+{
+    g_diagnostic_trap = trap;
+    if(trap != NULL)
+        trap->has_diagnostic = false;
+}
+
+static void diagnosticTrapPop(DiagnosticTrap *trap)
+{
+    if(g_diagnostic_trap == trap)
+        g_diagnostic_trap = NULL;
+}
+
 #if defined(__GNUC__) || defined(__clang__)
 #define MOTE_NORETURN __attribute__((noreturn))
 #else
@@ -334,6 +355,13 @@ static void diagnosticEmit(const Diagnostic *diagnostic)
 
 static MOTE_NORETURN void diagnosticAbort(Diagnostic diagnostic)
 {
+    if(g_diagnostic_trap != NULL)
+    {
+        g_diagnostic_trap->diagnostic = diagnostic;
+        g_diagnostic_trap->has_diagnostic = true;
+        longjmp(g_diagnostic_trap->jump_buffer, 1);
+    }
+
     diagnosticEmit(&diagnostic);
     exit(1);
 }

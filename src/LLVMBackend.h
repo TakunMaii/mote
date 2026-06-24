@@ -2694,8 +2694,11 @@ static bool llvmProgramHasGlobal(const MirProgram *program, const char *name)
 
 static void llvmEmitEntryPoint(FILE *stream, MirProgram *program, ASTNode *root)
 {
-    fprintf(stream, "define i32 @main() {\n");
+    fprintf(stream, "declare void @mote_runtime_set_args(i32, ptr)\n\n");
+
+    fprintf(stream, "define i32 @main(i32 %%argc, ptr %%argv) {\n");
     fprintf(stream, "entry:\n");
+    fprintf(stream, "    call void @mote_runtime_set_args(i32 %%argc, ptr %%argv)\n");
     fprintf(stream, "    call void @__mote_init(ptr null)\n");
     if(root != NULL && root->entry_symbol[0] != '\0' && llvmProgramHasGlobal(program, root->entry_symbol))
     {
