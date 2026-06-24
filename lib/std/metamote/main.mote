@@ -1,0 +1,412 @@
+@package("metamote");
+
+c :: @import("std:internal/c");
+cstr :: @import("std:internal/cstr");
+fmt :: @import("std:fmt");
+list :: @import("std:list");
+mem :: @import("std:mem");
+process :: @import("std:process");
+str :: @import("std:str");
+types :: @import("std:types");
+
+pub StepId :: i64;
+pub ActionFn :: Function([], i32);
+
+pub StepKind :: enum {
+    compile,
+    run,
+    write_file,
+    phony,
+};
+
+pub BuildMode :: enum {
+    exe,
+    llvm,
+};
+
+pub OptimizeMode :: enum {
+    debug,
+    release,
+};
+
+pub CacheMode :: enum {
+    default,
+    always,
+    never,
+};
+
+pub CompileOptions :: struct {
+    input_pkg: string,
+    output_path: string,
+    mode: BuildMode,
+    optimize: OptimizeMode,
+    emit_debug_info: bool,
+};
+
+pub RunOptions :: struct {
+    command: string,
+    cwd: string,
+    always_run: bool,
+};
+
+ActionEntry :: struct {
+    name: string,
+    entry: ActionFn,
+};
+
+CompileStepData :: struct {
+    input_pkg: string,
+    output_path: string,
+    mode: BuildMode,
+    optimize: OptimizeMode,
+    emit_debug_info: bool,
+};
+
+RunStepData :: struct {
+    command: string,
+    cwd: string,
+    always_run: bool,
+};
+
+StepNode :: struct {
+    id: StepId,
+    kind: StepKind,
+    description: string,
+    cache_mode: CacheMode,
+    deps: list.List(StepId),
+    compile: CompileStepData,
+    run: RunStepData,
+    executed: bool,
+    success: bool,
+};
+
+pub Step :: struct {
+    id: StepId,
+};
+
+pub Builder :: struct {
+    name: string,
+    actions: list.List(ActionEntry),
+    steps: list.List(StepNode),
+    default_action_name: string,
+};
+
+mote_core_compile_simple :: @extern("mote_core_compile_simple", Function([*char, *char, bool, bool, bool], i32));
+
+pub init :: fn(name: string) Builder {
+    return Builder {
+        .name = name,
+        .actions = list.init(ActionEntry),
+        .steps = list.init(StepNode),
+        .default_action_name = "",
+    };
+};
+
+pub default_action :: fn(builder: &Builder, name: string) void {
+    builder.default_action_name = name;
+};
+
+pub action :: fn(builder: &Builder, name: string, entry: ActionFn) void {
+    builder.actions.append(ActionEntry {
+        .name = name,
+        .entry = entry,
+    });
+};
+
+find_action_index :: fn(builder: &Builder, name: string) ?types.size_t {
+    i: types.size_t = 0;
+    while(i < builder.actions.len) {
+        item: ActionEntry = builder.actions.data[i];
+        if(str.equal(item.name, name)) {
+            return i;
+        }
+        i = i + 1;
+    }
+    return null;
+};
+
+pub selected_action :: fn() ?string {
+    if(process.arg_count() < 2) {
+        return null;
+    }
+    return process.arg(1);
+};
+
+pub list_actions :: fn(builder: &Builder) void {
+    i: types.size_t = 0;
+    while(i < builder.actions.len) {
+        fmt.println(builder.actions.data[i].name);
+        i = i + 1;
+    }
+};
+
+next_step_id :: fn(builder: &Builder) StepId {
+    return @as(StepId, builder.steps.len) + 1;
+};
+
+new_step_node :: fn(builder: &Builder, kind: StepKind) StepNode {
+    return StepNode {
+        .id = next_step_id(builder),
+        .kind = kind,
+        .description = "",
+        .cache_mode = CacheMode.default,
+        .deps = list.init(StepId),
+        .compile = CompileStepData {
+            .input_pkg = "",
+            .output_path = "",
+            .mode = BuildMode.exe,
+            .optimize = OptimizeMode.debug,
+            .emit_debug_info = false,
+        },
+        .run = RunStepData {
+            .command = "",
+            .cwd = "",
+            .always_run = false,
+        },
+        .executed = false,
+        .success = false,
+    };
+};
+
+append_step :: fn(builder: &Builder, node: StepNode) Step {
+    builder.steps.append(node);
+    return Step { .id = node.id };
+};
+
+find_step_ptr :: fn(builder: &Builder, step: Step) ?*StepNode {
+    i: types.size_t = 0;
+    while(i < builder.steps.len) {
+        if(builder.steps.data[i].id == step.id) {
+            return &builder.steps.data[i];
+        }
+        i = i + 1;
+    }
+    return null;
+};
+
+pub add_compile :: fn(builder: &Builder, options: CompileOptions) Step {
+    node: StepNode = new_step_node(builder, StepKind.compile);
+    node.compile = CompileStepData {
+        .input_pkg = options.input_pkg,
+        .output_path = options.output_path,
+        .mode = options.mode,
+        .optimize = options.optimize,
+        .emit_debug_info = options.emit_debug_info,
+    };
+    return append_step(builder, node);
+};
+
+pub add_run :: fn(builder: &Builder, options: RunOptions) Step {
+    node: StepNode = new_step_node(builder, StepKind.run);
+    node.run = RunStepData {
+        .command = options.command,
+        .cwd = options.cwd,
+        .always_run = options.always_run,
+    };
+    return append_step(builder, node);
+};
+
+pub build :: fn(builder: &Builder, input_pkg: string, output_path: string) Step {
+    return add_compile(builder, CompileOptions {
+        .input_pkg = input_pkg,
+        .output_path = output_path,
+        .mode = BuildMode.exe,
+        .optimize = OptimizeMode.debug,
+        .emit_debug_info = false,
+    });
+};
+
+pub build_debug :: fn(builder: &Builder, input_pkg: string, output_path: string) Step {
+    return add_compile(builder, CompileOptions {
+        .input_pkg = input_pkg,
+        .output_path = output_path,
+        .mode = BuildMode.exe,
+        .optimize = OptimizeMode.debug,
+        .emit_debug_info = true,
+    });
+};
+
+pub build_release :: fn(builder: &Builder, input_pkg: string, output_path: string) Step {
+    return add_compile(builder, CompileOptions {
+        .input_pkg = input_pkg,
+        .output_path = output_path,
+        .mode = BuildMode.exe,
+        .optimize = OptimizeMode.release,
+        .emit_debug_info = false,
+    });
+};
+
+pub emit_llvm :: fn(builder: &Builder, input_pkg: string, output_path: string) Step {
+    return add_compile(builder, CompileOptions {
+        .input_pkg = input_pkg,
+        .output_path = output_path,
+        .mode = BuildMode.llvm,
+        .optimize = OptimizeMode.debug,
+        .emit_debug_info = true,
+    });
+};
+
+pub run :: fn(builder: &Builder, command: string) Step {
+    return add_run(builder, RunOptions {
+        .command = command,
+        .cwd = "",
+        .always_run = true,
+    });
+};
+
+pub run_in :: fn(builder: &Builder, command: string, cwd: string) Step {
+    return add_run(builder, RunOptions {
+        .command = command,
+        .cwd = cwd,
+        .always_run = true,
+    });
+};
+
+pub phony :: fn(builder: &Builder, name: string) Step {
+    node: StepNode = new_step_node(builder, StepKind.phony);
+    node.description = name;
+    return append_step(builder, node);
+};
+
+pub depends_on :: fn(builder: &Builder, step: Step, dep: Step) void {
+    maybe_node: ?*StepNode = find_step_ptr(builder, step);
+    if(maybe_node == null) {
+        return;
+    }
+    node: *StepNode = @unwrap(maybe_node);
+    node.deps.append(dep.id);
+};
+
+pub cache_mode :: fn(builder: &Builder, step: Step, mode: CacheMode) void {
+    maybe_node: ?*StepNode = find_step_ptr(builder, step);
+    if(maybe_node == null) {
+        return;
+    }
+    node: *StepNode = @unwrap(maybe_node);
+    node.cache_mode = mode;
+};
+
+pub describe :: fn(builder: &Builder, step: Step, label: string) void {
+    maybe_node: ?*StepNode = find_step_ptr(builder, step);
+    if(maybe_node == null) {
+        return;
+    }
+    node: *StepNode = @unwrap(maybe_node);
+    node.description = label;
+};
+
+compile_step :: fn(node: *StepNode) i32 {
+    input_c: *char = cstr.dup_z(node.compile.input_pkg);
+    if(input_c == 0) {
+        return 1;
+    }
+    output_c: *char = cstr.dup_z(node.compile.output_path);
+    if(output_c == 0) {
+        cstr.free(input_c);
+        return 1;
+    }
+
+    emit_exe: bool = node.compile.mode == BuildMode.exe;
+    emit_llvm_only: bool = node.compile.mode == BuildMode.llvm;
+    exit_code: i32 = mote_core_compile_simple(input_c,
+                                              output_c,
+                                              emit_exe,
+                                              emit_llvm_only,
+                                              node.compile.emit_debug_info);
+    cstr.free(output_c);
+    cstr.free(input_c);
+    return exit_code;
+};
+
+run_step :: fn(node: *StepNode) i32 {
+    if(str.is_empty(node.run.cwd)) {
+        return @as(i32, process.run_shell(node.run.command));
+    }
+    return @as(i32, process.run_shell(node.run.command));
+};
+
+execute_step_at :: fn(builder: &Builder, index: types.size_t) i32 {
+    if(index >= builder.steps.len) {
+        return 1;
+    }
+
+    node: *StepNode = &builder.steps.data[index];
+    if(node.executed) {
+        if(node.success) {
+            return 0;
+        }
+        return 1;
+    }
+
+    dep_index: types.size_t = 0;
+    while(dep_index < node.deps.len) {
+        dep_id: StepId = node.deps.data[dep_index];
+        found: bool = false;
+        scan: types.size_t = 0;
+        while(scan < builder.steps.len) {
+            if(builder.steps.data[scan].id == dep_id) {
+                found = true;
+                if(execute_step_at(builder, scan) != 0) {
+                    node.executed = true;
+                    node.success = false;
+                    return 1;
+                }
+                break;
+            }
+            scan = scan + 1;
+        }
+        if(!found) {
+            node.executed = true;
+            node.success = false;
+            return 1;
+        }
+        dep_index = dep_index + 1;
+    }
+
+    exit_code: i32 = 0;
+    if(node.kind == StepKind.compile) {
+        exit_code = compile_step(node);
+    } else if(node.kind == StepKind.run) {
+        exit_code = run_step(node);
+    }
+
+    node.executed = true;
+    node.success = exit_code == 0;
+    return exit_code;
+};
+
+pub execute :: fn(builder: &Builder) i32 {
+    i: types.size_t = 0;
+    while(i < builder.steps.len) {
+        if(execute_step_at(builder, i) != 0) {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+};
+
+pub dispatch :: fn(builder: &Builder) i32 {
+    requested: ?string = selected_action();
+    if(requested != null && str.equal(@unwrap(requested), "--list-actions")) {
+        list_actions(builder);
+        return 0;
+    }
+
+    action_name: string = "build";
+    if(!str.is_empty(builder.default_action_name)) {
+        action_name = builder.default_action_name;
+    }
+    if(requested != null) {
+        action_name = @unwrap(requested);
+    }
+
+    action_index: ?types.size_t = find_action_index(builder, action_name);
+    if(action_index == null) {
+        fmt.fprintln(c.stderr_handle(), "unknown metamote action");
+        return 1;
+    }
+
+    entry: ActionEntry = builder.actions.data[@unwrap(action_index)];
+    return entry.entry();
+};

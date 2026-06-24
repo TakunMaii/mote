@@ -66,4 +66,6 @@ MOTE_CORE_EXPORT int mote_core_compile_simple(const char *input_path,
                                               bool emit_llvm,
                                               bool emit_debug_info);
 
+MOTE_CORE_EXPORT void mote_core_set_host_argv0(const char *argv0);
+
 #endif /* MOTE_CORE_H */

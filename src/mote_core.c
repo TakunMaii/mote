@@ -12,6 +12,8 @@
 #include "CliDriver.h"
 #include "MoteCore.h"
 
+static char g_mote_core_host_argv0[CLI_PATH_BUFFER_SIZE] = {0};
+
 static void mote_core_append_shell_escaped(char *command, size_t command_size, const char *arg)
 {
     size_t used = strlen(command);
@@ -256,6 +258,7 @@ int moteCliMain(int argn, char **argv)
 {
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
+    mote_core_set_host_argv0(argn > 0 ? argv[0] : NULL);
 
     CliOptions options = {0};
     MotePackage *packages = (MotePackage*) calloc(MOTE_MAX_PACKAGES, sizeof(MotePackage));
@@ -313,6 +316,16 @@ int moteCliMain(int argn, char **argv)
     return 0;
 }
 
+void mote_core_set_host_argv0(const char *argv0)
+{
+    if(argv0 == NULL)
+    {
+        g_mote_core_host_argv0[0] = '\0';
+        return;
+    }
+    snprintf(g_mote_core_host_argv0, sizeof(g_mote_core_host_argv0), "%s", argv0);
+}
+
 int mote_core_compile_simple(const char *input_path,
                              const char *output_path,
                              bool emit_exe,
@@ -340,14 +353,24 @@ int mote_core_compile_simple(const char *input_path,
     memset(linker_args, 0, sizeof(linker_args));
     int linker_arg_count = 0;
 
-    add_default_official_search_roots((ModulePackage*) packages, &package_count, "mote");
-    add_default_official_link_args("mote", (ModulePackage*) packages, package_count, input_path,
+    const char *host_argv0 = g_mote_core_host_argv0[0] != '\0' ? g_mote_core_host_argv0 : "mote";
+
+    add_default_official_search_roots((ModulePackage*) packages, &package_count, host_argv0);
+    add_default_official_link_args(host_argv0, (ModulePackage*) packages, package_count, input_path,
                                    driver_args, &driver_arg_count,
                                    extra_c_sources, &extra_c_source_count);
 
     const char *runtime_path = NULL;
+    char runtime_source_path[CLI_PATH_BUFFER_SIZE] = {0};
     if(emit_exe)
-        runtime_path = "runtime/mote_runtime.c";
+    {
+        if(!resolve_runtime_source_path(runtime_source_path, sizeof(runtime_source_path), host_argv0))
+        {
+            printf("failed to resolve runtime path relative to host compiler\n");
+            return 1;
+        }
+        runtime_path = runtime_source_path;
+    }
 
     MoteCompileResult result = moteCompile(&options,
                                            packages, package_count,

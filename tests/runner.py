@@ -13,6 +13,7 @@ from typing import List, Optional
 ROOT = Path(__file__).resolve().parent.parent
 TESTS_ROOT = ROOT / "tests"
 CASES_ROOT = TESTS_ROOT / "cases"
+EXE_SUFFIX = ".exe" if os.name == "nt" else ""
 
 
 @dataclass
@@ -138,7 +139,7 @@ def run_case(case: TestCase, compiler: Path, clang_available: bool, verbose: boo
         stdin_text = case.meta.get("stdin")
 
         ll_path = workspace_root / f"{case.name}.ll"
-        exe_path = workspace_root / f"{case.name}.exe"
+        exe_path = workspace_root / f"{case.name}{EXE_SUFFIX}"
 
         compile_args = [str(compiler)]
         if mode == "emit_llvm" or mode == "native":

@@ -353,6 +353,20 @@ static void add_vendor_library_file_resolved(const char *argv0,
 
     add_driver_arg(driver_args, driver_arg_count, resolved);
 }
+
+static void add_local_file_resolved(const char *argv0,
+                                    const char **driver_args, int *driver_arg_count,
+                                    const char *relative_path)
+{
+    char *resolved = (char*) malloc(MODULE_MAX_PATH_LENGTH);
+    if(resolved == NULL)
+        cliError("failed to allocate local file path");
+
+    if(!resolve_vendor_path(resolved, MODULE_MAX_PATH_LENGTH, argv0, relative_path))
+        cliError("failed to resolve local file path");
+
+    add_driver_arg(driver_args, driver_arg_count, resolved);
+}
 #endif
 
 static void add_default_official_search_roots(ModulePackage *packages, int *package_count, const char *argv0)
@@ -567,6 +581,7 @@ static void add_default_official_link_args(const char *argv0, ModulePackage *pac
     bool uses_std_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:math\")");
     bool uses_std_linalg = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:linalg\")");
     bool uses_std_thread = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:thread\")");
+    bool uses_std_metamote = module_tree_uses_import(packages, package_count, input_path, "@import(\"std:metamote\")");
     bool uses_c_math = module_tree_uses_import(packages, package_count, input_path, "@import(\"c:math\")");
     char vendor_include_dir[CLI_PATH_BUFFER_SIZE] = {0};
 
@@ -642,6 +657,16 @@ static void add_default_official_link_args(const char *argv0, ModulePackage *pac
     {
 #if !defined(_WIN32)
         add_driver_arg(driver_args, driver_arg_count, "-lpthread");
+#endif
+    }
+    if(uses_std_metamote)
+    {
+#if defined(_WIN32)
+        add_local_file_resolved(argv0, driver_args, driver_arg_count, "mote_core.lib");
+#elif defined(__APPLE__)
+        add_local_file_resolved(argv0, driver_args, driver_arg_count, "libmote_core.dylib");
+#else
+        add_local_file_resolved(argv0, driver_args, driver_arg_count, "libmote_core.so");
 #endif
     }
 

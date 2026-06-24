@@ -1,0 +1,16 @@
+@package("metamote_action_dispatch");
+
+mm :: @import("std:metamote");
+
+main :: fn() i32 {
+    builder: mm.Builder = mm.init("meta-demo");
+    mm.default_action(&builder, "build");
+
+    mm.action(&builder, "build", fn|&builder|() i32 {
+        step: mm.Step = mm.emit_llvm(builder, "tests/cases/entry/main_no_parameters", "build/meta_main.ll");
+        mm.describe(builder, step, "emit test llvm");
+        return mm.execute(builder);
+    });
+
+    return mm.dispatch(&builder);
+};

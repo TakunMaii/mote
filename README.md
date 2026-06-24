@@ -9,10 +9,13 @@ Mote是一个力求在简洁和简单之间找到平衡，减少编程者心智�
 在仓库根目录执行：
 
 ```bash
-gcc src/main.c -o mote
+make build
 ```
 
-就能得到编译器的可执行程序。
+会生成：
+
+- `mote` / `mote.exe`：CLI 编译器前端
+- `libmote_core.so` / `libmote_core.dylib` / `mote_core.dll`：可复用的编译器核心库
 
 ## 编译器用法
 
@@ -51,6 +54,62 @@ mote [options] <dir>
 - `-l<name>`：链接库
 - `-Wl,<args>`：把参数直接转发给 linker
 - `--dump-ast` / `--dump-mir`：显式打印 AST / MIR
+
+## `std:metamote`
+
+仓库现在提供了一个第一版 `std:metamote`，用于用 Mote 自己编写构建脚本。
+
+当前版本特点：
+
+- 用户层以快捷函数为主
+- 内部统一建成 `Builder + Step + depends_on` 的图模型
+- 当前执行器先串行调度，但接口已经为以后做缓存和并行保留了扩展位
+
+最小示例：
+
+```mote
+@package("build");
+
+mm :: @import("std:metamote");
+
+main :: fn() i32 {
+    builder: mm.Builder = mm.init("demo");
+    mm.default_action(&builder, "build");
+
+    mm.action(&builder, "build", fn|&builder|() i32 {
+        app: mm.Step = mm.build_debug(builder, "app", "build/app");
+        mm.describe(builder, app, "build demo app");
+        return mm.execute(builder);
+    });
+
+    mm.action(&builder, "run", fn|&builder|() i32 {
+        app: mm.Step = mm.build_debug(builder, "app", "build/app");
+        run: mm.Step = mm.run(builder, "build/app");
+        mm.depends_on(builder, run, app);
+        return mm.execute(builder);
+    });
+
+    return mm.dispatch(&builder);
+};
+```
+
+当前已实现的第一版 API 主要包括：
+
+- `init`
+- `default_action`
+- `action`
+- `dispatch`
+- `execute`
+- `build`
+- `build_debug`
+- `build_release`
+- `emit_llvm`
+- `run`
+- `run_in`
+- `phony`
+- `depends_on`
+- `describe`
+- `cache_mode`
 
 ## 测试脚本
 

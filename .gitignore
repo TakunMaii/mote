@@ -19,3 +19,6 @@ TODO.local.std.md
 tmp_repro_*/
 libmote_core.a
 mote_core.dll
+mote_core.lib
+libmote_core.so
+libmote_core.dylib
